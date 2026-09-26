@@ -338,6 +338,120 @@ final class AskAssistantTests: XCTestCase {
         }
     }
 
+    func testSearchSkillAnswersFromTheIndexWithOneSession() async throws {
+        let model = ScriptedModel()
+        model.domainResult = "hikes"
+        model.skillResult = AskModelSkillChoice(skillID: "hikeSearch")
+        model.searchResult = AskSearchResult(
+            answer: "You hiked Mount Si and Rattlesnake Ledge.",
+            items: [AskSearchItem(id: "si", title: "Mount Si"), AskSearchItem(id: "rattle", title: "Rattlesnake Ledge")]
+        )
+        let seen = SearchBox()
+        let assistant = try makeSearchAssistant(model: model.client, seen: seen, card: false)
+        let result = await assistant.handle(utterance: "What hikes have I gone on?")
+        XCTAssertEqual(model.searchCalls, 1)
+        XCTAssertTrue(model.fillCounts.isEmpty)
+        XCTAssertEqual(seen.results.first?.items.map(\.id), ["si", "rattle"])
+        XCTAssertTrue(seen.invocations.first?.usedModel ?? false)
+        XCTAssertTrue(model.requests.last?.prompt.contains("What hikes have I gone on?") ?? false)
+        let instructions = model.requests.last?.instructions ?? ""
+        XCTAssertTrue(instructions.contains("Use only what the search returned"))
+        XCTAssertTrue(instructions.contains("completion date"))
+        guard case .reply(let reply) = result.fulfillment else {
+            return XCTFail("Expected a reply")
+        }
+        XCTAssertEqual(reply.spoken, "You hiked Mount Si and Rattlesnake Ledge.")
+        XCTAssertTrue(result.usedModel)
+        let saved = try assistant.transcript().last { $0.role == "assistant" }
+        XCTAssertNil(saved?.searchItemIDs)
+        if case .askAgain = AskConversation().step(after: result) {
+        } else {
+            XCTFail("A search reply offers another question")
+        }
+    }
+
+    func testSearchCardSavesIdentifiersAndRedrawsWithoutTheModel() async throws {
+        let model = ScriptedModel()
+        model.domainResult = "hikes"
+        model.skillResult = AskModelSkillChoice(skillID: "hikeSearch")
+        model.searchResult = AskSearchResult(
+            answer: "Two hikes.",
+            items: [AskSearchItem(id: "si", title: "Mount Si", contentDescription: "Private note")]
+        )
+        let seen = SearchBox()
+        let assistant = try makeSearchAssistant(model: model.client, seen: seen, card: true)
+        let result = await assistant.handle(utterance: "Show my hikes")
+        guard case .intent(let card) = result.fulfillment else {
+            return XCTFail("Expected a card")
+        }
+        XCTAssertEqual(card.spoken, "Two hikes.")
+        let saved = try XCTUnwrap(assistant.transcript().last { $0.role == "assistant" })
+        XCTAssertEqual(saved.searchItemIDs, ["si"])
+        XCTAssertFalse(saved.slotsJSON.contains("Private note"))
+
+        let searchesBefore = model.searchCalls
+        let redrawn = await assistant.intentCard(for: saved.id)
+        XCTAssertNotNil(redrawn)
+        XCTAssertEqual(model.searchCalls, searchesBefore)
+        XCTAssertEqual(seen.restored, [["si"]])
+        XCTAssertEqual(seen.results.last?.items.first?.title, "Restored si")
+        XCTAssertEqual(seen.results.last?.answer, "Two hikes.")
+    }
+
+    func testFailedSearchStillRendersWithAnEmptyResult() async throws {
+        let model = ScriptedModel()
+        model.searchError = true
+        let seen = SearchBox()
+        let assistant = try makeSearchAssistant(model: model.client, seen: seen, card: false)
+        let result = await assistant.handle(
+            chip: AskChip(id: "hikes", skillID: "hikeSearch", title: "My hikes")
+        )
+        XCTAssertEqual(model.searchCalls, 1)
+        XCTAssertEqual(seen.results.first, AskSearchResult(answer: ""))
+        XCTAssertFalse(result.usedModel)
+        guard case .reply(let reply) = result.fulfillment else {
+            return XCTFail("Expected a reply")
+        }
+        XCTAssertEqual(reply.spoken, "I couldn't search right now.")
+    }
+
+    private func makeSearchAssistant(model: AskModelClient, seen: SearchBox, card: Bool) throws -> AskAssistant {
+        try AskAssistant(
+            AskConfiguration(
+                assistantName: "Ask Trails",
+                domains: [AskDomain(id: "hikes", summary: "Hikes", routingNotes: "Past hikes.")],
+                skills: [
+                    AskSkill(
+                        id: "hikeSearch",
+                        domainID: "hikes",
+                        title: "Hikes",
+                        summary: "Find hikes the person logged",
+                        routingNotes: "Hikes, trails, and walks they went on.",
+                        fulfillment: .search(AskSearchSkill(
+                            instructions: "Hikes have a title, altitude, and completion date.",
+                            restore: { ids in
+                                seen.restored.append(ids)
+                                return ids.map { AskSearchItem(id: $0, title: "Restored \($0)") }
+                            },
+                            render: { invocation, result in
+                                seen.invocations.append(invocation)
+                                seen.results.append(result)
+                                let spoken = result.answer.isEmpty ? "I couldn't search right now." : result.answer
+                                if card {
+                                    return .intent(AskIntentCard(spoken: spoken, view: Text("\(result.items.count) hikes")))
+                                }
+                                return .reply(AskReply(text: spoken, spoken: spoken))
+                            }
+                        ))
+                    )
+                ],
+                context: { AskContext(promptBlock: "units=miles") },
+                chips: { _ in [] }
+            ),
+            model: model
+        )
+    }
+
     private func askOnce(storeURL: URL, utterance: String) async throws {
         let model = ScriptedModel()
         let assistant = try makeAssistant(model: model.client, persistence: .swiftData(storeURL: storeURL))
@@ -435,6 +549,9 @@ final class ScriptedModel: @unchecked Sendable {
     var domainResult = "recipes"
     var skillResult = AskModelSkillChoice(skillID: "dinner")
     var fillResult: [String: String] = [:]
+    var searchResult = AskSearchResult(answer: "")
+    var searchError = false
+    var searchCalls = 0
     var domainCalls = 0
     var skillCalls = 0
     var fillCounts: [Int] = []
@@ -457,9 +574,27 @@ final class ScriptedModel: @unchecked Sendable {
                 self.fillCounts.append(tools.count)
                 self.requests.append(request)
                 return self.fillResult
+            },
+            search: { [self] request, _ in
+                self.searchCalls += 1
+                self.requests.append(request)
+                if self.searchError {
+                    throw ScriptedError.unavailable
+                }
+                return self.searchResult
             }
         )
     }
+}
+
+enum ScriptedError: Error {
+    case unavailable
+}
+
+final class SearchBox {
+    var invocations: [AskInvocation] = []
+    var results: [AskSearchResult] = []
+    var restored: [[String]] = []
 }
 
 final class Counter {

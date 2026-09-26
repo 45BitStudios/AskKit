@@ -1,3 +1,4 @@
+import CoreSpotlight
 import Foundation
 import FoundationModels
 import SwiftUI
@@ -58,6 +59,8 @@ public enum AskFulfillment {
     case reply(@MainActor (AskInvocation) async -> AskReply)
     /// Ask shows the card from an existing intent's loader.
     case intent(@MainActor (AskInvocation) async -> AskIntentCard)
+    /// Ask searches the app's Core Spotlight index, then the skill draws what was found.
+    case search(AskSearchSkill)
 }
 
 public struct AskSkill: Identifiable {
@@ -190,21 +193,29 @@ public struct AskModelSkillChoice: Sendable, Equatable {
     }
 }
 
-/// Routing and slot filling. The default talks to the on-device model.
+/// Routing, slot filling, and search. The default talks to the on-device model.
 /// Tests pass a scripted client so they never open a session.
 public struct AskModelClient: Sendable {
     public var routeDomain: @Sendable (AskModelRequest) async throws -> String
     public var routeSkill: @Sendable (AskModelRequest) async throws -> AskModelSkillChoice
     public var fillSlots: @Sendable (AskModelRequest, [any Tool]) async throws -> [String: String]
+    /// One new session that carries only the search tool.
+    public var search: @Sendable (AskModelRequest, SpotlightSearchTool) async throws -> AskSearchResult
 
     public init(
         routeDomain: @escaping @Sendable (AskModelRequest) async throws -> String,
         routeSkill: @escaping @Sendable (AskModelRequest) async throws -> AskModelSkillChoice,
-        fillSlots: @escaping @Sendable (AskModelRequest, [any Tool]) async throws -> [String: String]
+        fillSlots: @escaping @Sendable (AskModelRequest, [any Tool]) async throws -> [String: String],
+        search: @escaping @Sendable (AskModelRequest, SpotlightSearchTool) async throws -> AskSearchResult = AskModelClient.spotlightSearch
     ) {
         self.routeDomain = routeDomain
         self.routeSkill = routeSkill
         self.fillSlots = fillSlots
+        self.search = search
+    }
+
+    public static let spotlightSearch: @Sendable (AskModelRequest, SpotlightSearchTool) async throws -> AskSearchResult = { request, tool in
+        try await AskFoundationSessions.search(request, tool: tool)
     }
 
     public static var foundation: AskModelClient {

@@ -82,6 +82,8 @@ public final class AskTurnRecord {
     public var skillID: String = ""
     public var domainID: String = ""
     public var slotsJSON: String = "{}"
+    /// Item identifiers behind a search card, so the card can be drawn again. Nil for every other turn.
+    public var searchItemIDsJSON: String?
     public var createdAt: Date = Date()
     public var thread: AskThread?
 
@@ -93,6 +95,7 @@ public final class AskTurnRecord {
         skillID: String = "",
         domainID: String = "",
         slotsJSON: String = "{}",
+        searchItemIDsJSON: String? = nil,
         createdAt: Date = Date(),
         thread: AskThread? = nil
     ) {
@@ -103,6 +106,7 @@ public final class AskTurnRecord {
         self.skillID = skillID
         self.domainID = domainID
         self.slotsJSON = slotsJSON
+        self.searchItemIDsJSON = searchItemIDsJSON
         self.createdAt = createdAt
         self.thread = thread
     }
@@ -116,6 +120,8 @@ public struct AskTranscriptTurn: Identifiable, Sendable, Equatable {
     public var skillID: String
     public var domainID: String
     public var slotsJSON: String
+    /// Set only on a search card turn.
+    public var searchItemIDs: [String]?
     public var createdAt: Date
 
     public init(
@@ -126,6 +132,7 @@ public struct AskTranscriptTurn: Identifiable, Sendable, Equatable {
         skillID: String,
         domainID: String,
         slotsJSON: String,
+        searchItemIDs: [String]? = nil,
         createdAt: Date
     ) {
         self.id = id
@@ -135,6 +142,7 @@ public struct AskTranscriptTurn: Identifiable, Sendable, Equatable {
         self.skillID = skillID
         self.domainID = domainID
         self.slotsJSON = slotsJSON
+        self.searchItemIDs = searchItemIDs
         self.createdAt = createdAt
     }
 }
@@ -156,6 +164,19 @@ enum AskSlots {
             return [:]
         }
         return object
+    }
+
+    static func idsJSON(_ ids: [String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: ids),
+              let text = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return text
+    }
+
+    static func decodeIDs(_ json: String?) -> [String]? {
+        guard let data = json?.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String]
     }
 
     static func hasValues(_ slots: [String: String], for required: [String]) -> Bool {
@@ -209,7 +230,8 @@ final class AskStore {
         skillID: String,
         domainID: String,
         slots: [String: String],
-        omitting keys: Set<String>
+        omitting keys: Set<String>,
+        searchItemIDs: [String]? = nil
     ) throws -> UUID {
         let thread = try thread(named: assistantName)
         let turn = AskTurnRecord(
@@ -219,6 +241,7 @@ final class AskStore {
             skillID: skillID,
             domainID: domainID,
             slotsJSON: AskSlots.json(slots, omitting: keys),
+            searchItemIDsJSON: searchItemIDs.map(AskSlots.idsJSON),
             thread: thread
         )
         context.insert(turn)
@@ -249,6 +272,7 @@ final class AskStore {
                     skillID: turn.skillID,
                     domainID: turn.domainID,
                     slotsJSON: turn.slotsJSON,
+                    searchItemIDs: AskSlots.decodeIDs(turn.searchItemIDsJSON),
                     createdAt: turn.createdAt
                 )
             }

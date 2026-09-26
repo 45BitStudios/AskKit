@@ -12,7 +12,8 @@ The package does not know about a particular app's screens, accounts, or catalog
 4. Hop 1 is a new `LanguageModelSession` with a routing profile, zero tools, and tool calling disallowed. It picks one domain.
 5. Hop 2 is another new zero-tool session. It picks one skill in that domain.
 6. If a required slot is missing, one new session carries that domain's tools. The cap is 5. More than five is ignored and the skill still runs with the slots already in hand.
-7. A routing session is never reused as a skill session.
+7. A `.search` skill opens one new session that carries only `SpotlightSearchTool`. It answers from the app's Core Spotlight index.
+8. A routing session is never reused as a skill session.
 
 Operational facts come from the app's tools and from the skill handler. They do not come from model weights.
 
@@ -141,6 +142,37 @@ case .askAgain(let turn, let prompt):
 
 AskKit does not ship an `AppIntent`. Titles, shortcuts, and snippet chrome belong to the app.
 
+## Searching the app's index
+
+A `.search` skill answers from what the app already donated to Core Spotlight. After routing picks the skill, Ask opens one new session with a `SpotlightSearchTool` and no other tools. The model searches, then writes a short answer from the results. The skill's `render` gets that answer and every item the tool returned, and draws a reply or a card.
+
+```swift
+AskSkill(
+    id: "hikeSearch",
+    domainID: "hikes",
+    title: "Hikes",
+    summary: "Find hikes the person logged",
+    routingNotes: "Hikes, trails, and walks they went on.",
+    fulfillment: .search(AskSearchSkill(
+        instructions: "Hikes have a title, altitude, and completion date.",
+        restore: { ids in await HikeStore.shared.items(ids: ids) },
+        render: { invocation, result in
+            .intent(AskIntentCard(spoken: result.answer, view: HikeList(ids: result.items.map(\.id))))
+        }
+    ))
+)
+```
+
+`makeTool` defaults to `.focused(.items)` guidance, which fits the on-device context. Pass your own to set a `GuidanceProfile`, a `ContactResolver`, custom stages, or `sources: [.files]`. Implement `CSSearchableIndexDelegate.searchableItems(forIdentifiers:)` so the tool can recover full items.
+
+A search skill does not need required slots. If it has some and they are missing, slot filling runs first as usual.
+
+When the search cannot run, `render` gets an empty `answer` and no items. Check for that and say something useful.
+
+A search reply is saved like any other reply. A search card also saves the item identifiers, and nothing else from the items. When the chat shows that card again, Ask calls `restore` with those identifiers, then calls `render`. The model does not run again.
+
+`AskModelClient.search` runs the session. Tests replace it the same way they replace routing.
+
 ## Store
 
 ```swift
@@ -156,7 +188,7 @@ public enum AskPersistence {
 
 For private CloudKit the app turns on iCloud and CloudKit, registers that container identifier, and adds the remote-notification background mode. A signed-out or offline device still reads and writes the local store.
 
-Turns store the person's words, the spoken reply, the skill id, and the slot dictionary. They do not store tool calls, tool output, auth tokens, or SwiftUI views. Pass `omittedSlotKeys` to drop values such as a record locator before save. The handler for that turn still sees them.
+Turns store the person's words, the spoken reply, the skill id, and the slot dictionary. A search card turn also stores its item identifiers. Turns do not store tool calls, other tool output, auth tokens, or SwiftUI views. Pass `omittedSlotKeys` to drop values such as a record locator before save. The handler for that turn still sees them.
 
 An app that already has a SwiftData stack can add `AskThread` and `AskTurnRecord` to its schema and pass `.container(modelContainer)`.
 

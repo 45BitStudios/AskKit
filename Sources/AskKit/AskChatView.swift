@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Three chips, the saved transcript, and a composer.
 /// An intent skill shows that skill's card. A reply skill shows Ask's text.
+/// A search skill shows whichever its `render` returned.
 public struct AskChatView: View {
     private let assistant: AskAssistant
     private let onAction: (AskAction) -> Void
@@ -98,7 +99,7 @@ private struct AskChatScreen: View {
                             .buttonStyle(.bordered)
                     }
                 }
-                if turn.skillID.isEmpty == false, assistant.configuration.skill(id: turn.skillID)?.fulfillmentIsIntent == true {
+                if turn.skillID.isEmpty == false, assistant.configuration.skill(id: turn.skillID)?.drawsCard(turn) == true {
                     Color.clear
                         .frame(height: 1)
                         .task(id: turn.id) {
@@ -163,8 +164,14 @@ private struct AskChatScreen: View {
 }
 
 private extension AskSkill {
-    var fulfillmentIsIntent: Bool {
-        if case .intent = fulfillment { return true }
-        return false
+    func drawsCard(_ turn: AskTurnRecord) -> Bool {
+        switch fulfillment {
+        case .intent:
+            return true
+        case .search:
+            return turn.searchItemIDsJSON != nil
+        case .reply:
+            return false
+        }
     }
 }

@@ -80,9 +80,7 @@ public struct AskAssistant {
             return nil
         }
         let turn = turns[index]
-        guard turn.role == "assistant",
-              let skill = configuration.skill(id: turn.skillID),
-              case .intent(let make) = skill.fulfillment else {
+        guard turn.role == "assistant", let skill = configuration.skill(id: turn.skillID) else {
             return nil
         }
         let utterance = turns[..<index].last { $0.role == "user" }?.text ?? turn.text
@@ -95,7 +93,19 @@ public struct AskAssistant {
             context: await contextForSkill(skill, fallback: snapshot),
             usedModel: false
         )
-        return await make(invocation)
+        switch skill.fulfillment {
+        case .intent(let make):
+            return await make(invocation)
+        case .search(let search):
+            // Only a turn that drew a card saved its identifiers. The model does not run again.
+            guard let ids = turn.searchItemIDs else { return nil }
+            let items = await search.restore?(ids) ?? ids.map { AskSearchItem(id: $0) }
+            let result = AskSearchResult(answer: turn.spoken, items: items)
+            guard case .intent(let card) = await search.render(invocation, result) else { return nil }
+            return card
+        case .reply:
+            return nil
+        }
     }
 
     private func route(utterance: String, context: AskContext) async -> RoutedTurn {
@@ -245,6 +255,62 @@ public struct AskAssistant {
                 usedModel: routed.usedModel,
                 fulfillment: .intent(card)
             )
+        case .search(let search):
+            return await runSearch(search, skill: skill, invocation: invocation, context: context)
         }
+    }
+
+    private func runSearch(
+        _ search: AskSearchSkill,
+        skill: AskSkill,
+        invocation: AskInvocation,
+        context: AskContext
+    ) async -> AskTurnResult {
+        let request = AskModelRequest(
+            instructions: AskPrompts.searchInstructions(
+                assistantName: configuration.assistantName,
+                skill: skill,
+                notes: search.instructions
+            ),
+            prompt: AskPrompts.userPrompt(context: context.promptBlock, utterance: invocation.utterance, slots: invocation.slots)
+        )
+        var invocation = invocation
+        let result: AskSearchResult
+        do {
+            result = try await model.search(request, search.makeTool())
+            invocation.usedModel = true
+        } catch {
+            result = AskSearchResult(answer: "")
+        }
+        let fulfillment = await search.render(invocation, result)
+        let spoken: String
+        let text: String
+        var searchItemIDs: [String]?
+        switch fulfillment {
+        case .reply(let reply):
+            spoken = reply.spoken
+            text = reply.text
+        case .intent(let card):
+            spoken = card.spoken
+            text = card.spoken
+            searchItemIDs = result.items.map(\.id)
+        }
+        try? store.appendAssistant(
+            assistantName: configuration.assistantName,
+            text: text,
+            spoken: spoken,
+            skillID: skill.id,
+            domainID: skill.domainID,
+            slots: invocation.slots,
+            omitting: configuration.omittedSlotKeys,
+            searchItemIDs: searchItemIDs
+        )
+        return AskTurnResult(
+            skillID: skill.id,
+            domainID: skill.domainID,
+            slots: invocation.slots,
+            usedModel: invocation.usedModel,
+            fulfillment: fulfillment
+        )
     }
 }
