@@ -31,22 +31,59 @@ let ask = try AskAssistant(AskConfiguration(
             domainID: "recipes",
             title: "Dinner",
             summary: "Suggest dinner from what is on hand",
+            contextKeys: ["pantry"],
             routingNotes: "Dinner, cook, and meal questions.",
-            fulfillment: .reply { _ in
-                AskReply(text: "Pasta with what you have.", spoken: "Pasta.", actions: [
+            fulfillment: .reply { invocation in
+                let pantry = invocation.context.value(for: "pantry") ?? "what you have"
+                return AskReply(text: "Cook \(pantry).", spoken: "Cook \(pantry).", actions: [
                     AskAction(id: "open-recipes", title: "Open recipes")
                 ])
             }
         )
     ],
-    contextBlock: { "pantry=pasta,tomatoes" },
-    chips: { _ in
-        [AskChip(id: "dinner", skillID: "whatsForDinner", title: "What's for dinner?")]
+    context: {
+        AskContext(
+            promptBlock: "signedIn=true pantry=pasta,tomatoes",
+            values: ["signedIn": "true", "pantry": "pasta,tomatoes", "userID": "42"]
+        )
+    },
+    chips: { context in
+        let pantry = context.value(for: "pantry") ?? "what you have"
+        return [AskChip(id: "dinner", skillID: "whatsForDinner", title: "Cook \(pantry)?")]
     }
 ))
 ```
 
 `AskChatView(assistant:)` shows the chips, the transcript, and a composer.
+
+## Context
+
+Each turn asks the app what is true right now. That snapshot is `AskContext`. Skills read `values`. The model only sees `promptBlock`, so a private value such as `userID` can stay in `values` and out of the prompt.
+
+A skill lists the keys it needs in `contextKeys`. An empty list means the skill receives the whole snapshot. The dinner skill above receives `pantry` and does not receive `userID`. Chips get the same snapshot, which is how "Cook pasta,tomatoes?" is built without a model call.
+
+Pass a closure, or a type that owns the state:
+
+```swift
+struct PantrySource: AskContextSource {
+    func currentContext() async -> AskContext {
+        AskContext(
+            promptBlock: "signedIn=true pantry=pasta",
+            values: ["signedIn": "true", "pantry": "pasta", "userID": "42"]
+        )
+    }
+}
+
+let ask = try AskAssistant(AskConfiguration(
+    assistantName: "Ask Pantry",
+    domains: [/* ... */],
+    skills: [/* ... */],
+    source: PantrySource(),
+    chips: { _ in [] }
+))
+```
+
+`currentContext()` runs at the start of the turn and is what routing and chips use. Override `context(forSkill:keys:)` when one skill needs a heavier snapshot than that, such as the document that is open. The default scopes `values` to the skill's `contextKeys` and leaves `promptBlock` as it was.
 
 ## Handing a turn to an existing intent
 

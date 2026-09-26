@@ -42,13 +42,13 @@ public struct AskAssistant {
     }
 
     public func chips() async -> [AskChip] {
-        let context = await configuration.contextBlock()
+        let context = await configuration.context()
         return Array(configuration.chips(context).prefix(3))
     }
 
     public func handle(utterance: String, priorUserQuestions: [String] = []) async -> AskTurnResult {
         let trimmed = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
-        let context = await configuration.contextBlock()
+        let context = await configuration.context()
         let stored = (try? store.recentUserTexts(assistantName: configuration.assistantName)) ?? []
         let priors = priorUserQuestions.isEmpty ? stored : priorUserQuestions
         let routedUtterance = AskFollowUp.resolve(trimmed, priorUserQuestions: priors)
@@ -59,7 +59,7 @@ public struct AskAssistant {
 
     /// A chip already chose the skill. This does not open a model session.
     public func handle(chip: AskChip) async -> AskTurnResult {
-        let context = await configuration.contextBlock()
+        let context = await configuration.context()
         try? store.appendUser(assistantName: configuration.assistantName, text: chip.title)
         let routed = RoutedTurn(skillID: chip.skillID, slots: chip.slots, usedModel: false)
         return await fulfill(routed, utterance: chip.title, context: context)
@@ -86,18 +86,19 @@ public struct AskAssistant {
             return nil
         }
         let utterance = turns[..<index].last { $0.role == "user" }?.text ?? turn.text
+        let snapshot = await configuration.context()
         let invocation = AskInvocation(
             utterance: utterance,
             skillID: skill.id,
             domainID: skill.domainID,
             slots: AskSlots.decode(turn.slotsJSON),
-            contextBlock: await configuration.contextBlock(),
+            context: await contextForSkill(skill, fallback: snapshot),
             usedModel: false
         )
         return await make(invocation)
     }
 
-    private func route(utterance: String, context: String) async -> RoutedTurn {
+    private func route(utterance: String, context: AskContext) async -> RoutedTurn {
         if let fast = fastRoute(utterance) {
             return await filling(fast, utterance: utterance, context: context, usedModel: false)
         }
@@ -107,7 +108,7 @@ public struct AskAssistant {
                     assistantName: configuration.assistantName,
                     domains: configuration.domains
                 ),
-                prompt: AskPrompts.userPrompt(context: context, utterance: utterance)
+                prompt: AskPrompts.userPrompt(context: context.promptBlock, utterance: utterance)
             )
             let domainID = try await model.routeDomain(domainRequest)
             guard let domain = configuration.domain(id: domainID) else {
@@ -120,7 +121,7 @@ public struct AskAssistant {
                     domain: domain,
                     skills: skills
                 ),
-                prompt: AskPrompts.userPrompt(context: context, utterance: utterance)
+                prompt: AskPrompts.userPrompt(context: context.promptBlock, utterance: utterance)
             )
             let choice = try await model.routeSkill(skillRequest)
             guard let skill = skills.first(where: { $0.id.compare(choice.skillID, options: .caseInsensitive) == .orderedSame }) else {
@@ -150,7 +151,7 @@ public struct AskAssistant {
         return RoutedTurn(skillID: nil, slots: [:], usedModel: false)
     }
 
-    private func filling(_ routed: RoutedTurn, utterance: String, context: String, usedModel: Bool) async -> RoutedTurn {
+    private func filling(_ routed: RoutedTurn, utterance: String, context: AskContext, usedModel: Bool) async -> RoutedTurn {
         guard let skillID = routed.skillID, let skill = configuration.skill(id: skillID) else {
             return routed
         }
@@ -163,7 +164,7 @@ public struct AskAssistant {
         }
         let request = AskModelRequest(
             instructions: AskPrompts.fillInstructions(skill: skill),
-            prompt: AskPrompts.userPrompt(context: context, utterance: utterance, slots: routed.slots)
+            prompt: AskPrompts.userPrompt(context: context.promptBlock, utterance: utterance, slots: routed.slots)
         )
         do {
             let filled = try await model.fillSlots(request, tools)
@@ -177,7 +178,14 @@ public struct AskAssistant {
         }
     }
 
-    private func fulfill(_ routed: RoutedTurn, utterance: String, context: String) async -> AskTurnResult {
+    private func contextForSkill(_ skill: AskSkill, fallback: AskContext) async -> AskContext {
+        if let contextForSkill = configuration.contextForSkill {
+            return await contextForSkill(skill.id, skill.contextKeys)
+        }
+        return skill.contextKeys.isEmpty ? fallback : fallback.scoped(to: skill.contextKeys)
+    }
+
+    private func fulfill(_ routed: RoutedTurn, utterance: String, context: AskContext) async -> AskTurnResult {
         let skill = routed.skillID.flatMap { configuration.skill(id: $0) } ?? configuration.skill(id: "unknown")
         guard let skill else {
             let reply = AskReply(text: "I can't help with that.", spoken: "I can't help with that.")
@@ -197,7 +205,7 @@ public struct AskAssistant {
             skillID: skill.id,
             domainID: skill.domainID,
             slots: routed.slots,
-            contextBlock: context,
+            context: await contextForSkill(skill, fallback: context),
             usedModel: routed.usedModel
         )
         switch skill.fulfillment {

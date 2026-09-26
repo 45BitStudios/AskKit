@@ -66,6 +66,8 @@ public struct AskSkill: Identifiable {
     public var title: String
     public var summary: String
     public var requiredSlots: [String]
+    /// Context keys this skill reads. Empty means the skill receives the full snapshot.
+    public var contextKeys: [String]
     public var routingNotes: String
     public var fulfillment: AskFulfillment
 
@@ -75,6 +77,7 @@ public struct AskSkill: Identifiable {
         title: String,
         summary: String,
         requiredSlots: [String] = [],
+        contextKeys: [String] = [],
         routingNotes: String,
         fulfillment: AskFulfillment
     ) {
@@ -83,6 +86,7 @@ public struct AskSkill: Identifiable {
         self.title = title
         self.summary = summary
         self.requiredSlots = requiredSlots
+        self.contextKeys = contextKeys
         self.routingNotes = routingNotes
         self.fulfillment = fulfillment
     }
@@ -93,7 +97,7 @@ public struct AskInvocation: Sendable, Equatable {
     public var skillID: String
     public var domainID: String
     public var slots: [String: String]
-    public var contextBlock: String
+    public var context: AskContext
     public var usedModel: Bool
 
     public init(
@@ -101,14 +105,14 @@ public struct AskInvocation: Sendable, Equatable {
         skillID: String,
         domainID: String,
         slots: [String: String],
-        contextBlock: String,
+        context: AskContext,
         usedModel: Bool
     ) {
         self.utterance = utterance
         self.skillID = skillID
         self.domainID = domainID
         self.slots = slots
-        self.contextBlock = contextBlock
+        self.context = context
         self.usedModel = usedModel
     }
 }
@@ -223,10 +227,12 @@ public struct AskConfiguration {
     public var persistence: AskPersistence
     public var domains: [AskDomain]
     public var skills: [AskSkill]
-    /// Compact facts the router may see. The app fetches these. The model does not invent them.
-    public var contextBlock: @MainActor () async -> String
+    /// Current state of the person or the app. Called at the start of each turn.
+    public var context: @MainActor () async -> AskContext
+    /// Optional per-skill snapshot. When nil, the turn snapshot is scoped to the skill's `contextKeys`.
+    public var contextForSkill: (@MainActor (_ skillID: String, _ keys: [String]) async -> AskContext)?
     /// Deterministic. Ask never calls the model to pick chips.
-    public var chips: @MainActor (String) -> [AskChip]
+    public var chips: @MainActor (AskContext) -> [AskChip]
     public var fastPath: (@MainActor (String) -> AskRoute?)?
     /// Slot keys dropped before a turn is saved. The live handler still receives them.
     public var omittedSlotKeys: Set<String>
@@ -238,8 +244,9 @@ public struct AskConfiguration {
         persistence: AskPersistence = .memory,
         domains: [AskDomain],
         skills: [AskSkill],
-        contextBlock: @escaping @MainActor () async -> String,
-        chips: @escaping @MainActor (String) -> [AskChip],
+        context: @escaping @MainActor () async -> AskContext,
+        contextForSkill: (@MainActor (_ skillID: String, _ keys: [String]) async -> AskContext)? = nil,
+        chips: @escaping @MainActor (AskContext) -> [AskChip],
         fastPath: (@MainActor (String) -> AskRoute?)? = nil,
         omittedSlotKeys: Set<String> = [],
         tools: (@MainActor (String) -> [any Tool])? = nil
@@ -248,11 +255,39 @@ public struct AskConfiguration {
         self.persistence = persistence
         self.domains = domains
         self.skills = skills
-        self.contextBlock = contextBlock
+        self.context = context
+        self.contextForSkill = contextForSkill
         self.chips = chips
         self.fastPath = fastPath
         self.omittedSlotKeys = omittedSlotKeys
         self.tools = tools
+    }
+
+    public init<Source: AskContextSource>(
+        assistantName: String,
+        persistence: AskPersistence = .memory,
+        domains: [AskDomain],
+        skills: [AskSkill],
+        source: Source,
+        chips: @escaping @MainActor (AskContext) -> [AskChip],
+        fastPath: (@MainActor (String) -> AskRoute?)? = nil,
+        omittedSlotKeys: Set<String> = [],
+        tools: (@MainActor (String) -> [any Tool])? = nil
+    ) {
+        self.init(
+            assistantName: assistantName,
+            persistence: persistence,
+            domains: domains,
+            skills: skills,
+            context: { await source.currentContext() },
+            contextForSkill: { skillID, keys in
+                await source.context(forSkill: skillID, keys: keys)
+            },
+            chips: chips,
+            fastPath: fastPath,
+            omittedSlotKeys: omittedSlotKeys,
+            tools: tools
+        )
     }
 
     func domain(id: String) -> AskDomain? {

@@ -42,7 +42,7 @@ final class AskAssistantTests: XCTestCase {
                 assistantName: "Ask Desk",
                 domains: [AskDomain(id: "desk", summary: "Desk", routingNotes: "Desk questions.")],
                 skills: skills,
-                contextBlock: { "" },
+                context: { AskContext() },
                 chips: { _ in [] },
                 tools: { _ in
                     lookups.value += 1
@@ -84,7 +84,7 @@ final class AskAssistantTests: XCTestCase {
                         }
                     )
                 ],
-                contextBlock: { "" },
+                context: { AskContext() },
                 chips: { _ in [] },
                 tools: { _ in
                     counter.value += 1
@@ -180,7 +180,7 @@ final class AskAssistantTests: XCTestCase {
                         }
                     )
                 ],
-                contextBlock: { "" },
+                context: { AskContext() },
                 chips: { _ in [] },
                 fastPath: { _ in
                     AskRoute(skillID: "dinner", slots: ["city": "Austin", "recordLocator": "ABC123"])
@@ -195,6 +195,56 @@ final class AskAssistantTests: XCTestCase {
         let saved = try assistant.transcript().last { $0.role == "assistant" }
         XCTAssertFalse(saved?.slotsJSON.contains("ABC123") ?? true)
         XCTAssertTrue(saved?.slotsJSON.contains("Austin") ?? false)
+    }
+
+    func testSkillReceivesCurrentContextWithoutSendingPrivateValuesToTheModel() async throws {
+        struct PantrySource: AskContextSource {
+            func currentContext() async -> AskContext {
+                AskContext(
+                    promptBlock: "phase=cooking",
+                    values: ["phase": "cooking", "userID": "42"]
+                )
+            }
+        }
+        let seen = SlotBox()
+        let model = ScriptedModel()
+        let assistant = try AskAssistant(
+            AskConfiguration(
+                assistantName: "Ask Pantry",
+                domains: [AskDomain(id: "recipes", summary: "Cooking", routingNotes: "Food.")],
+                skills: [
+                    AskSkill(
+                        id: "dinner",
+                        domainID: "recipes",
+                        title: "Dinner",
+                        summary: "Suggest dinner",
+                        contextKeys: ["phase"],
+                        routingNotes: "Dinner questions.",
+                        fulfillment: .reply { invocation in
+                            seen.slots = invocation.context.values
+                            let phase = invocation.context.value(for: "phase") ?? "none"
+                            return AskReply(text: phase, spoken: phase)
+                        }
+                    )
+                ],
+                source: PantrySource(),
+                chips: { context in
+                    [AskChip(id: "c", skillID: "dinner", title: context.value(for: "phase") ?? "Dinner")]
+                }
+            ),
+            model: model.client
+        )
+        let chips = await assistant.chips()
+        XCTAssertEqual(chips.first?.title, "cooking")
+        let result = await assistant.handle(utterance: "dinner please")
+        XCTAssertEqual(seen.slots["phase"], "cooking")
+        XCTAssertNil(seen.slots["userID"])
+        XCTAssertTrue(model.prompts.allSatisfy { !$0.contains("userID") && !$0.contains("42") })
+        XCTAssertTrue(model.prompts.contains { $0.contains("phase=cooking") })
+        guard case .reply(let reply) = result.fulfillment else {
+            return XCTFail("Expected a reply")
+        }
+        XCTAssertEqual(reply.spoken, "cooking")
     }
 
     func testPrivateCloudConfigurationUsesThePrivateDatabase() throws {
@@ -317,7 +367,7 @@ final class AskAssistantTests: XCTestCase {
                         fulfillment: .reply { _ in AskReply(text: "Pasta.", spoken: "Pasta.") }
                     )
                 ] + extraSkills,
-                contextBlock: { "pantry=pasta" },
+                context: { AskContext(promptBlock: "pantry=pasta") },
                 chips: { _ in
                     [AskChip(id: "dinner", skillID: "dinner", title: "What's for dinner?")]
                 }
@@ -369,7 +419,7 @@ final class AskAssistantTests: XCTestCase {
                     }
                 )
             ],
-            contextBlock: { "flight=UA123" },
+            context: { AskContext(promptBlock: "flight=UA123") },
             chips: { _ in
                 [AskChip(id: "dinner", skillID: "whatsForDinner", title: "What's for dinner?")]
             },
