@@ -40,6 +40,11 @@ struct SampleHost: View {
                 project = chosen
             }
         }
+        .task(id: project.id) {
+            guard project == .open else { return }
+            // Reload the saved Vision index, then index only photos newer than lastIndexDate.
+            await AskPhotos.prepareIndexOnLaunch()
+        }
     }
 }
 

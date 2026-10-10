@@ -2356,6 +2356,31 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(calendar.pages.first?.card?.title, "Calendar")
     }
 
+    func testPhotosSpecialistRunsForLibraryQuestions() async throws {
+        let model = RecordingModel()
+        model.replyText = "Found 2 screenshots."
+        model.readings = [AskAppleReading(name: "photos", lines: ["Found 2 screenshots."])]
+        let photos = AskSpecialist(
+            id: "open.photos",
+            title: "Photos",
+            symbolName: "photo.on.rectangle",
+            workingTitle: "Searching photos",
+            instructions: "Call the photos tool once.",
+            tools: { [StubTool(name: "photos")] },
+            matches: AskPhotos.matches
+        )
+        let assistant = try assistant(
+            model: model,
+            access: [.calendar],
+            specialists: [photos],
+            facts: AskAppleCopy.missFacts
+        )
+        let result = await assistant.handle(utterance: "Find my screenshots from last month")
+        XCTAssertEqual(model.toolNames, [["photos"]])
+        XCTAssertEqual(result.pages.first?.card?.title, "Photos")
+        XCTAssertEqual(AskPhotosLine.spoken(["Found 2 screenshots."]), "Found 2 screenshots.")
+    }
+
     private func assistant(
         model: RecordingModel,
         access: AskAppleAccess,

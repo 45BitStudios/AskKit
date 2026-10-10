@@ -158,6 +158,7 @@ enum AskCardSymbol {
         case "daily forecast", "weather", "no forecast": "cloud.sun.fill"
         case "hourly forecast": "clock.fill"
         case "web", "page": "globe"
+        case "photos", "photo", "screenshots": "photo.on.rectangle"
         case "capabilities": "sparkles"
         case "charge", "skill": "bolt.fill"
         default: "sparkles"
@@ -177,6 +178,7 @@ enum AskCardSymbol {
         case "album": .indigo
         case "daily forecast", "hourly forecast", "weather", "no forecast": .blue
         case "web", "page": .blue
+        case "photos", "photo", "screenshots": .teal
         case "capabilities": .indigo
         case "charge", "skill": .green
         default: .indigo

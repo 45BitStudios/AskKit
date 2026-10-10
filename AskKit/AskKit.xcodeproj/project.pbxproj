@@ -261,6 +261,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "AskKit uses the camera so you can add a photo to a question.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AskKit uses the microphone so you can speak a question.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AskKit saves a picture of a card to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AskKit searches your photo library when you ask for screenshots, favorites, or photos that match a filter.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AskKit reads your reminders to answer what is still open, and adds a reminder when you ask.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AskKit turns your speech into text in the question field.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -310,6 +311,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "AskKit uses the camera so you can add a photo to a question.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AskKit uses the microphone so you can speak a question.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AskKit saves a picture of a card to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AskKit searches your photo library when you ask for screenshots, favorites, or photos that match a filter.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AskKit reads your reminders to answer what is still open, and adds a reminder when you ask.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AskKit turns your speech into text in the question field.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

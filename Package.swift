@@ -14,6 +14,7 @@ let package = Package(
         .package(path: "Vendor/VoiceGlowKit"),
         .package(path: "Vendor/ThinkingOrbsKit"),
         .package(path: "Vendor/BorderBeamKit"),
+        .package(path: "Vendor/PhotoQueryKit"),
         .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0")
     ],
     targets: [
@@ -23,6 +24,7 @@ let package = Package(
                 .product(name: "VoiceGlowKit", package: "VoiceGlowKit"),
                 .product(name: "ThinkingOrbsKit", package: "ThinkingOrbsKit"),
                 .product(name: "BorderBeamKit", package: "BorderBeamKit"),
+                .product(name: "PhotoQueryKit", package: "PhotoQueryKit"),
                 .product(name: "Textual", package: "textual")
             ]
         ),
