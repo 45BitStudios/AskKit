@@ -39,6 +39,12 @@ public struct PhotoQueryRequest: Codable, Sendable {
     public var locationLatitude: Double?
     public var locationLongitude: Double?
     public var locationRadiusMeters: Double?
+    /// Match assets in this burst group.
+    public var burstIdentifier: String?
+    /// userLibrary, cloudShared, or iTunesSynced.
+    public var sourceType: String?
+    /// Find visually similar photos using Vision feature prints.
+    public var similarToLocalIdentifier: String?
     public var limit: Int?
     public var sortDescending: Bool?
 
@@ -62,6 +68,9 @@ public struct PhotoQueryRequest: Codable, Sendable {
         locationLatitude: Double? = nil,
         locationLongitude: Double? = nil,
         locationRadiusMeters: Double? = nil,
+        burstIdentifier: String? = nil,
+        sourceType: String? = nil,
+        similarToLocalIdentifier: String? = nil,
         limit: Int? = nil,
         sortDescending: Bool? = true
     ) {
@@ -80,6 +89,9 @@ public struct PhotoQueryRequest: Codable, Sendable {
         self.locationLatitude = locationLatitude
         self.locationLongitude = locationLongitude
         self.locationRadiusMeters = locationRadiusMeters
+        self.burstIdentifier = burstIdentifier
+        self.sourceType = sourceType
+        self.similarToLocalIdentifier = similarToLocalIdentifier
         self.limit = limit
         self.sortDescending = sortDescending
     }
@@ -103,8 +115,17 @@ public struct PhotoResult: Identifiable, Sendable {
     public let durationSeconds: Double?
     public let filename: String?
     public let location: CLLocation?
+    /// Burst group id when this asset is part of a burst.
+    public let burstIdentifier: String?
+    public let representsBurst: Bool
+    /// userLibrary, cloudShared, and/or iTunesSynced.
+    public let sourceTypes: [String]
     public let visionLabels: [String]
     public let ocrText: String?
+    /// True when a Vision feature print is stored for similarity search.
+    public let hasFeaturePrint: Bool
+    /// Distance to the probe asset when this result came from a similarity search. Lower is closer.
+    public let similarityDistance: Float?
 
     public var aspectRatio: Double {
         guard pixelHeight > 0 else { return 0 }
@@ -125,8 +146,13 @@ public struct PhotoResult: Identifiable, Sendable {
         durationSeconds: Double? = nil,
         filename: String? = nil,
         location: CLLocation? = nil,
+        burstIdentifier: String? = nil,
+        representsBurst: Bool = false,
+        sourceTypes: [String] = [],
         visionLabels: [String] = [],
-        ocrText: String? = nil
+        ocrText: String? = nil,
+        hasFeaturePrint: Bool = false,
+        similarityDistance: Float? = nil
     ) {
         self.id = id
         self.cloudIdentifier = cloudIdentifier
@@ -141,11 +167,16 @@ public struct PhotoResult: Identifiable, Sendable {
         self.durationSeconds = durationSeconds
         self.filename = filename
         self.location = location
+        self.burstIdentifier = burstIdentifier
+        self.representsBurst = representsBurst
+        self.sourceTypes = sourceTypes
         self.visionLabels = visionLabels
         self.ocrText = ocrText
+        self.hasFeaturePrint = hasFeaturePrint
+        self.similarityDistance = similarityDistance
     }
 
-    public func withVision(labels: [String], ocrText: String?) -> PhotoResult {
+    public func withVision(labels: [String], ocrText: String?, hasFeaturePrint: Bool) -> PhotoResult {
         PhotoResult(
             id: id,
             cloudIdentifier: cloudIdentifier,
@@ -160,8 +191,38 @@ public struct PhotoResult: Identifiable, Sendable {
             durationSeconds: durationSeconds,
             filename: filename,
             location: location,
+            burstIdentifier: burstIdentifier,
+            representsBurst: representsBurst,
+            sourceTypes: sourceTypes,
             visionLabels: labels,
-            ocrText: ocrText
+            ocrText: ocrText,
+            hasFeaturePrint: hasFeaturePrint,
+            similarityDistance: similarityDistance
+        )
+    }
+
+    public func withSimilarityDistance(_ distance: Float) -> PhotoResult {
+        PhotoResult(
+            id: id,
+            cloudIdentifier: cloudIdentifier,
+            creationDate: creationDate,
+            modificationDate: modificationDate,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            mediaType: mediaType,
+            mediaSubtypes: mediaSubtypes,
+            isFavorite: isFavorite,
+            isHidden: isHidden,
+            durationSeconds: durationSeconds,
+            filename: filename,
+            location: location,
+            burstIdentifier: burstIdentifier,
+            representsBurst: representsBurst,
+            sourceTypes: sourceTypes,
+            visionLabels: visionLabels,
+            ocrText: ocrText,
+            hasFeaturePrint: hasFeaturePrint,
+            similarityDistance: distance
         )
     }
 }
@@ -179,6 +240,8 @@ struct PhotoFilter {
     var maxHeight: Int?
     var dateRange: ClosedRange<Date>?
     var album: PHAssetCollection?
+    var burstIdentifier: String?
+    var sourceType: PHAssetSourceType?
     var fetchLimit: Int = 0
     var sortDescending: Bool = true
 }

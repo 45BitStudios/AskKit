@@ -101,6 +101,12 @@ _ = await PhotoQuery.shared.saveIndex()
 // Later: find photos whose Vision labels or OCR contain “dog” or “receipt”
 let ids = await PhotoQuery.shared.visionSearch(query: "dog")
 let count = await PhotoQuery.shared.indexedCount()
+
+// Visually similar photos (needs feature prints from indexing)
+var similar = PhotoQueryRequest()
+similar.similarToLocalIdentifier = "LOCAL_ID"
+similar.limit = 12
+let neighbors = await PhotoQuery.shared.query(similar)
 ```
 
 ## Caching

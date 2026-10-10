@@ -28,8 +28,13 @@ public actor PhotoQuery {
 
     /// Execute a structured request. Ideal for tool calling from a foundation model.
     /// Attaches Vision labels and OCR from the persisted index when present.
+    /// When `similarToLocalIdentifier` is set, ranks by Vision feature-print distance.
     public func query(_ request: PhotoQueryRequest) async -> [PhotoResult] {
         await loadStoreIfNeeded()
+        if let probeID = request.similarToLocalIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !probeID.isEmpty {
+            return await similarResults(to: probeID, base: request)
+        }
         let results = await library.execute(request)
         return await attachVision(results)
     }
@@ -81,9 +86,10 @@ public actor PhotoQuery {
 
     /// Index recent images. Reports progress for UI. Already-indexed assets are skipped.
     /// Saves the index and updates ``lastIndexDate`` when the pass finishes.
+    /// Feature prints are included by default so similarity search can run later.
     public func indexRecentImages(
         limit: Int = 200,
-        includeFeaturePrint: Bool = false,
+        includeFeaturePrint: Bool = true,
         onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
     ) async {
         await loadStoreIfNeeded()
@@ -103,7 +109,7 @@ public actor PhotoQuery {
     /// Saves the index and updates ``lastIndexDate`` when the pass finishes.
     public func indexNewImagesSinceLastIndex(
         limit: Int = 200,
-        includeFeaturePrint: Bool = false,
+        includeFeaturePrint: Bool = true,
         onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
     ) async {
         await loadStoreIfNeeded()
@@ -125,7 +131,7 @@ public actor PhotoQuery {
     /// Call from app launch. Safe to call repeatedly.
     public func prepareIndexOnLaunch(
         limit: Int = 200,
-        includeFeaturePrint: Bool = false,
+        includeFeaturePrint: Bool = true,
         onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
     ) async {
         await loadStoreIfNeeded()
@@ -141,10 +147,81 @@ public actor PhotoQuery {
         return await vision.searchLabels(containing: query)
     }
 
+    /// Local identifiers ranked by feature-print distance to the probe asset.
+    public func similarPhotos(to localIdentifier: String, limit: Int = 12) async -> [(localIdentifier: String, distance: Float)] {
+        await loadStoreIfNeeded()
+        await ensureFeaturePrint(for: localIdentifier)
+        return await vision.similar(to: localIdentifier, limit: limit)
+    }
+
     // MARK: - Helpers
 
     public func albums() -> [String] {
         library.albums().compactMap(\.localizedTitle)
+    }
+
+    private func similarResults(to probeID: String, base: PhotoQueryRequest) async -> [PhotoResult] {
+        await ensureFeaturePrint(for: probeID)
+        if await vision.indexedCount() == 0 {
+            await indexRecentImages(limit: max(base.limit ?? 200, 200), includeFeaturePrint: true)
+        }
+        let ranked = await vision.similar(to: probeID, limit: max(base.limit ?? 12, 1))
+        guard !ranked.isEmpty else { return [] }
+        let ids = ranked.map(\.localIdentifier)
+        let distanceByID = Dictionary(uniqueKeysWithValues: ranked.map { ($0.localIdentifier, $0.distance) })
+        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+        var byID: [String: PHAsset] = [:]
+        fetch.enumerateObjects { asset, _, _ in byID[asset.localIdentifier] = asset }
+        let ordered = ids.compactMap { byID[$0] }
+        let cloudMap = cloudIdentifiers(for: ordered)
+        let results: [PhotoResult] = ordered.map { asset in
+            let resources = PHAssetResource.assetResources(for: asset)
+            let filename = resources.first?.originalFilename
+            let duration = asset.mediaType == .video ? asset.duration : nil
+            return PhotoResult(
+                id: asset.localIdentifier,
+                cloudIdentifier: cloudMap[asset.localIdentifier],
+                creationDate: asset.creationDate,
+                modificationDate: asset.modificationDate,
+                pixelWidth: asset.pixelWidth,
+                pixelHeight: asset.pixelHeight,
+                mediaType: asset.mediaType,
+                mediaSubtypes: PhotoLibraryService.subtypeNames(asset.mediaSubtypes),
+                isFavorite: asset.isFavorite,
+                isHidden: asset.isHidden,
+                durationSeconds: duration,
+                filename: filename,
+                location: asset.location,
+                burstIdentifier: asset.burstIdentifier,
+                representsBurst: asset.representsBurst,
+                sourceTypes: PhotoLibraryService.sourceTypeNames(asset.sourceType)
+            )
+        }
+        return await attachVision(results).map { result in
+            guard let distance = distanceByID[result.id] else { return result }
+            return result.withSimilarityDistance(distance)
+        }
+    }
+
+    private func ensureFeaturePrint(for localIdentifier: String) async {
+        if await vision.hasFeaturePrint(for: localIdentifier) { return }
+        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
+        guard let asset = fetch.firstObject else { return }
+        await vision.index(assets: [asset], includeFeaturePrint: true)
+        _ = await saveIndex()
+    }
+
+    private func cloudIdentifiers(for assets: [PHAsset]) -> [String: String] {
+        guard !assets.isEmpty else { return [:] }
+        let ids = assets.map(\.localIdentifier)
+        let mappings = PHPhotoLibrary.shared().cloudIdentifierMappings(forLocalIdentifiers: ids)
+        var result: [String: String] = [:]
+        for (localID, mapping) in mappings {
+            if case .success(let cloud) = mapping {
+                result[localID] = cloud.stringValue
+            }
+        }
+        return result
     }
 
     private func attachVision(_ results: [PhotoResult]) async -> [PhotoResult] {
@@ -153,7 +230,13 @@ public actor PhotoQuery {
         attached.reserveCapacity(results.count)
         for result in results {
             if let entry = await vision.entry(for: result.id) {
-                attached.append(result.withVision(labels: entry.labels, ocrText: entry.ocrText))
+                attached.append(
+                    result.withVision(
+                        labels: entry.labels,
+                        ocrText: entry.ocrText,
+                        hasFeaturePrint: entry.featurePrintData != nil
+                    )
+                )
             } else {
                 attached.append(result)
             }

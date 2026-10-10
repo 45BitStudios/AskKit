@@ -84,7 +84,8 @@ public actor VisionIndexer {
                 while inFlight < maxConcurrent, !pending.isEmpty {
                     let asset = pending.removeFirst()
                     let id = asset.localIdentifier
-                    if index[id] != nil {
+                    if let existing = index[id],
+                       !includeFeaturePrint || existing.featurePrintData != nil {
                         completed += 1
                         report()
                         continue
@@ -130,8 +131,42 @@ public actor VisionIndexer {
             .map(\.localIdentifier)
     }
 
+    /// Visually similar assets by Vision feature-print distance. Lower distance is closer.
+    public func similar(
+        to localIdentifier: String,
+        limit: Int = 12
+    ) -> [(localIdentifier: String, distance: Float)] {
+        guard let probeData = index[localIdentifier]?.featurePrintData,
+              let probe = Self.unarchiveFeaturePrint(probeData) else {
+            return []
+        }
+        var scored: [(String, Float)] = []
+        for entry in index.values where entry.localIdentifier != localIdentifier {
+            guard let data = entry.featurePrintData,
+                  let other = Self.unarchiveFeaturePrint(data) else { continue }
+            var distance: Float = 0
+            do {
+                try probe.computeDistance(&distance, to: other)
+                scored.append((entry.localIdentifier, distance))
+            } catch {
+                continue
+            }
+        }
+        scored.sort { $0.1 < $1.1 }
+        let capped = max(limit, 1)
+        return scored.prefix(capped).map { (localIdentifier: $0.0, distance: $0.1) }
+    }
+
+    public func hasFeaturePrint(for localIdentifier: String) -> Bool {
+        index[localIdentifier]?.featurePrintData != nil
+    }
+
     public func allEntries() -> [IndexEntry] {
         Array(index.values)
+    }
+
+    private static func unarchiveFeaturePrint(_ data: Data) -> VNFeaturePrintObservation? {
+        try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: data)
     }
 
     // MARK: - Private

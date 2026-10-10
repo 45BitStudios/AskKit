@@ -56,4 +56,45 @@ final class PhotoQueryTests: XCTestCase {
         XCTAssertNil(loaded.lastIndexedAt)
         XCTAssertTrue(loaded.entries.isEmpty)
     }
+
+    func testSubtypeNames() {
+        let names = PhotoLibraryService.subtypeNames([.photoScreenshot, .photoLive, .photoHDR])
+        XCTAssertEqual(names, ["screenshot", "live", "hdr"])
+    }
+
+    func testSourceTypeNames() {
+        XCTAssertEqual(
+            PhotoLibraryService.sourceTypeNames([.typeUserLibrary, .typeCloudShared]),
+            ["userLibrary", "cloudShared"]
+        )
+        XCTAssertEqual(PhotoLibraryService.sourceType(named: "iTunesSynced"), .typeiTunesSynced)
+        XCTAssertNil(PhotoLibraryService.sourceType(named: "unknown"))
+    }
+
+    func testPhotoResultCarriesVisionBurstAndSimilarity() {
+        let result = PhotoResult(
+            id: "1",
+            pixelWidth: 1920,
+            pixelHeight: 1080,
+            mediaType: .video,
+            mediaSubtypes: ["slowmo"],
+            isFavorite: false,
+            durationSeconds: 12.4,
+            burstIdentifier: "burst-9",
+            representsBurst: true,
+            sourceTypes: ["userLibrary"],
+            visionLabels: ["dog"],
+            ocrText: "hello",
+            hasFeaturePrint: true,
+            similarityDistance: 0.42
+        )
+        XCTAssertEqual(result.aspectRatio, 1920.0 / 1080.0, accuracy: 0.001)
+        let withVision = result.withVision(labels: ["cat"], ocrText: "world", hasFeaturePrint: true)
+        XCTAssertEqual(withVision.visionLabels, ["cat"])
+        XCTAssertEqual(withVision.ocrText, "world")
+        XCTAssertEqual(withVision.durationSeconds, 12.4)
+        XCTAssertEqual(withVision.burstIdentifier, "burst-9")
+        XCTAssertEqual(withVision.similarityDistance, 0.42)
+        XCTAssertEqual(result.withSimilarityDistance(0.1).similarityDistance, 0.1)
+    }
 }

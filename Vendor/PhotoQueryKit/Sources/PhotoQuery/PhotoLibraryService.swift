@@ -72,6 +72,14 @@ public final class PhotoLibraryService: Sendable {
             ))
         }
 
+        if let burst = filter.burstIdentifier, !burst.isEmpty {
+            predicates.append(NSPredicate(format: "burstIdentifier == %@", burst))
+        }
+
+        if let source = filter.sourceType {
+            predicates.append(NSPredicate(format: "(sourceType & %d) != 0", source.rawValue))
+        }
+
         if !predicates.isEmpty {
             options.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         }
@@ -133,11 +141,22 @@ public final class PhotoLibraryService: Sendable {
         }
 
         filter.sortDescending = request.sortDescending ?? true
-        filter.fetchLimit = request.limit ?? 0
+        // Similarity searches need a broader candidate pool before ranking.
+        if request.similarToLocalIdentifier != nil {
+            filter.fetchLimit = 0
+        } else {
+            filter.fetchLimit = request.limit ?? 0
+        }
 
         if let title = request.albumTitle {
             filter.album = findAlbum(title: title)
         }
+
+        let burst = request.burstIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !burst.isEmpty {
+            filter.burstIdentifier = burst
+        }
+        filter.sourceType = Self.sourceType(named: request.sourceType)
 
         return filter
     }
@@ -194,6 +213,9 @@ public final class PhotoLibraryService: Sendable {
                 durationSeconds: duration,
                 filename: filename,
                 location: asset.location,
+                burstIdentifier: asset.burstIdentifier,
+                representsBurst: asset.representsBurst,
+                sourceTypes: Self.sourceTypeNames(asset.sourceType),
                 visionLabels: [],
                 ocrText: nil
             )
@@ -223,6 +245,23 @@ public final class PhotoLibraryService: Sendable {
         if subtypes.contains(.videoTimelapse) { names.append("timelapse") }
         if subtypes.contains(.videoHighFrameRate) { names.append("slowmo") }
         return names
+    }
+
+    static func sourceTypeNames(_ source: PHAssetSourceType) -> [String] {
+        var names: [String] = []
+        if source.contains(.typeUserLibrary) { names.append("userLibrary") }
+        if source.contains(.typeCloudShared) { names.append("cloudShared") }
+        if source.contains(.typeiTunesSynced) { names.append("iTunesSynced") }
+        return names
+    }
+
+    static func sourceType(named raw: String?) -> PHAssetSourceType? {
+        switch (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "userlibrary", "library", "user": return .typeUserLibrary
+        case "cloudshared", "shared", "icloudshared": return .typeCloudShared
+        case "itunessynced", "itunes", "synced": return .typeiTunesSynced
+        default: return nil
+        }
     }
 
     // MARK: - Albums

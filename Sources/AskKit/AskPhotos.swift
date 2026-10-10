@@ -26,6 +26,8 @@ public enum AskPhotos {
     Pass action albums to list album titles. \
     For a place search by coordinates, pass latitude, longitude, and radiusMeters. \
     Pass isHidden for hidden items and newestFirst false for oldest first. \
+    Pass burstIdentifier for a burst group, sourceType for userLibrary, cloudShared, or iTunesSynced, \
+    and similarTo for photos visually like another local photo id. \
     Say how many matches it found and name a few. \
     If a line says photos were indexed first, you may mention that briefly. \
     If it says Not allowed, say you cannot see the photo library. Do not invent photos.
@@ -296,12 +298,13 @@ enum AskPhotosFocus {
         "photos near", "pictures near", "images near", "photos around", "pictures around",
         "list albums", "my albums", "photo albums",
         "hidden photos", "hidden pictures", "oldest photos", "oldest first",
+        "similar photos", "photos like this", "looks like", "burst photos",
         "my photos", "my pictures", "my screenshots"
     ]
 
     private static let libraryWords: Set<String> = [
         "screenshot", "screenshots", "panorama", "panoramas", "album", "albums",
-        "roll", "library", "hdr", "timelapse", "slowmo"
+        "roll", "library", "hdr", "timelapse", "slowmo", "burst", "bursts"
     ]
 
     private static let pictureWords: Set<String> = [
@@ -334,6 +337,9 @@ enum AskPhotosQuery {
         longitude: Double?,
         radiusMeters: Double?,
         newestFirst: Bool?,
+        burstIdentifier: String?,
+        sourceType: String?,
+        similarTo: String?,
         limit: Int?
     ) -> PhotoQueryRequest {
         var request = PhotoQueryRequest()
@@ -353,6 +359,12 @@ enum AskPhotosQuery {
         if !search.isEmpty { request.textSearch = search }
         applyDates(daysAgo: daysAgo, throughDaysAgo: throughDaysAgo, to: &request)
         applyLocation(latitude: latitude, longitude: longitude, radiusMeters: radiusMeters, to: &request)
+        let burst = trimmed(burstIdentifier)
+        if !burst.isEmpty { request.burstIdentifier = burst }
+        let source = trimmed(sourceType)
+        if !source.isEmpty { request.sourceType = source }
+        let similar = trimmed(similarTo)
+        if !similar.isEmpty { request.similarToLocalIdentifier = similar }
         let capped = min(max(limit ?? defaultLimit, 1), maximumLimit)
         request.limit = capped
         request.sortDescending = newestFirst ?? true
@@ -661,6 +673,17 @@ enum AskPhotosLine {
         }
         if result.isFavorite { parts.append("favorite") }
         if result.isHidden { parts.append("hidden") }
+        if result.representsBurst { parts.append("burst") }
+        if let burst = result.burstIdentifier, !burst.isEmpty {
+            parts.append("burstID " + AskAppleCopy.plain(burst, limit: 24))
+        }
+        if !result.sourceTypes.isEmpty {
+            parts.append(result.sourceTypes.joined(separator: "+"))
+        }
+        if let distance = result.similarityDistance {
+            parts.append(String(format: "similar %.3f", distance))
+        }
+        if result.hasFeaturePrint { parts.append("print") }
         if !result.visionLabels.isEmpty {
             let labels = result.visionLabels.prefix(3).joined(separator: ", ")
             parts.append(AskAppleCopy.plain(labels, limit: 40))
@@ -781,6 +804,9 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
     Pass albumTitle for an album. Pass textSearch for a filename or content word such as dog. \
     Pass latitude and longitude to find photos near those coordinates. \
     Pass radiusMeters for the search radius; 1000 when omitted. \
+    Pass burstIdentifier for photos in one burst. \
+    Pass sourceType userLibrary, cloudShared, or iTunesSynced. \
+    Pass similarTo with a photo local id to find visually similar photos. \
     Pass newestFirst false for oldest first. Pass minWidth for a pixel width floor. \
     Pass limit up to 25. Call once.
     """
@@ -821,6 +847,12 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         var radiusMeters: Double?
         @Guide(description: "True for newest first. False for oldest first. True when omitted.")
         var newestFirst: Bool?
+        @Guide(description: "Burst group identifier. Leave empty when unused.")
+        var burstIdentifier: String?
+        @Guide(description: "userLibrary, cloudShared, or iTunesSynced. Leave empty when unused.", .anyOf(["userLibrary", "cloudShared", "iTunesSynced"]))
+        var sourceType: String?
+        @Guide(description: "Local identifier of a photo to find visually similar photos. Leave empty when unused.")
+        var similarTo: String?
         @Guide(description: "How many results to return, from 1 to 25.", .range(1...AskPhotosQuery.maximumLimit))
         var limit: Int?
     }
@@ -849,6 +881,9 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
             longitude: arguments.longitude,
             radiusMeters: arguments.radiusMeters,
             newestFirst: arguments.newestFirst,
+            burstIdentifier: arguments.burstIdentifier,
+            sourceType: arguments.sourceType,
+            similarTo: arguments.similarTo,
             limit: arguments.limit
         )
         let label = summary(request)
@@ -868,6 +903,9 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         if request.sortDescending == false { parts.append("oldest") }
         if let search = request.textSearch, !search.isEmpty { parts.append(search) }
         if let album = request.albumTitle, !album.isEmpty { parts.append(album) }
+        if let burst = request.burstIdentifier, !burst.isEmpty { parts.append("burst") }
+        if let source = request.sourceType, !source.isEmpty { parts.append(source) }
+        if let similar = request.similarToLocalIdentifier, !similar.isEmpty { parts.append("similar") }
         if let latitude = request.locationLatitude, let longitude = request.locationLongitude {
             let radius = Int(request.locationRadiusMeters ?? AskPhotosQuery.defaultRadiusMeters)
             parts.append(String(format: "%.4f,%.4f,%dm", latitude, longitude, radius))

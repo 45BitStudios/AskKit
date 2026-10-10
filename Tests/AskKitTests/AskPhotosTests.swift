@@ -15,6 +15,8 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertTrue(AskPhotos.matches("List my photo albums"))
         XCTAssertTrue(AskPhotos.matches("Show hidden photos"))
         XCTAssertTrue(AskPhotos.matches("Oldest photos first"))
+        XCTAssertTrue(AskPhotos.matches("Find similar photos"))
+        XCTAssertTrue(AskPhotos.matches("Show burst photos"))
     }
 
     func testAttachedPhotoQuestionsStayOff() {
