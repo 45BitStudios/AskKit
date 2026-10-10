@@ -14,23 +14,39 @@ struct AskCardBadge: View {
 
     @Environment(\.colorScheme) private var scheme
 
+    private static let mark = Font.caption.weight(.semibold)
+
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Image(systemName: symbol)
+                .font(Self.mark)
                 .symbolRenderingMode(.monochrome)
                 .accessibilityHidden(true)
             Text(title)
+                .font(Self.mark)
                 .lineLimit(1)
         }
-        .font(.subheadline.weight(.semibold))
         .foregroundStyle(AskCardBadgeInk.color(tint, scheme: scheme))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
         .background {
             Capsule().fill(Color(.secondarySystemBackground))
-            Capsule().fill(tint.opacity(scheme == .dark ? 0.42 : 0.22))
+            Capsule().fill(AskCardBadgeWash.gradient(tint, scheme: scheme))
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Soft gradient wash on the type chip. Light mode stays pale; dark mode lifts the tint.
+enum AskCardBadgeWash {
+    static func gradient(_ tint: Color, scheme: ColorScheme) -> LinearGradient {
+        let strong = scheme == .dark ? 0.48 : 0.28
+        let soft = scheme == .dark ? 0.18 : 0.10
+        return LinearGradient(
+            colors: [tint.opacity(strong), tint.opacity(soft)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 
