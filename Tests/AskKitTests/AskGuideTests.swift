@@ -91,6 +91,8 @@ final class AskGuideTests: XCTestCase {
         XCTAssertEqual(AskGuide.keptAnswer(list, rich: true), list)
         XCTAssertTrue(AskGuide.acceptsReply(list, facts: "Milk and eggs.", rich: true))
         XCTAssertTrue(AskGuide.acceptsReply(list, facts: "Milk and eggs.", rich: false))
+        let overPlain = String(repeating: "a", count: 601)
+        XCTAssertFalse(AskGuide.acceptsReply(overPlain, facts: "a", rich: false))
         XCTAssertEqual(
             AskGuide.plainSpeech("Now playing **Slide Away** by **Oasis** from *Definitely Maybe*."),
             "Now playing Slide Away by Oasis from Definitely Maybe."

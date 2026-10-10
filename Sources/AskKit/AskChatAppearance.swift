@@ -284,7 +284,7 @@ public enum AskMarkdownSelection: Sendable {
 /// Shows a rewrite only while it can still be the stored line.
 /// An empty snapshot leaves the current preview in place.
 /// In plain mode a second paragraph is ignored, so a background dump cannot replace a short line.
-/// A partial over the mode's character limit, or one that adds an equals sign in plain mode, is taken down.
+/// A partial over ``AskReplyBudget``'s character limit, or one that adds an equals sign in plain mode, is taken down.
 /// A reply that must call a tool stays off the bubble until the turn stores the line.
 /// Streaming off keeps every snapshot off the bubble.
 /// Otherwise a discarded draft appears, clears, and the next specialist starts over.

@@ -248,15 +248,19 @@ public struct AskGuide: Sendable, Equatable {
 
     /// A rewrite that echoes `key=value` when FACTS did not is discarded in plain mode.
     /// Plain mode keeps only the paragraph before a blank line and caps at 600 characters.
-    /// Rich mode keeps full Markdown up to 4000 characters.
+    /// Rich mode keeps full Markdown up to ``AskReplyBudget``'s token-based character limit
+    /// for the active model (on-device vs Private Cloud Compute).
     public static func acceptsReply(
         _ written: String,
         facts: String,
         rich: Bool = AskMarkdownSelection.isOn
     ) -> Bool {
         let trimmed = keptAnswer(written, rich: rich)
-        let limit = rich ? 4_000 : 600
+        let limit = AskReplyBudget.characterLimit(rich: rich)
         guard !trimmed.isEmpty, trimmed.count <= limit else { return false }
+        if AskReplyBudget.estimatedTokens(for: trimmed) > AskReplyBudget.responseTokenLimit(rich: rich) {
+            return false
+        }
         if !rich, trimmed.contains("="), !facts.contains("=") { return false }
         return true
     }
