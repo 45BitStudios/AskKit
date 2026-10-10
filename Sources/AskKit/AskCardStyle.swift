@@ -34,7 +34,7 @@ struct AskCardBadge: View {
     }
 }
 
-/// Full-width action inside a card. It pages with the card. Light mode uses the deep badge ink as a solid fill so the label stays white and readable.
+/// Full-width action inside a card. It pages with the card. Uses prominent Liquid Glass tinted to the card.
 struct AskCardCTA<I: AppIntent>: View {
     var title: LocalizedStringKey
     var symbol: String
@@ -45,8 +45,6 @@ struct AskCardCTA<I: AppIntent>: View {
     var expands: Bool = true
     /// Off for the icon-only directions control beside a place.
     var showsTitle: Bool = true
-
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Button(intent: intent) {
@@ -60,20 +58,13 @@ struct AskCardCTA<I: AppIntent>: View {
                         .lineLimit(1)
                 }
             }
-            .foregroundStyle(scheme == .dark ? AskCardBadgeInk.color(tint, scheme: scheme) : Color.white)
             .frame(minWidth: showsTitle ? nil : 44, minHeight: 44)
-            .frame(maxWidth: expands ? .infinity : nil)
             .padding(.horizontal, showsTitle ? 16 : 0)
-            .background {
-                if scheme == .dark {
-                    Capsule().fill(Color(.secondarySystemBackground))
-                    Capsule().fill(tint.opacity(0.42))
-                } else {
-                    Capsule().fill(AskCardBadgeInk.color(tint, scheme: .light))
-                }
-            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glassProminent)
+        .tint(tint)
+        .buttonBorderShape(showsTitle ? .capsule : .circle)
+        .frame(maxWidth: expands ? .infinity : nil)
         .accessibilityLabel(accessibilityLabel)
     }
 }
