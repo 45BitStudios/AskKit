@@ -421,6 +421,56 @@ final class AskTraceTests: XCTestCase {
         XCTAssertEqual(AskTraceFormatter.workedSymbol(toolCalls: 0), "doc.text")
     }
 
+    func testVisibleRowsCollapseSameNameFunctionAndModel() {
+        let root = UUID()
+        let writer = UUID()
+        let writerModel = UUID()
+        let spans = [
+            sampleSpan(id: root, parent: nil, name: "Ask turn", kind: .turn, start: 0, end: 4),
+            sampleSpan(id: writer, parent: root, name: "writer", kind: .function, start: 1, end: 4, result: "68 percent"),
+            sampleSpan(id: writerModel, parent: writer, name: "writer", kind: .model, start: 1.1, end: 3.9)
+        ]
+        let tree = AskTraceViewModel.buildTree(spans: spans)
+        let rows = AskTraceViewModel.visibleRows(tree: tree, expanded: Set(spans.map(\.id)))
+        XCTAssertEqual(rows.map(\.span.id), [root, writer])
+        XCTAssertEqual(rows[1].inlinedModel?.id, writerModel)
+        XCTAssertFalse(rows.contains { $0.span.id == writerModel })
+    }
+
+    func testVisibleRowsPromoteToolsUnderCollapsedModel() {
+        let root = UUID()
+        let specialist = UUID()
+        let model = UUID()
+        let tool = UUID()
+        let spans = [
+            sampleSpan(id: root, parent: nil, name: "Ask turn", kind: .turn, start: 0, end: 5),
+            sampleSpan(id: specialist, parent: root, name: "specialist location", kind: .function, start: 1, end: 5),
+            sampleSpan(id: model, parent: specialist, name: "specialist location", kind: .model, start: 1.1, end: 4.8),
+            sampleSpan(id: tool, parent: model, name: "tool location", kind: .tool, start: 2, end: 3)
+        ]
+        let tree = AskTraceViewModel.buildTree(spans: spans)
+        let rows = AskTraceViewModel.visibleRows(tree: tree, expanded: Set(spans.map(\.id)))
+        XCTAssertEqual(rows.map(\.span.name), ["Ask turn", "specialist location", "tool location"])
+        XCTAssertEqual(rows[1].inlinedModel?.id, model)
+        XCTAssertEqual(rows[2].depth, 2)
+        XCTAssertEqual(rows[2].span.id, tool)
+    }
+
+    func testVisibleRowsKeepDistinctModelNamesSeparate() {
+        let root = UUID()
+        let route = UUID()
+        let model = UUID()
+        let spans = [
+            sampleSpan(id: root, parent: nil, name: "Ask turn", kind: .turn, start: 0, end: 3),
+            sampleSpan(id: route, parent: root, name: "route", kind: .function, start: 1, end: 3),
+            sampleSpan(id: model, parent: route, name: "respond", kind: .model, start: 1.1, end: 2.9)
+        ]
+        let tree = AskTraceViewModel.buildTree(spans: spans)
+        let rows = AskTraceViewModel.visibleRows(tree: tree, expanded: Set(spans.map(\.id)))
+        XCTAssertEqual(rows.map(\.span.id), [root, route, model])
+        XCTAssertNil(rows[1].inlinedModel)
+    }
+
     private func record(_ body: () async throws -> Void) async rethrows -> AskTraceTurn? {
         try await AskTrace.$recorder.withValue(recorder) {
             try await body()

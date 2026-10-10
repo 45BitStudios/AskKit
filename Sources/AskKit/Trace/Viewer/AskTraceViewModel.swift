@@ -13,6 +13,8 @@ struct AskTraceRow: Identifiable, Equatable {
     let id: UUID
     let depth: Int
     let span: AskTraceSpan
+    /// Same-name `.model` child folded into this function row (Tree / Timeline).
+    let inlinedModel: AskTraceSpan?
     let hasChildren: Bool
     let isExpanded: Bool
     let isParallel: Bool
@@ -260,20 +262,38 @@ extension AskTraceViewModel {
             .map(node)
     }
 
+    /// A function whose only same-name model child is folded into the parent row.
+    nonisolated static func inlinedModel(of node: AskTraceNode) -> AskTraceNode? {
+        guard node.span.kind == .function else { return nil }
+        let models = node.children.filter { $0.span.kind == .model && $0.span.name == node.span.name }
+        guard models.count == 1 else { return nil }
+        return models[0]
+    }
+
+    /// Children shown under a row after collapsing a same-name model into the parent.
+    nonisolated static func displayChildren(of node: AskTraceNode) -> [AskTraceNode] {
+        guard let model = inlinedModel(of: node) else { return node.children }
+        let others = node.children.filter { $0.span.id != model.span.id }
+        return (others + model.children).sorted { $0.span.start < $1.span.start }
+    }
+
     nonisolated static func visibleRows(tree: [AskTraceNode], expanded: Set<UUID>) -> [AskTraceRow] {
         var rows: [AskTraceRow] = []
         func walk(_ nodes: [AskTraceNode], depth: Int) {
             for node in nodes {
+                let inlined = inlinedModel(of: node)
+                let children = displayChildren(of: node)
                 let isExpanded = expanded.contains(node.span.id)
                 rows.append(AskTraceRow(
                     id: node.span.id,
                     depth: depth,
                     span: node.span,
-                    hasChildren: !node.children.isEmpty,
+                    inlinedModel: inlined?.span,
+                    hasChildren: !children.isEmpty,
                     isExpanded: isExpanded,
                     isParallel: overlapsSibling(node.span, siblings: nodes.map(\.span))
                 ))
-                if isExpanded { walk(node.children, depth: depth + 1) }
+                if isExpanded { walk(children, depth: depth + 1) }
             }
         }
         walk(tree, depth: 0)
