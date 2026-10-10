@@ -1048,24 +1048,62 @@ struct AskContactCard: View {
                 .frame(width: 56, height: 56)
                 .background(monogram.opacity(0.16), in: Circle())
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(person.name)
-                    .font(.title3.weight(.semibold))
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(person.name)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    AskCardBadge(title: "Contact", symbol: "person.fill", tint: monogram)
+                }
                 if !person.phone.isEmpty {
-                    Label(person.phone, systemImage: "phone.fill")
-                        .font(.subheadline)
+                    contactAction(
+                        title: person.phone,
+                        symbol: "phone.fill",
+                        intent: AskCallTap(phone: person.phone),
+                        accessibilityLabel: "Call \(person.name)",
+                        secondary: false
+                    )
                 }
                 if !person.email.isEmpty {
-                    Label(person.email, systemImage: "envelope.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    contactAction(
+                        title: person.email,
+                        symbol: "envelope.fill",
+                        intent: AskEmailTap(email: person.email),
+                        accessibilityLabel: "Email \(person.name)",
+                        secondary: true
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            AskCardBadge(title: "Contact", symbol: "person.fill", tint: monogram)
         }
         .askCardSurface(tint: monogram)
-        .accessibilityElement(children: .combine)
+    }
+
+    private func contactAction<I: AppIntent>(
+        title: String,
+        symbol: String,
+        intent: I,
+        accessibilityLabel: Text,
+        secondary: Bool
+    ) -> some View {
+        Button(intent: intent) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.subheadline)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundStyle(secondary ? Color.secondary : Color.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var initials: String {

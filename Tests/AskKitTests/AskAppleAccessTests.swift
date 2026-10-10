@@ -1475,6 +1475,11 @@ final class AskAppleAccessTests: XCTestCase {
             AskCardSamples.reminderDoneID
         ])
         XCTAssertTrue(AskContactLine.person(from: AskCardSamples.contactLine).isPerson)
+        XCTAssertEqual(AskContactDial.telURL("(312) 555-0148")?.absoluteString, "tel:3125550148")
+        XCTAssertEqual(AskContactDial.telURL("+1 (312) 555-0148")?.absoluteString, "tel:+13125550148")
+        XCTAssertNil(AskContactDial.telURL("   "))
+        XCTAssertEqual(AskContactDial.mailURL("april@example.com")?.absoluteString, "mailto:april@example.com")
+        XCTAssertNil(AskContactDial.mailURL("not an email"))
         XCTAssertEqual(AskLocationPin.places(in: AskCardSamples.nearbyLines).count, 3)
 
         let song = AskAppleCards.make(
