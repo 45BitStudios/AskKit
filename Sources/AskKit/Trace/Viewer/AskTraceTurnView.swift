@@ -103,6 +103,19 @@ struct AskTraceTurnView: View {
 
     private func header(_ turn: AskTraceTurn) -> some View {
         let summary = viewModel.summary(for: turn)
+        let primary = [
+            AskTraceFormatter.duration(turn.duration),
+            "\(summary.modelCalls) model",
+            "\(summary.toolCalls) tool",
+            "\(summary.decisions) decisions"
+        ].joined(separator: " · ")
+        let secondary = [
+            summary.routedVia.map(AskTraceFormatter.routeWords),
+            summary.specialists,
+            summary.peakContext.map { "peak \(AskTraceFormatter.contextBadge($0))" },
+            summary.totalTokens > 0 ? "\(AskTraceFormatter.tokens(summary.totalTokens)) tokens" : nil,
+            summary.userWait > 0 ? "waited \(AskTraceFormatter.duration(summary.userWait))" : nil
+        ].compactMap { $0 }.joined(separator: " · ")
         return VStack(alignment: .leading, spacing: 4) {
             Label {
                 Text(turn.question)
@@ -112,22 +125,18 @@ struct AskTraceTurnView: View {
             }
             .font(.headline)
             .lineLimit(3)
-            Text([
-                AskTraceFormatter.duration(turn.duration),
-                "\(summary.modelCalls) model",
-                "\(summary.toolCalls) tool",
-                "\(summary.decisions) decisions",
-                summary.routedVia.map(AskTraceFormatter.routeWords),
-                summary.specialists,
-                summary.peakContext.map { "peak \(AskTraceFormatter.contextBadge($0))" },
-                summary.totalTokens > 0 ? "\(AskTraceFormatter.tokens(summary.totalTokens)) tokens" : nil,
-                summary.userWait > 0 ? "waited \(AskTraceFormatter.duration(summary.userWait))" : nil
-            ].compactMap { $0 }.joined(separator: " · "))
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            Text(primary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !secondary.isEmpty {
+                Text(secondary)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
+        .padding(.horizontal)
+        .padding(.vertical, 10)
     }
 
     private var tree: some View {
@@ -139,7 +148,7 @@ struct AskTraceTurnView: View {
                     } label: { EmptyView() }
                     .opacity(0)
                 )
-                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 12))
         }
         .listStyle(.plain)
     }
@@ -169,6 +178,10 @@ private struct AskTraceTreeRow: View {
     let row: AskTraceRow
     let onToggle: () -> Void
 
+    private var decisions: [AskTraceEvent] {
+        row.span.events.filter { $0.kind == .decision }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
@@ -185,8 +198,14 @@ private struct AskTraceTreeRow: View {
                     .foregroundStyle(AskTraceStyle.color(row.span.kind))
                     .frame(width: 18)
                 Text(row.span.name)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .lineLimit(2)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                if row.inlinedModel != nil {
+                    Image(systemName: AskTraceFormatter.kindSymbol(.model))
+                        .font(.caption2)
+                        .foregroundStyle(AskTraceStyle.color(.model))
+                        .accessibilityLabel("Includes model call")
+                }
                 if row.isParallel {
                     Text("∥")
                         .font(.caption.weight(.bold))
@@ -200,7 +219,7 @@ private struct AskTraceTreeRow: View {
                     Image(systemName: "hourglass").foregroundStyle(.secondary).accessibilityLabel("Unfinished")
                 }
                 Spacer(minLength: 8)
-                if let context = row.span.model?.context {
+                if let context = row.inlinedModel?.model?.context ?? row.span.model?.context {
                     AskTraceContextBadge(usage: context)
                 }
                 Text(AskTraceFormatter.duration(row.span.duration))
@@ -208,9 +227,17 @@ private struct AskTraceTreeRow: View {
                     .foregroundStyle(.secondary)
             }
             Group {
-                if let result = row.span.result { Text("→ \(result)") }
-                ForEach(Array(row.span.events.filter { $0.kind == .decision }.enumerated()), id: \.offset) { _, event in
+                if let result = row.span.result {
+                    Text("→ \(result)")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                ForEach(Array(decisions.prefix(2).enumerated()), id: \.offset) { _, event in
                     Label(event.message, systemImage: "arrow.triangle.branch")
+                        .lineLimit(1)
+                }
+                if decisions.count > 2 {
+                    Text("+\(decisions.count - 2) more")
                 }
                 if let status = AskTraceFormatter.statusText(row.span.status) {
                     Text(status).foregroundStyle(.red)
@@ -218,10 +245,9 @@ private struct AskTraceTreeRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-            .lineLimit(3)
-            .padding(.leading, 47)
+            .padding(.leading, 44)
         }
-        .padding(.leading, CGFloat(row.depth) * 14)
+        .padding(.leading, CGFloat(row.depth) * 12)
     }
 }
 

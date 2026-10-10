@@ -37,13 +37,26 @@ struct AskTraceSpanDetailView: View {
                     }
                 }
                 engineering(span)
-                if let model = span.model { modelSections(model) }
+                if let model = span.model {
+                    modelSections(model)
+                } else if let inlined = inlinedModelChild(of: span), let model = inlined.model {
+                    modelSections(model)
+                }
             } else {
                 ContentUnavailableView("Span not found", systemImage: "questionmark")
             }
         }
         .navigationTitle(viewModel.span(spanID, in: turnID)?.name ?? "Span")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Same-name model child folded into a function row in Tree / Timeline.
+    private func inlinedModelChild(of span: AskTraceSpan) -> AskTraceSpan? {
+        guard span.kind == .function, let turn = viewModel.turn(turnID) else { return nil }
+        let models = turn.spans.filter {
+            $0.parentID == span.id && $0.kind == .model && $0.name == span.name
+        }
+        return models.count == 1 ? models[0] : nil
     }
 
     private func overview(_ span: AskTraceSpan) -> some View {

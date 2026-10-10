@@ -46,8 +46,8 @@ enum AskTraceGuide {
         ]),
         Section(title: "Kinds of calls", items: [
             Item(symbol: .kind(.turn), title: "Turn", detail: "The whole question. Everything else nests under it."),
-            Item(symbol: .kind(.function), title: "Function", detail: "A traced step such as routeDomain, routeSkill, fillSlots, or fulfill."),
-            Item(symbol: .kind(.model), title: "Foundation Models call", detail: "One on-device model request. Tap it for the instructions, the prompt, tool calls, the response, and context-window use."),
+            Item(symbol: .kind(.function), title: "Function", detail: "A traced step such as routeDomain, routeSkill, fillSlots, or fulfill. In Tree and Timeline, a function with one same-name model child folds into a single row; open the row for the model transcript."),
+            Item(symbol: .kind(.model), title: "Foundation Models call", detail: "One on-device model request. Tap it for the instructions, the prompt, tool calls, the response, and context-window use. A same-name child of a function is shown on the function row instead of as its own Tree line."),
             Item(symbol: .kind(.tool), title: "Tool call", detail: "A tool wrapped with AskTrace.tool. Tool calls the model made also appear inside the model transcript."),
             Item(symbol: .kind(.userWait), title: "Waiting", detail: "Time a host wrapped in userWait, such as a follow-up prompt. Not app work.")
         ]),
