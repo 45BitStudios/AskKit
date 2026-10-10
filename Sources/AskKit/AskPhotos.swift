@@ -23,7 +23,9 @@ public enum AskPhotos {
 
     public static let note = """
     Call the photos tool once with the filters the question named. \
+    Pass action albums to list album titles. \
     For a place search by coordinates, pass latitude, longitude, and radiusMeters. \
+    Pass isHidden for hidden items and newestFirst false for oldest first. \
     Say how many matches it found and name a few. \
     If a line says photos were indexed first, you may mention that briefly. \
     If it says Not allowed, say you cannot see the photo library. Do not invent photos.
@@ -272,6 +274,7 @@ enum AskPhotosFocus {
         if phrases.contains(where: { folded.localizedStandardContains($0) }) { return true }
         if tokens.contains(where: { libraryWords.contains($0) }) { return true }
         if tokens.contains("screenshots") || tokens.contains("screenshot") { return true }
+        if tokens.contains("albums") || (tokens.contains("album") && !tokens.contains("music")) { return true }
         if tokens.contains(where: { ["favorite", "favorites", "favourite", "favourites"].contains($0) }) {
             return tokens.contains(where: { pictureWords.contains($0) })
         }
@@ -291,12 +294,14 @@ enum AskPhotosFocus {
         "find photos", "find pictures", "find images", "search photos", "search pictures",
         "photos of", "pictures of", "images of", "photos from", "pictures from", "images from",
         "photos near", "pictures near", "images near", "photos around", "pictures around",
+        "list albums", "my albums", "photo albums",
+        "hidden photos", "hidden pictures", "oldest photos", "oldest first",
         "my photos", "my pictures", "my screenshots"
     ]
 
     private static let libraryWords: Set<String> = [
         "screenshot", "screenshots", "panorama", "panoramas", "album", "albums",
-        "roll", "library"
+        "roll", "library", "hdr", "timelapse", "slowmo"
     ]
 
     private static let pictureWords: Set<String> = [
@@ -321,12 +326,14 @@ enum AskPhotosQuery {
         daysAgo: Int?,
         throughDaysAgo: Int?,
         isFavorite: Bool?,
+        isHidden: Bool?,
         subtype: String?,
         albumTitle: String?,
         textSearch: String?,
         latitude: Double?,
         longitude: Double?,
         radiusMeters: Double?,
+        newestFirst: Bool?,
         limit: Int?
     ) -> PhotoQueryRequest {
         var request = PhotoQueryRequest()
@@ -336,6 +343,7 @@ enum AskPhotosQuery {
         request.minHeight = positive(minHeight)
         request.maxHeight = positive(maxHeight)
         request.isFavorite = isFavorite
+        request.isHidden = isHidden
         if let subtype, !subtype.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             request.mediaSubtypes = [subtype.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
         }
@@ -347,7 +355,7 @@ enum AskPhotosQuery {
         applyLocation(latitude: latitude, longitude: longitude, radiusMeters: radiusMeters, to: &request)
         let capped = min(max(limit ?? defaultLimit, 1), maximumLimit)
         request.limit = capped
-        request.sortDescending = true
+        request.sortDescending = newestFirst ?? true
         return request
     }
 
@@ -374,12 +382,30 @@ enum AskPhotosQuery {
                 next.mediaSubtypes = ["live"]
             } else if tokens.contains("panorama") || tokens.contains("panoramas") {
                 next.mediaSubtypes = ["panorama"]
+            } else if tokens.contains("hdr") {
+                next.mediaSubtypes = ["hdr"]
+            } else if tokens.contains("depth") || folded.localizedStandardContains("portrait mode") {
+                next.mediaSubtypes = ["depth"]
+            } else if tokens.contains("timelapse") || tokens.contains("time-lapse") {
+                next.mediaSubtypes = ["timelapse"]
+            } else if tokens.contains("slowmo") || tokens.contains("slow-motion")
+                        || folded.localizedStandardContains("slow motion") {
+                next.mediaSubtypes = ["slowmo"]
             }
         }
 
         if next.isFavorite == nil,
            tokens.contains(where: { ["favorite", "favorites", "favourite", "favourites"].contains($0) }) {
             next.isFavorite = true
+        }
+
+        if next.isHidden == nil,
+           tokens.contains(where: { ["hidden", "hide", "concealed"].contains($0) }) {
+            next.isHidden = true
+        }
+
+        if folded.localizedStandardContains("oldest first") || folded.localizedStandardContains("oldest photos") {
+            next.sortDescending = false
         }
 
         if next.startDate == nil {
@@ -619,17 +645,43 @@ enum AskPhotosLine {
             parts.append(date.formatted(date: .abbreviated, time: .omitted))
         }
         parts.append("\(result.pixelWidth)×\(result.pixelHeight)")
+        if result.aspectRatio > 0 {
+            parts.append(String(format: "%.2f:1", result.aspectRatio))
+        }
+        if !result.mediaSubtypes.isEmpty {
+            parts.append(result.mediaSubtypes.joined(separator: "+"))
+        }
+        if let seconds = result.durationSeconds, seconds > 0 {
+            parts.append(durationLabel(seconds))
+        }
         if let location = result.location {
             parts.append(
                 String(format: "%.4f, %.4f", location.coordinate.latitude, location.coordinate.longitude)
             )
         }
         if result.isFavorite { parts.append("favorite") }
+        if result.isHidden { parts.append("hidden") }
         if !result.visionLabels.isEmpty {
             let labels = result.visionLabels.prefix(3).joined(separator: ", ")
             parts.append(AskAppleCopy.plain(labels, limit: 40))
         }
+        if let ocr = result.ocrText?.trimmingCharacters(in: .whitespacesAndNewlines), !ocr.isEmpty {
+            parts.append("OCR " + AskAppleCopy.plain(ocr, limit: 48))
+        }
         return parts.joined(separator: " · ")
+    }
+
+    static func albums(_ titles: [String]) -> String {
+        let kept = titles
+            .map { AskAppleCopy.plain($0, limit: 60) }
+            .filter { !$0.isEmpty }
+        guard !kept.isEmpty else { return "No albums." }
+        var rows = ["Found \(kept.count) albums."]
+        rows.append(contentsOf: kept.prefix(40))
+        if kept.count > 40 {
+            rows.append("And \(kept.count - 40) more.")
+        }
+        return rows.joined(separator: "\n")
     }
 
     private static func label(for request: PhotoQueryRequest) -> String {
@@ -638,6 +690,9 @@ enum AskPhotosLine {
         }
         if request.isFavorite == true {
             return "favorite photos"
+        }
+        if request.isHidden == true {
+            return "hidden photos"
         }
         switch request.mediaType {
         case .video: return request.limit == 1 ? "video" : "videos"
@@ -653,6 +708,16 @@ enum AskPhotosLine {
         case .image: "Photo"
         default: "Item"
         }
+    }
+
+    private static func durationLabel(_ seconds: Double) -> String {
+        let whole = Int(seconds.rounded())
+        let minutes = whole / 60
+        let remain = whole % 60
+        if minutes > 0 {
+            return "\(minutes)m \(remain)s"
+        }
+        return "\(remain)s"
     }
 }
 
@@ -696,24 +761,34 @@ enum AskPhotosRead {
         }
         return AskPhotosLine.format(results, request: request, indexedCount: justIndexed)
     }
+
+    static func albums() async -> String {
+        let allowed = await PhotoQuery.shared.ensureAuthorized()
+        guard allowed else { return AskPhotosLine.denied }
+        return AskPhotosLine.albums(await PhotoQuery.shared.albums())
+    }
 }
 
 struct AskPhotosTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = AskPhotos.toolName
     let description = """
-    Search the photo library. Pass mediaType image, video, livePhoto, or any. \
-    Pass subtype screenshot, live, or panorama when named. \
+    Search the photo library, or list albums. Pass action search or albums. \
+    For search, pass mediaType image, video, livePhoto, or any. \
+    Pass subtype screenshot, live, panorama, hdr, depth, timelapse, or slowmo when named. \
     Pass daysAgo for how far back to look, such as 7 or 30. \
-    Pass isFavorite true for favorites. Pass albumTitle for an album. \
-    Pass textSearch for a filename or content word such as dog. \
+    Pass isFavorite true for favorites. Pass isHidden true for hidden items. \
+    Pass albumTitle for an album. Pass textSearch for a filename or content word such as dog. \
     Pass latitude and longitude to find photos near those coordinates. \
     Pass radiusMeters for the search radius; 1000 when omitted. \
-    Pass minWidth for a pixel width floor. Pass limit up to 25. Call once.
+    Pass newestFirst false for oldest first. Pass minWidth for a pixel width floor. \
+    Pass limit up to 25. Call once.
     """
 
     @Generable
     struct Arguments {
+        @Guide(description: "search or albums. Use albums to list album titles.", .anyOf(["search", "albums"]))
+        var action: String?
         @Guide(description: "image, video, livePhoto, or any.", .anyOf(["image", "video", "livePhoto", "any"]))
         var mediaType: String?
         @Guide(description: "Minimum pixel width. Leave empty when unused.", .range(1...20_000))
@@ -730,7 +805,9 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         var throughDaysAgo: Int?
         @Guide(description: "True for favorites only. Leave empty otherwise.")
         var isFavorite: Bool?
-        @Guide(description: "screenshot, live, or panorama when named. Leave empty otherwise.", .anyOf(["screenshot", "live", "panorama", "hdr", "depth", "timelapse", "slowmo"]))
+        @Guide(description: "True for hidden items only. Leave empty otherwise.")
+        var isHidden: Bool?
+        @Guide(description: "screenshot, live, panorama, hdr, depth, timelapse, or slowmo when named. Leave empty otherwise.", .anyOf(["screenshot", "live", "panorama", "hdr", "depth", "timelapse", "slowmo"]))
         var subtype: String?
         @Guide(description: "Album title. Leave empty when unused.")
         var albumTitle: String?
@@ -742,11 +819,19 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         var longitude: Double?
         @Guide(description: "Search radius in meters around latitude and longitude. Use 1000 when omitted. Max 50000.", .range(1...50_000))
         var radiusMeters: Double?
+        @Guide(description: "True for newest first. False for oldest first. True when omitted.")
+        var newestFirst: Bool?
         @Guide(description: "How many results to return, from 1 to 25.", .range(1...AskPhotosQuery.maximumLimit))
         var limit: Int?
     }
 
     func call(arguments: Arguments) async throws -> String {
+        let action = AskAppleCopy.folded(arguments.action ?? "search")
+        if action == "albums" {
+            return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "albums") {
+                await AskPhotosRead.albums()
+            }
+        }
         let request = AskPhotosQuery.request(
             mediaType: arguments.mediaType,
             minWidth: arguments.minWidth,
@@ -756,12 +841,14 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
             daysAgo: arguments.daysAgo,
             throughDaysAgo: arguments.throughDaysAgo,
             isFavorite: arguments.isFavorite,
+            isHidden: arguments.isHidden,
             subtype: arguments.subtype,
             albumTitle: arguments.albumTitle,
             textSearch: arguments.textSearch,
             latitude: arguments.latitude,
             longitude: arguments.longitude,
             radiusMeters: arguments.radiusMeters,
+            newestFirst: arguments.newestFirst,
             limit: arguments.limit
         )
         let label = summary(request)
@@ -777,6 +864,8 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
             parts.append(subtypes.joined(separator: "+"))
         }
         if request.isFavorite == true { parts.append("favorites") }
+        if request.isHidden == true { parts.append("hidden") }
+        if request.sortDescending == false { parts.append("oldest") }
         if let search = request.textSearch, !search.isEmpty { parts.append(search) }
         if let album = request.albumTitle, !album.isEmpty { parts.append(album) }
         if let latitude = request.locationLatitude, let longitude = request.locationLongitude {

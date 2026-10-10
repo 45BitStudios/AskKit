@@ -27,15 +27,18 @@ public actor PhotoQuery {
     // MARK: - Structured query (best for LLMs)
 
     /// Execute a structured request. Ideal for tool calling from a foundation model.
+    /// Attaches Vision labels and OCR from the persisted index when present.
     public func query(_ request: PhotoQueryRequest) async -> [PhotoResult] {
-        await library.execute(request)
+        await loadStoreIfNeeded()
+        let results = await library.execute(request)
+        return await attachVision(results)
     }
 
     /// Convenience: parse a simple natural-language-ish string into a request.
     /// For production, prefer your foundation model emitting `PhotoQueryRequest` JSON directly.
     public func query(naturalLanguage text: String) async -> [PhotoResult] {
         let request = Self.parseNaturalLanguage(text)
-        return await library.execute(request)
+        return await query(request)
     }
 
     // MARK: - Vision indexing
@@ -142,6 +145,20 @@ public actor PhotoQuery {
 
     public func albums() -> [String] {
         library.albums().compactMap(\.localizedTitle)
+    }
+
+    private func attachVision(_ results: [PhotoResult]) async -> [PhotoResult] {
+        guard !results.isEmpty else { return results }
+        var attached: [PhotoResult] = []
+        attached.reserveCapacity(results.count)
+        for result in results {
+            if let entry = await vision.entry(for: result.id) {
+                attached.append(result.withVision(labels: entry.labels, ocrText: entry.ocrText))
+            } else {
+                attached.append(result)
+            }
+        }
+        return attached
     }
 
     private func loadStoreIfNeeded() async {

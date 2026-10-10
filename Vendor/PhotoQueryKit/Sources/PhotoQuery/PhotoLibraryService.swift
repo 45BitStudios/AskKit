@@ -26,8 +26,7 @@ public final class PhotoLibraryService: Sendable {
             assets = Array(assets.prefix(limit))
         }
 
-        // Enrich with filenames + optional vision data (lightweight)
-        return await enrich(assets: assets)
+        return enrich(assets: assets)
     }
 
     // MARK: - Core fetch
@@ -175,25 +174,55 @@ public final class PhotoLibraryService: Sendable {
         return result
     }
 
-    private func enrich(assets: [PHAsset]) async -> [PhotoResult] {
-        assets.map { asset in
+    private func enrich(assets: [PHAsset]) -> [PhotoResult] {
+        let cloudMap = cloudIdentifiers(for: assets)
+        return assets.map { asset in
             let resources = PHAssetResource.assetResources(for: asset)
             let filename = resources.first?.originalFilename
-
+            let duration = asset.mediaType == .video ? asset.duration : nil
             return PhotoResult(
                 id: asset.localIdentifier,
-                cloudIdentifier: nil, // resolved lazily if needed
+                cloudIdentifier: cloudMap[asset.localIdentifier],
                 creationDate: asset.creationDate,
+                modificationDate: asset.modificationDate,
                 pixelWidth: asset.pixelWidth,
                 pixelHeight: asset.pixelHeight,
                 mediaType: asset.mediaType,
+                mediaSubtypes: Self.subtypeNames(asset.mediaSubtypes),
                 isFavorite: asset.isFavorite,
+                isHidden: asset.isHidden,
+                durationSeconds: duration,
                 filename: filename,
                 location: asset.location,
                 visionLabels: [],
                 ocrText: nil
             )
         }
+    }
+
+    private func cloudIdentifiers(for assets: [PHAsset]) -> [String: String] {
+        guard !assets.isEmpty else { return [:] }
+        let ids = assets.map(\.localIdentifier)
+        let mappings = PHPhotoLibrary.shared().cloudIdentifierMappings(forLocalIdentifiers: ids)
+        var result: [String: String] = [:]
+        for (localID, mapping) in mappings {
+            if case .success(let cloud) = mapping {
+                result[localID] = cloud.stringValue
+            }
+        }
+        return result
+    }
+
+    static func subtypeNames(_ subtypes: PHAssetMediaSubtype) -> [String] {
+        var names: [String] = []
+        if subtypes.contains(.photoScreenshot) { names.append("screenshot") }
+        if subtypes.contains(.photoLive) { names.append("live") }
+        if subtypes.contains(.photoPanorama) { names.append("panorama") }
+        if subtypes.contains(.photoHDR) { names.append("hdr") }
+        if subtypes.contains(.photoDepthEffect) { names.append("depth") }
+        if subtypes.contains(.videoTimelapse) { names.append("timelapse") }
+        if subtypes.contains(.videoHighFrameRate) { names.append("slowmo") }
+        return names
     }
 
     // MARK: - Albums

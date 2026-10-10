@@ -91,10 +91,16 @@ public struct PhotoResult: Identifiable, Sendable {
     public let id: String                          // localIdentifier
     public let cloudIdentifier: String?
     public let creationDate: Date?
+    public let modificationDate: Date?
     public let pixelWidth: Int
     public let pixelHeight: Int
     public let mediaType: PHAssetMediaType
+    /// Normalized subtype names such as screenshot, live, panorama, hdr, depth, timelapse, slowmo.
+    public let mediaSubtypes: [String]
     public let isFavorite: Bool
+    public let isHidden: Bool
+    /// Video duration in seconds. Nil for stills.
+    public let durationSeconds: Double?
     public let filename: String?
     public let location: CLLocation?
     public let visionLabels: [String]
@@ -103,6 +109,60 @@ public struct PhotoResult: Identifiable, Sendable {
     public var aspectRatio: Double {
         guard pixelHeight > 0 else { return 0 }
         return Double(pixelWidth) / Double(pixelHeight)
+    }
+
+    public init(
+        id: String,
+        cloudIdentifier: String? = nil,
+        creationDate: Date? = nil,
+        modificationDate: Date? = nil,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        mediaType: PHAssetMediaType,
+        mediaSubtypes: [String] = [],
+        isFavorite: Bool,
+        isHidden: Bool = false,
+        durationSeconds: Double? = nil,
+        filename: String? = nil,
+        location: CLLocation? = nil,
+        visionLabels: [String] = [],
+        ocrText: String? = nil
+    ) {
+        self.id = id
+        self.cloudIdentifier = cloudIdentifier
+        self.creationDate = creationDate
+        self.modificationDate = modificationDate
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.mediaType = mediaType
+        self.mediaSubtypes = mediaSubtypes
+        self.isFavorite = isFavorite
+        self.isHidden = isHidden
+        self.durationSeconds = durationSeconds
+        self.filename = filename
+        self.location = location
+        self.visionLabels = visionLabels
+        self.ocrText = ocrText
+    }
+
+    public func withVision(labels: [String], ocrText: String?) -> PhotoResult {
+        PhotoResult(
+            id: id,
+            cloudIdentifier: cloudIdentifier,
+            creationDate: creationDate,
+            modificationDate: modificationDate,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            mediaType: mediaType,
+            mediaSubtypes: mediaSubtypes,
+            isFavorite: isFavorite,
+            isHidden: isHidden,
+            durationSeconds: durationSeconds,
+            filename: filename,
+            location: location,
+            visionLabels: labels,
+            ocrText: ocrText
+        )
     }
 }
 

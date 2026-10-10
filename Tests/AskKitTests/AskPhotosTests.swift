@@ -1,3 +1,4 @@
+import PhotoQueryKit
 import XCTest
 @testable import AskKit
 
@@ -11,6 +12,9 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertTrue(AskPhotos.matches("Pictures from the Vacation album"))
         XCTAssertTrue(AskPhotos.matches("Find photos near 37.3349, -122.0090"))
         XCTAssertTrue(AskPhotos.matches("Photos within 500 meters of lat 37.33 lon -122.01"))
+        XCTAssertTrue(AskPhotos.matches("List my photo albums"))
+        XCTAssertTrue(AskPhotos.matches("Show hidden photos"))
+        XCTAssertTrue(AskPhotos.matches("Oldest photos first"))
     }
 
     func testAttachedPhotoQuestionsStayOff() {
@@ -22,74 +26,41 @@ final class AskPhotosTests: XCTestCase {
     }
 
     func testRequestBuildsFilters() {
-        let request = AskPhotosQuery.request(
+        let request = blankRequest(
             mediaType: "image",
             minWidth: 2000,
-            maxWidth: nil,
-            minHeight: nil,
-            maxHeight: nil,
             daysAgo: 30,
-            throughDaysAgo: nil,
             isFavorite: true,
+            isHidden: true,
             subtype: "screenshot",
-            albumTitle: nil,
             textSearch: "dog",
             latitude: 37.3349,
             longitude: -122.0090,
             radiusMeters: 500,
+            newestFirst: false,
             limit: 10
         )
         XCTAssertEqual(request.mediaType, .image)
         XCTAssertEqual(request.minWidth, 2000)
         XCTAssertEqual(request.isFavorite, true)
+        XCTAssertEqual(request.isHidden, true)
         XCTAssertEqual(request.mediaSubtypes, ["screenshot"])
         XCTAssertEqual(request.textSearch, "dog")
         XCTAssertEqual(request.limit, 10)
         XCTAssertEqual(request.locationLatitude, 37.3349)
         XCTAssertEqual(request.locationLongitude, -122.0090)
         XCTAssertEqual(request.locationRadiusMeters, 500)
+        XCTAssertEqual(request.sortDescending, false)
         XCTAssertNotNil(request.startDate)
     }
 
     func testRequestDefaultsRadiusWhenCoordinatesProvided() {
-        let request = AskPhotosQuery.request(
-            mediaType: "image",
-            minWidth: nil,
-            maxWidth: nil,
-            minHeight: nil,
-            maxHeight: nil,
-            daysAgo: nil,
-            throughDaysAgo: nil,
-            isFavorite: nil,
-            subtype: nil,
-            albumTitle: nil,
-            textSearch: nil,
-            latitude: 37.3349,
-            longitude: -122.0090,
-            radiusMeters: nil,
-            limit: nil
-        )
+        let request = blankRequest(latitude: 37.3349, longitude: -122.0090)
         XCTAssertEqual(request.locationRadiusMeters, AskPhotosQuery.defaultRadiusMeters)
     }
 
     func testEnrichFillsGapsFromQuestion() {
-        var request = AskPhotosQuery.request(
-            mediaType: nil,
-            minWidth: nil,
-            maxWidth: nil,
-            minHeight: nil,
-            maxHeight: nil,
-            daysAgo: nil,
-            throughDaysAgo: nil,
-            isFavorite: nil,
-            subtype: nil,
-            albumTitle: nil,
-            textSearch: nil,
-            latitude: nil,
-            longitude: nil,
-            radiusMeters: nil,
-            limit: nil
-        )
+        var request = blankRequest()
         request = AskPhotosQuery.enrich(request, question: "screenshots from last week wider than 1000px")
         XCTAssertEqual(request.mediaType, .image)
         XCTAssertEqual(request.mediaSubtypes, ["screenshot"])
@@ -99,23 +70,7 @@ final class AskPhotosTests: XCTestCase {
     }
 
     func testEnrichParsesCoordinatesAndRadius() {
-        var request = AskPhotosQuery.request(
-            mediaType: nil,
-            minWidth: nil,
-            maxWidth: nil,
-            minHeight: nil,
-            maxHeight: nil,
-            daysAgo: nil,
-            throughDaysAgo: nil,
-            isFavorite: nil,
-            subtype: nil,
-            albumTitle: nil,
-            textSearch: nil,
-            latitude: nil,
-            longitude: nil,
-            radiusMeters: nil,
-            limit: nil
-        )
+        var request = blankRequest()
         request = AskPhotosQuery.enrich(
             request,
             question: "Find photos within 2 km of 37.3349, -122.0090"
@@ -127,6 +82,24 @@ final class AskPhotosTests: XCTestCase {
         let labeled = AskPhotosQuery.coordinates(in: "lat 37.33 lon -122.01")
         XCTAssertEqual(labeled?.latitude ?? 0, 37.33, accuracy: 0.001)
         XCTAssertEqual(labeled?.longitude ?? 0, -122.01, accuracy: 0.001)
+    }
+
+    func testEnrichParsesHiddenOldestAndHDR() {
+        var hidden = AskPhotosQuery.enrich(blankRequest(), question: "Show hidden photos")
+        XCTAssertEqual(hidden.isHidden, true)
+
+        var oldest = AskPhotosQuery.enrich(blankRequest(), question: "Oldest photos first")
+        XCTAssertEqual(oldest.sortDescending, false)
+
+        var hdr = AskPhotosQuery.enrich(blankRequest(), question: "Find HDR photos")
+        XCTAssertEqual(hdr.mediaSubtypes, ["hdr"])
+    }
+
+    func testAlbumLines() {
+        let text = AskPhotosLine.albums(["Vacation", "Family"])
+        XCTAssertTrue(text.hasPrefix("Found 2 albums."))
+        XCTAssertTrue(text.contains("Vacation"))
+        XCTAssertEqual(AskPhotosLine.albums([]), "No albums.")
     }
 
     func testLinesHaveNoEqualsAndSpeakCleanly() {
@@ -200,5 +173,45 @@ final class AskPhotosTests: XCTestCase {
             "IMG_0001.PNG · Oct 1, 2026 · 1170×2532"
         ]
         XCTAssertEqual(AskPhotosLine.spoken(lines), "Found 2 photos.")
+    }
+
+    private func blankRequest(
+        mediaType: String? = nil,
+        minWidth: Int? = nil,
+        maxWidth: Int? = nil,
+        minHeight: Int? = nil,
+        maxHeight: Int? = nil,
+        daysAgo: Int? = nil,
+        throughDaysAgo: Int? = nil,
+        isFavorite: Bool? = nil,
+        isHidden: Bool? = nil,
+        subtype: String? = nil,
+        albumTitle: String? = nil,
+        textSearch: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        radiusMeters: Double? = nil,
+        newestFirst: Bool? = nil,
+        limit: Int? = nil
+    ) -> PhotoQueryRequest {
+        AskPhotosQuery.request(
+            mediaType: mediaType,
+            minWidth: minWidth,
+            maxWidth: maxWidth,
+            minHeight: minHeight,
+            maxHeight: maxHeight,
+            daysAgo: daysAgo,
+            throughDaysAgo: throughDaysAgo,
+            isFavorite: isFavorite,
+            isHidden: isHidden,
+            subtype: subtype,
+            albumTitle: albumTitle,
+            textSearch: textSearch,
+            latitude: latitude,
+            longitude: longitude,
+            radiusMeters: radiusMeters,
+            newestFirst: newestFirst,
+            limit: limit
+        )
     }
 }
