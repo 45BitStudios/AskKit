@@ -88,11 +88,14 @@ let results = await PhotoQuery.shared.query(request)
 ## Vision Indexing
 
 ```swift
-// Index recent images for content search
-await PhotoQuery.shared.indexRecentImages(limit: 300)
+// Index recent images for content search. Progress is for status UI.
+await PhotoQuery.shared.indexRecentImages(limit: 300) { progress in
+    print("\(progress.completed)/\(progress.total) · \(progress.indexedCount) stored")
+}
 
 // Later: find photos whose Vision labels or OCR contain “dog” or “receipt”
 let ids = await PhotoQuery.shared.visionSearch(query: "dog")
+let count = await PhotoQuery.shared.indexedCount()
 ```
 
 ## Caching

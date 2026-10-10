@@ -107,4 +107,32 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertEqual(tools.count, 1)
         XCTAssertEqual(tools.first?.name, AskPhotos.toolName)
     }
+
+    func testIndexStatusCopy() {
+        XCTAssertEqual(AskPhotosIndexCopy.needed.title, "Photos need indexing")
+        XCTAssertEqual(AskPhotosIndexCopy.needed.detail, "For content search")
+        let indexing = AskPhotosIndexCopy.indexing(completed: 12, total: 200)
+        XCTAssertEqual(indexing.title, "Indexing photos…")
+        XCTAssertEqual(indexing.detail, "12 of 200")
+        let ready = AskPhotosIndexCopy.ready(count: 200)
+        XCTAssertEqual(ready.title, "Searching photos")
+        XCTAssertEqual(ready.detail, "200 indexed")
+        XCTAssertEqual(
+            AskPhotosIndexCopy.indexedFact(count: 200),
+            "Indexed 200 recent photos for content search."
+        )
+        XCTAssertEqual(
+            AskPhotosIndexCopy.indexedFact(count: 1),
+            "Indexed 1 recent photo for content search."
+        )
+    }
+
+    func testSpokenPrefersFoundAfterIndexFact() {
+        let lines = [
+            "Indexed 200 recent photos for content search.",
+            "Found 2 photos.",
+            "IMG_0001.PNG · Oct 1, 2026 · 1170×2532"
+        ]
+        XCTAssertEqual(AskPhotosLine.spoken(lines), "Found 2 photos.")
+    }
 }

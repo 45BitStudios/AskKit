@@ -34,8 +34,17 @@ public actor PhotoQuery {
 
     // MARK: - Vision indexing
 
-    /// Index a set of local identifiers (or all recent images).
-    public func indexRecentImages(limit: Int = 200, includeFeaturePrint: Bool = false) async {
+    /// How many assets currently have Vision labels or OCR in the in-memory index.
+    public func indexedCount() async -> Int {
+        await vision.indexedCount()
+    }
+
+    /// Index recent images. Reports progress for UI. Already-indexed assets are skipped.
+    public func indexRecentImages(
+        limit: Int = 200,
+        includeFeaturePrint: Bool = false,
+        onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
+    ) async {
         var request = PhotoQueryRequest()
         request.mediaType = .image
         request.limit = limit
@@ -45,7 +54,7 @@ public actor PhotoQuery {
         let assets = results.compactMap { result -> PHAsset? in
             PHAsset.fetchAssets(withLocalIdentifiers: [result.id], options: nil).firstObject
         }
-        await vision.index(assets: assets, includeFeaturePrint: includeFeaturePrint)
+        await vision.index(assets: assets, includeFeaturePrint: includeFeaturePrint, onProgress: onProgress)
     }
 
     public func visionSearch(query: String) async -> [String] {

@@ -21,28 +21,73 @@ public actor VisionIndexer {
     public init() {}
 
     /// Index a batch of assets (call from background).
-    public func index(assets: [PHAsset], includeFeaturePrint: Bool = false) async {
-        await withTaskGroup(of: IndexEntry?.self) { group in
-            var iterator = assets.makeIterator()
-            for _ in 0..<maxConcurrent {
-                if let asset = iterator.next() {
-                    group.addTask { await self.indexOne(asset: asset, includeFeaturePrint: includeFeaturePrint) }
+    /// Already-indexed identifiers are skipped but still counted in progress.
+    public func index(
+        assets: [PHAsset],
+        includeFeaturePrint: Bool = false,
+        onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
+    ) async {
+        let total = assets.count
+        guard total > 0 else {
+            onProgress?(PhotoIndexProgress(completed: 0, total: 0, indexedCount: index.count, isFinished: true))
+            return
+        }
+
+        var completed = 0
+        func report(finished: Bool = false) {
+            onProgress?(
+                PhotoIndexProgress(
+                    completed: completed,
+                    total: total,
+                    indexedCount: index.count,
+                    isFinished: finished
+                )
+            )
+        }
+        report()
+
+        var pending = assets
+        await withTaskGroup(of: (String, IndexEntry?).self) { group in
+            var inFlight = 0
+
+            func fill() {
+                while inFlight < maxConcurrent, !pending.isEmpty {
+                    let asset = pending.removeFirst()
+                    let id = asset.localIdentifier
+                    if index[id] != nil {
+                        completed += 1
+                        report()
+                        continue
+                    }
+                    inFlight += 1
+                    group.addTask {
+                        let entry = await self.indexOne(asset: asset, includeFeaturePrint: includeFeaturePrint)
+                        return (id, entry)
+                    }
                 }
             }
 
-            while let entry = await group.next() {
+            fill()
+            while let (id, entry) = await group.next() {
+                inFlight -= 1
                 if let entry {
-                    index[entry.localIdentifier] = entry
+                    index[id] = entry
                 }
-                if let next = iterator.next() {
-                    group.addTask { await self.indexOne(asset: next, includeFeaturePrint: includeFeaturePrint) }
-                }
+                completed += 1
+                report()
+                fill()
             }
         }
+
+        report(finished: true)
     }
 
     public func entry(for localIdentifier: String) -> IndexEntry? {
         index[localIdentifier]
+    }
+
+    public func indexedCount() -> Int {
+        index.count
     }
 
     public func searchLabels(containing query: String) -> [String] {

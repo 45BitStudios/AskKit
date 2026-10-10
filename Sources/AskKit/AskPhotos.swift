@@ -8,13 +8,19 @@ import SwiftUI
 ///
 /// Register `AskPhotos.specialist` on an assistant. A match runs before Apple specialists.
 /// The host app needs `NSPhotoLibraryUsageDescription`.
+///
+/// Content search needs an on-device Vision index. When that index is empty, AskKit shows
+/// “Photos need indexing” then “Indexing photos…” with a count beside the thinking orb,
+/// then searches. Call ``warmIndex(limit:)`` to build the index ahead of a turn.
 public enum AskPhotos {
     public static let toolName = "photos"
     public static let defaultSpecialistID = "photos"
+    public static let defaultIndexLimit = 200
 
     public static let note = """
     Call the photos tool once with the filters the question named. \
     Say how many matches it found and name a few. \
+    If a line says photos were indexed first, you may mention that briefly. \
     If it says Not allowed, say you cannot see the photo library. Do not invent photos.
     """
 
@@ -39,6 +45,158 @@ public enum AskPhotos {
             tools: { [AskPhotosTool(toolLedger: AskToolLedger())] },
             matches: matches
         )
+    }
+
+    /// How far the on-device Vision index has gotten.
+    public static func indexStatus() async -> AskPhotosIndexStatus {
+        await AskPhotosIndex.status()
+    }
+
+    /// Builds the Vision index for recent photos. Updates the thinking line when a turn is active.
+    @discardableResult
+    public static func warmIndex(limit: Int = defaultIndexLimit) async -> AskPhotosIndexStatus {
+        await AskPhotosIndex.ensureReady(limit: limit, force: true)
+    }
+}
+
+/// State of the on-device photo Vision index.
+public enum AskPhotosIndexStatus: Equatable, Sendable {
+    case idle
+    case needed
+    case indexing(completed: Int, total: Int)
+    case ready(count: Int)
+
+    public var indexedCount: Int {
+        switch self {
+        case .idle, .needed: 0
+        case .indexing(_, _): 0
+        case .ready(let count): count
+        }
+    }
+}
+
+/// Status copy and indexing for the photos specialist.
+enum AskPhotosIndex {
+    static let detail = "Photos"
+
+    static func status() async -> AskPhotosIndexStatus {
+        if AskPhotosIndexState.shared.isIndexing {
+            let snap = AskPhotosIndexState.shared.snapshot
+            return .indexing(completed: snap.completed, total: snap.total)
+        }
+        let count = await PhotoQuery.shared.indexedCount()
+        if count == 0 { return .needed }
+        return .ready(count: count)
+    }
+
+    /// Indexes recent photos when the Vision store is empty, or when `force` is set.
+    @discardableResult
+    static func ensureReady(limit: Int = AskPhotos.defaultIndexLimit, force: Bool = false) async -> AskPhotosIndexStatus {
+        let allowed = await PhotoQuery.shared.ensureAuthorized()
+        guard allowed else { return .needed }
+
+        let count = await PhotoQuery.shared.indexedCount()
+        if !force, count > 0 {
+            return .ready(count: count)
+        }
+
+        await announceNeeded()
+        AskPhotosIndexState.shared.begin(total: max(limit, 1))
+        await announce(AskPhotosIndexCopy.indexing(completed: 0, total: max(limit, 1)))
+
+        await PhotoQuery.shared.indexRecentImages(limit: limit) { progress in
+            AskPhotosIndexState.shared.update(progress)
+            let line = AskPhotosIndexCopy.indexing(completed: progress.completed, total: progress.total)
+            // Throttle UI churn; always publish the finished tick.
+            if progress.isFinished || progress.completed == 0 || progress.completed % 4 == 0
+                || progress.completed == progress.total {
+                Task { @MainActor in
+                    AskChatActivity.show(line.title, detail: line.detail, phase: .tool)
+                }
+            }
+        }
+
+        let indexed = await PhotoQuery.shared.indexedCount()
+        AskPhotosIndexState.shared.finish(count: indexed)
+        await announce(AskPhotosIndexCopy.ready(count: indexed))
+        return .ready(count: indexed)
+    }
+
+    private static func announceNeeded() async {
+        let line = AskPhotosIndexCopy.needed
+        await announce(line)
+    }
+
+    @MainActor
+    private static func announce(_ line: (title: String, detail: String)) {
+        AskChatActivity.show(line.title, detail: line.detail, phase: .tool)
+    }
+}
+
+/// Copy for the thinking orb while photos are indexed.
+enum AskPhotosIndexCopy {
+    static let needed = (title: "Photos need indexing", detail: "For content search")
+
+    static func indexing(completed: Int, total: Int) -> (title: String, detail: String) {
+        let safeTotal = max(total, 1)
+        let safeCompleted = min(max(completed, 0), safeTotal)
+        return ("Indexing photos…", "\(safeCompleted) of \(safeTotal)")
+    }
+
+    static func ready(count: Int) -> (title: String, detail: String) {
+        if count <= 0 {
+            return ("Searching photos", AskPhotosIndex.detail)
+        }
+        return ("Searching photos", "\(count) indexed")
+    }
+
+    static func indexedFact(count: Int) -> String {
+        if count <= 0 { return "No recent photos were indexed." }
+        if count == 1 { return "Indexed 1 recent photo for content search." }
+        return "Indexed \(count) recent photos for content search."
+    }
+}
+
+/// Shared progress while a Vision index pass runs.
+final class AskPhotosIndexState: @unchecked Sendable {
+    static let shared = AskPhotosIndexState()
+    private let lock = NSLock()
+    private var _isIndexing = false
+    private var _completed = 0
+    private var _total = 0
+
+    var isIndexing: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _isIndexing
+    }
+
+    var snapshot: (completed: Int, total: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (_completed, _total)
+    }
+
+    func begin(total: Int) {
+        lock.lock()
+        _isIndexing = true
+        _completed = 0
+        _total = max(total, 1)
+        lock.unlock()
+    }
+
+    func update(_ progress: PhotoIndexProgress) {
+        lock.lock()
+        _completed = progress.completed
+        _total = max(progress.total, 1)
+        if progress.isFinished { _isIndexing = false }
+        lock.unlock()
+    }
+
+    func finish(count: Int) {
+        lock.lock()
+        _isIndexing = false
+        _completed = count
+        _total = max(count, _total)
+        lock.unlock()
     }
 }
 
@@ -250,14 +408,29 @@ enum AskPhotosLine {
         guard let head = kept.first else { return nil }
         if head == denied || head == empty { return head }
         if head.hasPrefix("Found ") { return head }
+        if head.hasPrefix("Indexed ") {
+            if let found = kept.first(where: { $0.hasPrefix("Found ") }) { return found }
+            return head
+        }
         return kept.prefix(3).joined(separator: " ")
     }
 
-    static func format(_ results: [PhotoResult], request: PhotoQueryRequest) -> String {
-        guard !results.isEmpty else { return empty }
+    static func format(
+        _ results: [PhotoResult],
+        request: PhotoQueryRequest,
+        indexedCount: Int? = nil
+    ) -> String {
+        var rows: [String] = []
+        if let indexedCount {
+            rows.append(AskPhotosIndexCopy.indexedFact(count: indexedCount))
+        }
+        guard !results.isEmpty else {
+            rows.append(empty)
+            return rows.joined(separator: "\n")
+        }
         let count = results.count
         let kind = label(for: request)
-        var rows = ["Found \(count) \(kind)."]
+        rows.append("Found \(count) \(kind).")
         for result in results.prefix(maximumListed) {
             rows.append(row(result))
         }
@@ -314,8 +487,27 @@ enum AskPhotosRead {
     static func lines(_ request: PhotoQueryRequest) async -> String {
         let allowed = await PhotoQuery.shared.ensureAuthorized()
         guard allowed else { return AskPhotosLine.denied }
+
+        let search = request.textSearch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let needsVision = !search.isEmpty
+        var justIndexed: Int?
+
+        if needsVision {
+            let before = await PhotoQuery.shared.indexedCount()
+            if before == 0 {
+                let status = await AskPhotosIndex.ensureReady()
+                if case .ready(let count) = status {
+                    justIndexed = count
+                }
+            }
+            await MainActor.run {
+                let ready = AskPhotosIndexCopy.ready(count: justIndexed ?? before)
+                AskChatActivity.show(ready.title, detail: ready.detail, phase: .tool)
+            }
+        }
+
         var results = await PhotoQuery.shared.query(request)
-        if results.isEmpty, let search = request.textSearch, !search.isEmpty {
+        if results.isEmpty, needsVision {
             let ids = await PhotoQuery.shared.visionSearch(query: search)
             if !ids.isEmpty {
                 var fallback = request
@@ -329,7 +521,7 @@ enum AskPhotosRead {
                 }
             }
         }
-        return AskPhotosLine.format(results, request: request)
+        return AskPhotosLine.format(results, request: request, indexedCount: justIndexed)
     }
 }
 

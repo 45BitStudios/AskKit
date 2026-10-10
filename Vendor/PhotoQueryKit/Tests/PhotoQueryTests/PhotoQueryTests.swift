@@ -17,4 +17,11 @@ final class PhotoQueryTests: XCTestCase {
         XCTAssertEqual(decoded.isFavorite, true)
         XCTAssertEqual(decoded.limit, 25)
     }
+
+    func testIndexProgressFraction() {
+        let mid = PhotoIndexProgress(completed: 50, total: 200, indexedCount: 40, isFinished: false)
+        XCTAssertEqual(mid.fractionComplete, 0.25, accuracy: 0.0001)
+        let empty = PhotoIndexProgress(completed: 0, total: 0, indexedCount: 0, isFinished: true)
+        XCTAssertEqual(empty.fractionComplete, 1)
+    }
 }
