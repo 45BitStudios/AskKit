@@ -9,6 +9,8 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertTrue(AskPhotos.matches("What's in my camera roll"))
         XCTAssertTrue(AskPhotos.matches("Live Photos from this year"))
         XCTAssertTrue(AskPhotos.matches("Pictures from the Vacation album"))
+        XCTAssertTrue(AskPhotos.matches("Find photos near 37.3349, -122.0090"))
+        XCTAssertTrue(AskPhotos.matches("Photos within 500 meters of lat 37.33 lon -122.01"))
     }
 
     func testAttachedPhotoQuestionsStayOff() {
@@ -32,6 +34,9 @@ final class AskPhotosTests: XCTestCase {
             subtype: "screenshot",
             albumTitle: nil,
             textSearch: "dog",
+            latitude: 37.3349,
+            longitude: -122.0090,
+            radiusMeters: 500,
             limit: 10
         )
         XCTAssertEqual(request.mediaType, .image)
@@ -40,7 +45,31 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertEqual(request.mediaSubtypes, ["screenshot"])
         XCTAssertEqual(request.textSearch, "dog")
         XCTAssertEqual(request.limit, 10)
+        XCTAssertEqual(request.locationLatitude, 37.3349)
+        XCTAssertEqual(request.locationLongitude, -122.0090)
+        XCTAssertEqual(request.locationRadiusMeters, 500)
         XCTAssertNotNil(request.startDate)
+    }
+
+    func testRequestDefaultsRadiusWhenCoordinatesProvided() {
+        let request = AskPhotosQuery.request(
+            mediaType: "image",
+            minWidth: nil,
+            maxWidth: nil,
+            minHeight: nil,
+            maxHeight: nil,
+            daysAgo: nil,
+            throughDaysAgo: nil,
+            isFavorite: nil,
+            subtype: nil,
+            albumTitle: nil,
+            textSearch: nil,
+            latitude: 37.3349,
+            longitude: -122.0090,
+            radiusMeters: nil,
+            limit: nil
+        )
+        XCTAssertEqual(request.locationRadiusMeters, AskPhotosQuery.defaultRadiusMeters)
     }
 
     func testEnrichFillsGapsFromQuestion() {
@@ -56,6 +85,9 @@ final class AskPhotosTests: XCTestCase {
             subtype: nil,
             albumTitle: nil,
             textSearch: nil,
+            latitude: nil,
+            longitude: nil,
+            radiusMeters: nil,
             limit: nil
         )
         request = AskPhotosQuery.enrich(request, question: "screenshots from last week wider than 1000px")
@@ -64,6 +96,37 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertEqual(request.minWidth, 1000)
         XCTAssertNotNil(request.startDate)
         XCTAssertEqual(request.limit, AskPhotosQuery.defaultLimit)
+    }
+
+    func testEnrichParsesCoordinatesAndRadius() {
+        var request = AskPhotosQuery.request(
+            mediaType: nil,
+            minWidth: nil,
+            maxWidth: nil,
+            minHeight: nil,
+            maxHeight: nil,
+            daysAgo: nil,
+            throughDaysAgo: nil,
+            isFavorite: nil,
+            subtype: nil,
+            albumTitle: nil,
+            textSearch: nil,
+            latitude: nil,
+            longitude: nil,
+            radiusMeters: nil,
+            limit: nil
+        )
+        request = AskPhotosQuery.enrich(
+            request,
+            question: "Find photos within 2 km of 37.3349, -122.0090"
+        )
+        XCTAssertEqual(request.locationLatitude ?? 0, 37.3349, accuracy: 0.0001)
+        XCTAssertEqual(request.locationLongitude ?? 0, -122.0090, accuracy: 0.0001)
+        XCTAssertEqual(request.locationRadiusMeters ?? 0, 2_000, accuracy: 0.1)
+
+        let labeled = AskPhotosQuery.coordinates(in: "lat 37.33 lon -122.01")
+        XCTAssertEqual(labeled?.latitude ?? 0, 37.33, accuracy: 0.001)
+        XCTAssertEqual(labeled?.longitude ?? 0, -122.01, accuracy: 0.001)
     }
 
     func testLinesHaveNoEqualsAndSpeakCleanly() {

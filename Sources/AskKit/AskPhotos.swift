@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 import FoundationModels
 import Photos
@@ -22,6 +23,7 @@ public enum AskPhotos {
 
     public static let note = """
     Call the photos tool once with the filters the question named. \
+    For a place search by coordinates, pass latitude, longitude, and radiusMeters. \
     Say how many matches it found and name a few. \
     If a line says photos were indexed first, you may mention that briefly. \
     If it says Not allowed, say you cannot see the photo library. Do not invent photos.
@@ -273,9 +275,11 @@ enum AskPhotosFocus {
         if tokens.contains(where: { ["favorite", "favorites", "favourite", "favourites"].contains($0) }) {
             return tokens.contains(where: { pictureWords.contains($0) })
         }
-        // "photos of dogs", "pictures from June"
+        // "photos of dogs", "pictures from June", "photos near 37.3, -122.0"
         if tokens.contains(where: { pictureWords.contains($0) }) {
+            if AskPhotosQuery.coordinates(in: folded) != nil { return true }
             return tokens.contains("of") || tokens.contains("from") || tokens.contains("in")
+                || tokens.contains("near") || tokens.contains("around")
                 || tokens.contains("wider") || tokens.contains("taller")
                 || tokens.contains("album") || tokens.contains("library")
         }
@@ -286,6 +290,7 @@ enum AskPhotosFocus {
         "camera roll", "photo library", "live photo", "live photos",
         "find photos", "find pictures", "find images", "search photos", "search pictures",
         "photos of", "pictures of", "images of", "photos from", "pictures from", "images from",
+        "photos near", "pictures near", "images near", "photos around", "pictures around",
         "my photos", "my pictures", "my screenshots"
     ]
 
@@ -303,6 +308,9 @@ enum AskPhotosFocus {
 enum AskPhotosQuery {
     static let maximumLimit = 25
     static let defaultLimit = 12
+    /// Used when latitude and longitude are set but no radius is passed.
+    static let defaultRadiusMeters = 1_000.0
+    static let maximumRadiusMeters = 50_000.0
 
     static func request(
         mediaType: String?,
@@ -316,6 +324,9 @@ enum AskPhotosQuery {
         subtype: String?,
         albumTitle: String?,
         textSearch: String?,
+        latitude: Double?,
+        longitude: Double?,
+        radiusMeters: Double?,
         limit: Int?
     ) -> PhotoQueryRequest {
         var request = PhotoQueryRequest()
@@ -333,6 +344,7 @@ enum AskPhotosQuery {
         let search = trimmed(textSearch)
         if !search.isEmpty { request.textSearch = search }
         applyDates(daysAgo: daysAgo, throughDaysAgo: throughDaysAgo, to: &request)
+        applyLocation(latitude: latitude, longitude: longitude, radiusMeters: radiusMeters, to: &request)
         let capped = min(max(limit ?? defaultLimit, 1), maximumLimit)
         request.limit = capped
         request.sortDescending = true
@@ -391,9 +403,24 @@ enum AskPhotosQuery {
             }
         }
 
+        if next.locationLatitude == nil || next.locationLongitude == nil,
+           let pair = coordinates(in: folded) {
+            applyLocation(
+                latitude: pair.latitude,
+                longitude: pair.longitude,
+                radiusMeters: next.locationRadiusMeters ?? radius(in: folded),
+                to: &next
+            )
+        } else if next.locationLatitude != nil, next.locationLongitude != nil, next.locationRadiusMeters == nil {
+            next.locationRadiusMeters = radius(in: folded) ?? defaultRadiusMeters
+        }
+
         if next.textSearch == nil || next.textSearch?.isEmpty == true {
             if let of = contentAfter(folded, marker: " of ") {
-                next.textSearch = of
+                // Skip coordinate fragments mistaken for content words.
+                if coordinates(in: of) == nil {
+                    next.textSearch = of
+                }
             }
         }
 
@@ -401,6 +428,41 @@ enum AskPhotosQuery {
             next.limit = defaultLimit
         }
         return next
+    }
+
+    /// Latitude and longitude from text such as `37.3349, -122.0090` or `lat 37.33 lon -122.01`.
+    static func coordinates(in text: String) -> (latitude: Double, longitude: Double)? {
+        let folded = AskAppleCopy.folded(text)
+        if let pair = labeledCoordinates(in: folded) { return pair }
+        guard let range = folded.range(
+            of: #"([+-]?\d{1,3}\.\d+)\s*[, ]\s*([+-]?\d{1,3}\.\d+)"#,
+            options: .regularExpression
+        ) else {
+            return nil
+        }
+        let match = String(folded[range])
+        let parts = match.split { $0 == "," || $0.isWhitespace }.map(String.init).filter { !$0.isEmpty }
+        guard parts.count >= 2,
+              let latitude = Double(parts[0]),
+              let longitude = Double(parts[1]),
+              validCoordinate(latitude: latitude, longitude: longitude) else {
+            return nil
+        }
+        return (latitude, longitude)
+    }
+
+    static func radius(in text: String) -> Double? {
+        let folded = AskAppleCopy.folded(text)
+        if let meters = measurement(in: folded, pattern: #"within\s+(\d+(?:\.\d+)?)\s*(m|meter|meters|metre|metres)\b"#) {
+            return min(max(meters, 1), maximumRadiusMeters)
+        }
+        if let km = measurement(in: folded, pattern: #"within\s+(\d+(?:\.\d+)?)\s*(km|kilometer|kilometers|kilometre|kilometres)\b"#) {
+            return min(max(km * 1_000, 1), maximumRadiusMeters)
+        }
+        if let miles = measurement(in: folded, pattern: #"within\s+(\d+(?:\.\d+)?)\s*(mi|mile|miles)\b"#) {
+            return min(max(miles * 1_609.344, 1), maximumRadiusMeters)
+        }
+        return nil
     }
 
     private static func media(_ raw: String?) -> PhotoQueryRequest.MediaType? {
@@ -424,6 +486,50 @@ enum AskPhotosQuery {
             let end = calendar.date(byAdding: .day, value: -max(throughDaysAgo, 0), to: now)
             request.endDate = end
         }
+    }
+
+    private static func applyLocation(
+        latitude: Double?,
+        longitude: Double?,
+        radiusMeters: Double?,
+        to request: inout PhotoQueryRequest
+    ) {
+        guard let latitude, let longitude, validCoordinate(latitude: latitude, longitude: longitude) else { return }
+        request.locationLatitude = latitude
+        request.locationLongitude = longitude
+        let radius = radiusMeters ?? defaultRadiusMeters
+        request.locationRadiusMeters = min(max(radius, 1), maximumRadiusMeters)
+    }
+
+    private static func validCoordinate(latitude: Double, longitude: Double) -> Bool {
+        (-90...90).contains(latitude) && (-180...180).contains(longitude)
+    }
+
+    private static func labeledCoordinates(in folded: String) -> (latitude: Double, longitude: Double)? {
+        let pattern = #"lat(?:itude)?\s*[:=]?\s*([+-]?\d{1,3}\.\d+).{0,24}lon(?:gitude)?\s*[:=]?\s*([+-]?\d{1,3}\.\d+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(folded.startIndex..<folded.endIndex, in: folded)
+        guard let match = regex.firstMatch(in: folded, range: range),
+              match.numberOfRanges == 3,
+              let latRange = Range(match.range(at: 1), in: folded),
+              let lonRange = Range(match.range(at: 2), in: folded),
+              let latitude = Double(folded[latRange]),
+              let longitude = Double(folded[lonRange]),
+              validCoordinate(latitude: latitude, longitude: longitude) else {
+            return nil
+        }
+        return (latitude, longitude)
+    }
+
+    private static func measurement(in folded: String, pattern: String) -> Double? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(folded.startIndex..<folded.endIndex, in: folded)
+        guard let match = regex.firstMatch(in: folded, range: range),
+              match.numberOfRanges >= 2,
+              let valueRange = Range(match.range(at: 1), in: folded) else {
+            return nil
+        }
+        return Double(folded[valueRange])
     }
 
     private static func pixelSize(in folded: String) -> Int? {
@@ -513,6 +619,11 @@ enum AskPhotosLine {
             parts.append(date.formatted(date: .abbreviated, time: .omitted))
         }
         parts.append("\(result.pixelWidth)×\(result.pixelHeight)")
+        if let location = result.location {
+            parts.append(
+                String(format: "%.4f, %.4f", location.coordinate.latitude, location.coordinate.longitude)
+            )
+        }
         if result.isFavorite { parts.append("favorite") }
         if !result.visionLabels.isEmpty {
             let labels = result.visionLabels.prefix(3).joined(separator: ", ")
@@ -596,6 +707,8 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
     Pass daysAgo for how far back to look, such as 7 or 30. \
     Pass isFavorite true for favorites. Pass albumTitle for an album. \
     Pass textSearch for a filename or content word such as dog. \
+    Pass latitude and longitude to find photos near those coordinates. \
+    Pass radiusMeters for the search radius; 1000 when omitted. \
     Pass minWidth for a pixel width floor. Pass limit up to 25. Call once.
     """
 
@@ -623,6 +736,12 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         var albumTitle: String?
         @Guide(description: "A filename or content word such as dog or receipt. Leave empty when unused.")
         var textSearch: String?
+        @Guide(description: "Latitude from -90 to 90 for a nearby photo search. Leave empty when unused.", .range(-90...90))
+        var latitude: Double?
+        @Guide(description: "Longitude from -180 to 180 for a nearby photo search. Leave empty when unused.", .range(-180...180))
+        var longitude: Double?
+        @Guide(description: "Search radius in meters around latitude and longitude. Use 1000 when omitted. Max 50000.", .range(1...50_000))
+        var radiusMeters: Double?
         @Guide(description: "How many results to return, from 1 to 25.", .range(1...AskPhotosQuery.maximumLimit))
         var limit: Int?
     }
@@ -640,6 +759,9 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
             subtype: arguments.subtype,
             albumTitle: arguments.albumTitle,
             textSearch: arguments.textSearch,
+            latitude: arguments.latitude,
+            longitude: arguments.longitude,
+            radiusMeters: arguments.radiusMeters,
             limit: arguments.limit
         )
         let label = summary(request)
@@ -657,6 +779,10 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         if request.isFavorite == true { parts.append("favorites") }
         if let search = request.textSearch, !search.isEmpty { parts.append(search) }
         if let album = request.albumTitle, !album.isEmpty { parts.append(album) }
+        if let latitude = request.locationLatitude, let longitude = request.locationLongitude {
+            let radius = Int(request.locationRadiusMeters ?? AskPhotosQuery.defaultRadiusMeters)
+            parts.append(String(format: "%.4f,%.4f,%dm", latitude, longitude, radius))
+        }
         if let days = request.startDate {
             let delta = Calendar.current.dateComponents([.day], from: days, to: Date()).day ?? 0
             parts.append("\(max(delta, 0))d")
