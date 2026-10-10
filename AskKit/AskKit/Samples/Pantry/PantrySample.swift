@@ -2,6 +2,7 @@ import AskKit
 import SwiftUI
 
 /// Ask Pantry. Eighteen skills across meals, supplies, kitchen, and table.
+/// Three host specialists cover the clock, pantry stock, and dinner. Each has a working title in the status line.
 ///
 /// `guide` appends pantry lines onto the built-in AskGuide prompts.
 /// A reply prompt is QUESTION, SKILL, FACTS, the PANTRY section, and CONVERSATION.
@@ -70,9 +71,46 @@ enum PantrySample {
             context: { context() },
             chips: { _ in chips },
             fastPath: { route($0) },
-            guide: guide
+            guide: guide,
+            specialists: specialists
         ))
     }
+
+    /// Host specialists. Matching questions show each working title beside the thinking orb.
+    private static let specialists: [AskSpecialist] = [
+        AskSpecialist(
+            id: "pantry.clock",
+            title: "Clock",
+            symbolName: "clock",
+            workingTitle: "Checking the time",
+            instructions: """
+            Call the clock tool once and say the time it returns. \
+            If it says Not allowed, say you cannot see that. Do not invent the time.
+            """,
+            tools: { [SampleClockTool()] },
+            matches: { SampleSpecialist.matches($0, anyOf: ["time", "clock"]) }
+        ),
+        SampleSpecialist.lookup(
+            id: "pantry.stock",
+            title: "Pantry",
+            symbolName: "refrigerator",
+            workingTitle: "Checking the pantry",
+            toolName: "stock",
+            toolDescription: "Ingredients already on the shelf.",
+            result: "On hand: \(onHand). Spices: \(spiceList). Still need \(missing).",
+            words: ["pantry", "stock", "ingredient", "hand", "spice", "spices"]
+        ),
+        SampleSpecialist.lookup(
+            id: "pantry.dinner",
+            title: "Dinner",
+            symbolName: "fork.knife",
+            workingTitle: "Looking up dinner",
+            toolName: "dinner",
+            toolDescription: "Tonight's meal from what is on hand.",
+            result: "Dinner is \(dinnerName). It takes \(minutes) minutes and serves \(servings).",
+            words: ["dinner", "cook", "recipe", "pasta", "meal", "eat"]
+        )
+    ]
 
     static func context() -> AskContext {
         AskContext(
@@ -157,7 +195,8 @@ enum PantrySample {
             headline: breakfastName,
             detail: "Ready in the morning",
             actionTitle: "Breakfast",
-            covered: [breakfastName]
+            covered: [breakfastName],
+            workingTitle: "Checking breakfast"
         ),
         SampleSkillSpec(
             id: "lunch",
@@ -170,7 +209,8 @@ enum PantrySample {
             headline: lunchName,
             detail: "\(lunchMinutes) min",
             actionTitle: "Lunch",
-            covered: [lunchMinutes]
+            covered: [lunchMinutes],
+            workingTitle: "Checking lunch"
         ),
         SampleSkillSpec(
             id: "servings",
@@ -183,7 +223,8 @@ enum PantrySample {
             headline: servings,
             detail: dinnerName,
             actionTitle: "Servings",
-            covered: [servings]
+            covered: [servings],
+            workingTitle: "Checking servings"
         ),
         SampleSkillSpec(
             id: "cookTime",
@@ -196,7 +237,8 @@ enum PantrySample {
             headline: "\(minutes) min",
             detail: dinnerName,
             actionTitle: "Time",
-            covered: [minutes]
+            covered: [minutes],
+            workingTitle: "Checking cook time"
         ),
         SampleSkillSpec(
             id: "steps",
@@ -209,7 +251,8 @@ enum PantrySample {
             headline: "Boil, simmer, toss",
             detail: dinnerName,
             actionTitle: "Steps",
-            covered: ["Boil the pasta"]
+            covered: ["Boil the pasta"],
+            workingTitle: "Checking the steps"
         ),
         SampleSkillSpec(
             id: "expiry",
@@ -222,7 +265,8 @@ enum PantrySample {
             headline: expiryDays,
             detail: "Still good",
             actionTitle: "Freshness",
-            covered: [expiryDays]
+            covered: [expiryDays],
+            workingTitle: "Checking freshness"
         ),
         SampleSkillSpec(
             id: "leftovers",
@@ -235,7 +279,8 @@ enum PantrySample {
             headline: "None",
             detail: "Fridge is clear",
             actionTitle: "Leftovers",
-            covered: ["no leftovers"]
+            covered: ["no leftovers"],
+            workingTitle: "Checking leftovers"
         ),
         SampleSkillSpec(
             id: "spices",
@@ -248,7 +293,8 @@ enum PantrySample {
             headline: "On the shelf",
             detail: spiceList.capitalized,
             actionTitle: "Spices",
-            covered: [spiceList]
+            covered: [spiceList],
+            workingTitle: "Checking spices"
         ),
         SampleSkillSpec(
             id: "appliance",
@@ -261,7 +307,8 @@ enum PantrySample {
             headline: "Free",
             detail: "Oven is off",
             actionTitle: "Stove",
-            covered: ["stove is free"]
+            covered: ["stove is free"],
+            workingTitle: "Checking the stove"
         ),
         SampleSkillSpec(
             id: "timer",
@@ -274,7 +321,8 @@ enum PantrySample {
             headline: "Not running",
             detail: "Nothing on the clock",
             actionTitle: "Timer",
-            covered: ["No timer"]
+            covered: ["No timer"],
+            workingTitle: "Checking the timer"
         ),
         SampleSkillSpec(
             id: "diet",
@@ -287,7 +335,8 @@ enum PantrySample {
             headline: "None on file",
             detail: "No allergies listed",
             actionTitle: "Diet",
-            covered: ["No diet"]
+            covered: ["No diet"],
+            workingTitle: "Checking diet notes"
         ),
         SampleSkillSpec(
             id: "wine",
@@ -300,7 +349,8 @@ enum PantrySample {
             headline: wineLeft.capitalized,
             detail: "Red, already open",
             actionTitle: "Wine",
-            covered: [wineLeft]
+            covered: [wineLeft],
+            workingTitle: "Checking the wine"
         ),
         SampleSkillSpec(
             id: "guests",
@@ -313,7 +363,8 @@ enum PantrySample {
             headline: "No guests",
             detail: "Set for \(servings)",
             actionTitle: "Guests",
-            covered: ["No extra guests"]
+            covered: ["No extra guests"],
+            workingTitle: "Checking guests"
         ),
         SampleSkillSpec(
             id: "mealPlan",
@@ -326,7 +377,8 @@ enum PantrySample {
             headline: tomorrowMeal.capitalized,
             detail: "Tomorrow",
             actionTitle: "Plan",
-            covered: [tomorrowMeal]
+            covered: [tomorrowMeal],
+            workingTitle: "Checking tomorrow's meal"
         )
     ]
 
@@ -338,6 +390,7 @@ enum PantrySample {
         contextKeys: ["dinnerName", "minutes", "servings", "onHand"],
         routingNotes: "What is for dinner, what to cook, and the recipe from what is on hand.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Looking up dinner")
             let name = invocation.context.value(for: "dinnerName") ?? Self.dinnerName
             let minutes = invocation.context.value(for: "minutes") ?? Self.minutes
             let servings = invocation.context.value(for: "servings") ?? Self.servings
@@ -361,6 +414,7 @@ enum PantrySample {
         contextKeys: ["missingItem", "standIn"],
         routingNotes: "Replacing butter, cream, or another ingredient that is not in the pantry.",
         fulfillment: .reply { invocation in
+            AskChatActivity.update("Finding a substitute")
             let missing = invocation.context.value(for: "missingItem") ?? Self.missingItem
             let standIn = invocation.context.value(for: "standIn") ?? Self.standIn
             return AskReply(
@@ -380,6 +434,7 @@ enum PantrySample {
         contextKeys: ["onHand"],
         routingNotes: "Listing the pantry, ingredients on hand, and what you already have.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Checking the pantry")
             let onHand = invocation.context.value(for: "onHand") ?? Self.onHand
             return AskIntentCard(
                 title: "On hand",
@@ -400,6 +455,7 @@ enum PantrySample {
         contextKeys: ["missing", "market"],
         routingNotes: "The shopping list, what is missing, and where to buy it.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Checking the shopping list")
             let missing = invocation.context.value(for: "missing") ?? Self.missing
             let market = invocation.context.value(for: "market") ?? Self.market
             return AskIntentCard(

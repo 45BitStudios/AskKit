@@ -4,6 +4,7 @@ import SwiftUI
 /// Ask Garage. Nineteen skills across battery, cabin, trip, and care.
 /// All eight Apple sources can be selected in the composer. The first five start on.
 /// Music, weather, and alarms stay off until the person turns them on. Ask about the next drive to see the fact card.
+/// Three host specialists cover battery, cabin, and trip lookups. Each has a working title in the status line.
 ///
 /// `guide` appends garage lines onto the built-in AskGuide prompts.
 /// A reply prompt is QUESTION, SKILL, FACTS, the GARAGE section, and CONVERSATION.
@@ -93,9 +94,44 @@ enum GarageSample {
             chips: { _ in chips },
             fastPath: { route($0) },
             guide: guide,
+            specialists: specialists,
             appleAccess: appleAccess
         ))
     }
+
+    /// Host specialists. Matching questions show each working title beside the thinking orb.
+    private static let specialists: [AskSpecialist] = [
+        SampleSpecialist.lookup(
+            id: "garage.battery",
+            title: "Battery",
+            symbolName: "battery.100.bolt",
+            workingTitle: "Checking the battery",
+            toolName: "battery",
+            toolDescription: "Battery percent, minutes to 80, and whether the car is plugged in.",
+            result: "The \(vehicle) battery is at \(battery). Charging at home at \(chargeRate). About \(minutesTo80) minutes until 80 percent.",
+            words: ["battery", "charge", "charging", "percent", "plugged", "plug"]
+        ),
+        SampleSpecialist.lookup(
+            id: "garage.cabin",
+            title: "Cabin",
+            symbolName: "thermometer.sun",
+            workingTitle: "Checking the cabin",
+            toolName: "cabin",
+            toolDescription: "Cabin temperature, seat heat, and defrost before departure.",
+            result: "The cabin will be \(cabin) by \(departure). Driver seat heat is \(seatHeat). Front defrost is \(defrost).",
+            words: ["cabin", "climate", "precondition", "warm", "defrost", "seat"]
+        ),
+        SampleSpecialist.lookup(
+            id: "garage.trip",
+            title: "Trip",
+            symbolName: "road.lanes",
+            workingTitle: "Checking the trip",
+            toolName: "trip",
+            toolDescription: "Range left, the nearest charger, and miles on this drive.",
+            result: "Range is \(range). \(chargerName) is \(chargerDistance) away with \(openStalls) stalls open. This trip is \(tripMeter).",
+            words: ["range", "charger", "station", "stall", "miles", "tire", "efficiency", "odometer"]
+        )
+    ]
 
     static func context() -> AskContext {
         AskContext(
@@ -182,7 +218,8 @@ enum GarageSample {
             headline: departure,
             detail: "From the calendar",
             actionTitle: "Trip",
-            replyOnly: true
+            replyOnly: true,
+            workingTitle: "Checking the next drive"
         ),
         SampleSkillSpec(
             id: "chargeLimit",
@@ -195,7 +232,8 @@ enum GarageSample {
             headline: chargeLimit,
             detail: "Charging stops here",
             actionTitle: "Limit",
-            covered: [chargeLimit]
+            covered: [chargeLimit],
+            workingTitle: "Checking the charge limit"
         ),
         SampleSkillSpec(
             id: "chargeRate",
@@ -208,7 +246,8 @@ enum GarageSample {
             headline: chargeRate,
             detail: "Home charger",
             actionTitle: "Rate",
-            covered: [chargeRate]
+            covered: [chargeRate],
+            workingTitle: "Checking the charge rate"
         ),
         SampleSkillSpec(
             id: "plugStatus",
@@ -221,7 +260,8 @@ enum GarageSample {
             headline: "Plugged in",
             detail: "Latch closed · home",
             actionTitle: "Plug",
-            covered: ["plugged in"]
+            covered: ["plugged in"],
+            workingTitle: "Checking the plug"
         ),
         SampleSkillSpec(
             id: "seatHeat",
@@ -234,7 +274,8 @@ enum GarageSample {
             headline: seatHeat.capitalized,
             detail: "Driver seat",
             actionTitle: "Seat",
-            covered: [seatHeat]
+            covered: [seatHeat],
+            workingTitle: "Checking seat heat"
         ),
         SampleSkillSpec(
             id: "defrost",
@@ -247,7 +288,8 @@ enum GarageSample {
             headline: defrost.capitalized,
             detail: "Front windshield",
             actionTitle: "Defrost",
-            covered: [defrost]
+            covered: [defrost],
+            workingTitle: "Checking defrost"
         ),
         SampleSkillSpec(
             id: "tirePressure",
@@ -260,7 +302,8 @@ enum GarageSample {
             headline: tirePressure,
             detail: "All four tires",
             actionTitle: "Tires",
-            covered: [tirePressure]
+            covered: [tirePressure],
+            workingTitle: "Checking tire pressure"
         ),
         SampleSkillSpec(
             id: "odometer",
@@ -273,7 +316,8 @@ enum GarageSample {
             headline: odometer,
             detail: "Total",
             actionTitle: "Odometer",
-            covered: [odometer]
+            covered: [odometer],
+            workingTitle: "Checking the odometer"
         ),
         SampleSkillSpec(
             id: "tripMeter",
@@ -286,7 +330,8 @@ enum GarageSample {
             headline: tripMeter,
             detail: "Since reset",
             actionTitle: "Trip",
-            covered: [tripMeter]
+            covered: [tripMeter],
+            workingTitle: "Checking this trip"
         ),
         SampleSkillSpec(
             id: "efficiency",
@@ -299,7 +344,8 @@ enum GarageSample {
             headline: efficiency,
             detail: "Recent driving",
             actionTitle: "Efficiency",
-            covered: [efficiency]
+            covered: [efficiency],
+            workingTitle: "Checking efficiency"
         ),
         SampleSkillSpec(
             id: "nextService",
@@ -312,7 +358,8 @@ enum GarageSample {
             headline: serviceIn,
             detail: serviceDate,
             actionTitle: "Service",
-            covered: [serviceIn]
+            covered: [serviceIn],
+            workingTitle: "Checking service"
         ),
         SampleSkillSpec(
             id: "washerFluid",
@@ -325,7 +372,8 @@ enum GarageSample {
             headline: washer.capitalized,
             detail: "Windshield washer",
             actionTitle: "Washer",
-            covered: [washer]
+            covered: [washer],
+            workingTitle: "Checking washer fluid"
         ),
         SampleSkillSpec(
             id: "softwareVersion",
@@ -338,7 +386,8 @@ enum GarageSample {
             headline: software,
             detail: "Up to date",
             actionTitle: "Software",
-            covered: [software]
+            covered: [software],
+            workingTitle: "Checking software"
         ),
         SampleSkillSpec(
             id: "lockStatus",
@@ -351,7 +400,8 @@ enum GarageSample {
             headline: locks.capitalized,
             detail: "Trunk closed",
             actionTitle: "Locks",
-            covered: [locks]
+            covered: [locks],
+            workingTitle: "Checking the locks"
         ),
         SampleSkillSpec(
             id: "lights",
@@ -364,7 +414,8 @@ enum GarageSample {
             headline: "Off",
             detail: "Headlights",
             actionTitle: "Lights",
-            covered: ["off"]
+            covered: ["off"],
+            workingTitle: "Checking the lights"
         )
     ]
 
@@ -376,6 +427,7 @@ enum GarageSample {
         contextKeys: ["vehicle", "battery", "minutesTo80"],
         routingNotes: "How full the battery is, whether the car is charging at home, and when it reaches 80 percent.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Checking charge status")
             let vehicle = invocation.context.value(for: "vehicle") ?? Self.vehicle
             let battery = invocation.context.value(for: "battery") ?? Self.battery
             let minutes = invocation.context.value(for: "minutesTo80") ?? Self.minutesTo80
@@ -398,6 +450,7 @@ enum GarageSample {
         contextKeys: ["vehicle", "cabin", "departure"],
         routingNotes: "Cabin temperature, preconditioning, and being ready to leave.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Checking preconditioning")
             let vehicle = invocation.context.value(for: "vehicle") ?? Self.vehicle
             let cabin = invocation.context.value(for: "cabin") ?? Self.cabin
             let departure = invocation.context.value(for: "departure") ?? Self.departure
@@ -420,6 +473,7 @@ enum GarageSample {
         contextKeys: ["vehicle", "range"],
         routingNotes: "Remaining range, miles left, and how far the car can drive.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Checking range")
             let vehicle = invocation.context.value(for: "vehicle") ?? Self.vehicle
             let range = invocation.context.value(for: "range") ?? Self.range
             return AskIntentCard(
@@ -441,6 +495,7 @@ enum GarageSample {
         contextKeys: ["chargerName", "chargerDistance", "openStalls"],
         routingNotes: "Where to plug in, nearby chargers, and open stalls.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Finding a charger")
             let name = invocation.context.value(for: "chargerName") ?? Self.chargerName
             let distance = invocation.context.value(for: "chargerDistance") ?? Self.chargerDistance
             let stalls = invocation.context.value(for: "openStalls") ?? Self.openStalls
