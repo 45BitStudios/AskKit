@@ -190,4 +190,21 @@ final class AskChatAppearanceTests: XCTestCase {
         AskReplyPreview.note(list, facts: "Milk and eggs are open.")
         XCTAssertEqual(AskChatActivityCenter.shared.partial, list)
     }
+
+    func testWorkedTraceDefaultsOnAndRemembersOff() {
+        let previous = UserDefaults.standard.object(forKey: AskWorkedTraceSelection.storageKey)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: AskWorkedTraceSelection.storageKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AskWorkedTraceSelection.storageKey)
+            }
+        }
+        UserDefaults.standard.removeObject(forKey: AskWorkedTraceSelection.storageKey)
+        XCTAssertTrue(AskWorkedTraceSelection.isOn)
+        AskWorkedTraceSelection.isOn = false
+        XCTAssertFalse(AskWorkedTraceSelection.isOn)
+        AskWorkedTraceSelection.isOn = true
+        XCTAssertTrue(AskWorkedTraceSelection.isOn)
+    }
 }

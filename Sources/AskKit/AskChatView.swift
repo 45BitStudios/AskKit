@@ -126,6 +126,7 @@ private struct AskChatScreen: View {
     @State private var showsCards = false
     @State private var showsTrace = false
     @State private var traceFocus: AskTraceFocus?
+    @AppStorage(AskWorkedTraceSelection.storageKey) private var showsWorkedTrace = true
     #endif
 
     init(
@@ -330,6 +331,9 @@ private struct AskChatScreen: View {
                         AskCue.tap()
                         showsTrace = true
                     }
+                    Toggle(isOn: $showsWorkedTrace) {
+                        Label("Worked summary", systemImage: "clock")
+                    }
                     #endif
                     if canClearChat {
                         Divider()
@@ -476,31 +480,48 @@ private struct AskChatScreen: View {
             onVote: { choose($0, for: turn.id) },
             onTrace: { openTrace(turn) }
         )
-        Group {
-            if pages.count > 1 {
-                AskAnswerPager(
-                    pages: pages,
-                    appearance: appearance,
-                    onAction: onAction,
-                    answerMenu: menu,
-                    animatesArrival: livePages[turn.id] != nil,
-                    settledCards: settledCards,
-                    onSettled: { settledCards.insert($0) },
-                    onPaging: { paging in
-                        cardPaging = paging
-                        if paging { hideTimeImmediately() }
-                    }
-                )
-            } else if let page = pages.first {
-                AskAnswerColumn(
-                    page: page,
-                    appearance: appearance,
-                    onAction: onAction,
-                    answerMenu: menu,
-                    animatesArrival: livePages[turn.id] != nil,
-                    settledCards: settledCards,
-                    onSettled: { settledCards.insert($0) }
-                )
+        VStack(alignment: .leading, spacing: 8) {
+            #if DEBUG
+            if showsWorkedTrace, let worked = workedTrace(for: turn) {
+                let summary = AskTraceViewModel.summary(turn: worked)
+                AskWorkedTracePill(
+                    caption: AskTraceFormatter.workedCaption(
+                        duration: worked.duration,
+                        toolCalls: summary.toolCalls,
+                        modelCalls: summary.modelCalls
+                    ),
+                    symbolName: AskTraceFormatter.workedSymbol(toolCalls: summary.toolCalls)
+                ) {
+                    openTrace(turn)
+                }
+            }
+            #endif
+            Group {
+                if pages.count > 1 {
+                    AskAnswerPager(
+                        pages: pages,
+                        appearance: appearance,
+                        onAction: onAction,
+                        answerMenu: menu,
+                        animatesArrival: livePages[turn.id] != nil,
+                        settledCards: settledCards,
+                        onSettled: { settledCards.insert($0) },
+                        onPaging: { paging in
+                            cardPaging = paging
+                            if paging { hideTimeImmediately() }
+                        }
+                    )
+                } else if let page = pages.first {
+                    AskAnswerColumn(
+                        page: page,
+                        appearance: appearance,
+                        onAction: onAction,
+                        answerMenu: menu,
+                        animatesArrival: livePages[turn.id] != nil,
+                        settledCards: settledCards,
+                        onSettled: { settledCards.insert($0) }
+                    )
+                }
             }
         }
         .task(id: turn.id) {
@@ -652,6 +673,15 @@ private struct AskChatScreen: View {
         }
         let pages = await assistant.pages(for: id)
         return pages.compactMap { $0.card?.view }
+    }
+
+    private func workedTrace(for turn: AskTurnRecord) -> AskTraceTurn? {
+        let traces = AskTraceStore.live().loadAll()
+        let question = AskFeedback.question(before: turn.id, in: feedbackTurns)
+        guard let id = AskTraceStore.match(question: question, near: turn.createdAt, turns: traces) else {
+            return nil
+        }
+        return traces.first { $0.id == id }
     }
 
     private func openTrace(_ turn: AskTurnRecord) {
@@ -2552,6 +2582,37 @@ private extension View {
     }
 }
 
+
+#if DEBUG
+/// Compact debug summary above an answer. Tap opens that turn's trace sheet.
+private struct AskWorkedTracePill: View {
+    let caption: String
+    let symbolName: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbolName)
+                    .font(.caption.weight(.semibold))
+                    .accessibilityHidden(true)
+                Text(caption)
+                    .font(.caption.weight(.medium))
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(caption)
+        .accessibilityHint("Shows the debug trace for this answer")
+    }
+}
+#endif
 
 /// The thinking orb beside the live status. Working while choosing, searching while a tool runs, composing while writing.
 private struct AskThinkingRow: View {
