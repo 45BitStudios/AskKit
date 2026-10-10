@@ -79,9 +79,18 @@ final class AskGuideTests: XCTestCase {
         Olive oil is on the shelf. The freezer has ice cream.
         """
         XCTAssertEqual(AskGuide.spokenAnswer(dumped), "You have pasta and tomatoes.")
-        XCTAssertTrue(AskGuide.acceptsReply(dumped, facts: "On hand: pasta and tomatoes."))
+        XCTAssertTrue(AskGuide.acceptsReply(dumped, facts: "On hand: pasta and tomatoes.", rich: false))
         XCTAssertTrue(AskGuide.defaultReplyInstructions.contains("Do not write a second paragraph."))
-        XCTAssertTrue(AskGuide.defaultReplyInstructions.contains("Markdown"))
+        XCTAssertTrue(AskGuide.defaultReplyInstructions.contains("Do not use Markdown"))
+        XCTAssertTrue(AskGuide.defaultRichReplyInstructions.contains("Markdown"))
+        XCTAssertTrue(AskGuide.defaultRichReplyInstructions.contains("table"))
+        XCTAssertTrue(AskGuide(replyInstructions: "Stay brief.").resolvedReplyInstructions(rich: true).contains("Stay brief."))
+        XCTAssertTrue(AskGuide(replyInstructions: "Stay brief.").resolvedReplyInstructions(rich: true).contains("Markdown"))
+        let list = "Open items:\n\n- Milk\n- Eggs"
+        XCTAssertEqual(AskGuide.keptAnswer(list, rich: false), "Open items:")
+        XCTAssertEqual(AskGuide.keptAnswer(list, rich: true), list)
+        XCTAssertTrue(AskGuide.acceptsReply(list, facts: "Milk and eggs.", rich: true))
+        XCTAssertTrue(AskGuide.acceptsReply(list, facts: "Milk and eggs.", rich: false))
         XCTAssertEqual(
             AskGuide.plainSpeech("Now playing **Slide Away** by **Oasis** from *Definitely Maybe*."),
             "Now playing Slide Away by Oasis from Definitely Maybe."

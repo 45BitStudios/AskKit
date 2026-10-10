@@ -4,6 +4,7 @@ import Photos
 import PhotosUI
 import SwiftData
 import SwiftUI
+import Textual
 import ThinkingOrbsKit
 import UIKit
 import UniformTypeIdentifiers
@@ -820,10 +821,15 @@ private struct AskSpeechBubble: View {
     let text: String
     let appearance: AskChatAppearance
     var answerMenu: AskAnswerMenu? = nil
+    @AppStorage(AskMarkdownSelection.storageKey) private var richMarkdown = false
 
     var body: some View {
         HStack(alignment: .top) {
-            AskSelectableText(text: text, foreground: appearance.assistantForeground)
+            AskSelectableText(
+                text: text,
+                foreground: appearance.assistantForeground,
+                rich: richMarkdown
+            )
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1250,20 +1256,20 @@ private struct AskActionButton: View {
 private struct AskSelectableText: View {
     let text: String
     let foreground: Color
+    var rich = false
 
     var body: some View {
-        Text(markdown)
-            .font(.body)
-            .foregroundStyle(foreground)
-    }
-
-    /// Inline Markdown for titles and emphasis. Block syntax stays plain text.
-    private var markdown: AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        if let attributed = try? AttributedString(markdown: text, options: options) {
-            return attributed
+        Group {
+            if rich {
+                StructuredText(markdown: text, syntaxExtensions: [.math])
+                    .textual.structuredTextStyle(.default)
+                    .textual.textSelection(.enabled)
+            } else {
+                Text(text)
+            }
         }
-        return AttributedString(text)
+        .font(.body)
+        .foregroundStyle(foreground)
     }
 }
 
@@ -1782,6 +1788,7 @@ private struct AskComposerField: View {
     @State private var showsCloudOptions = false
     @State private var showsTools = false
     @State private var streams = AskStreamSelection.isOn
+    @AppStorage(AskMarkdownSelection.storageKey) private var markdown = false
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1982,6 +1989,8 @@ private struct AskComposerField: View {
                 .disabled(isThinking)
             streamButton
                 .padding(.leading, 2)
+            markdownButton
+                .padding(.leading, 2)
             if runningCompute == .privateCloud {
                 cloudOptionsButton
                     .padding(.leading, 2)
@@ -2115,6 +2124,26 @@ private struct AskComposerField: View {
         .accessibilityValue(streams ? "On" : "Off")
         .accessibilityHint("Shows the answer while it is written. Off keeps the thinking status until the answer is ready.")
         .accessibilityAddTraits(streams ? .isSelected : AccessibilityTraits())
+    }
+
+    private var markdownButton: some View {
+        Button {
+            AskCue.tap()
+            markdown.toggle()
+        } label: {
+            Image(systemName: "doc.richtext")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(markdown ? appearance.tint : Color.secondary)
+                .frame(width: 32, height: 32)
+                .background(Color(uiColor: .tertiarySystemFill), in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Rich text")
+        .accessibilityValue(markdown ? "On" : "Off")
+        .accessibilityHint("Renders Markdown in answer bubbles and asks the model for lists, tables, and math when that helps.")
+        .accessibilityAddTraits(markdown ? .isSelected : AccessibilityTraits())
     }
 
     private var cloudOptionsButton: some View {

@@ -13,7 +13,8 @@ let package = Package(
     dependencies: [
         .package(path: "Vendor/VoiceGlowKit"),
         .package(path: "Vendor/ThinkingOrbsKit"),
-        .package(path: "Vendor/BorderBeamKit")
+        .package(path: "Vendor/BorderBeamKit"),
+        .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0")
     ],
     targets: [
         .target(
@@ -21,7 +22,8 @@ let package = Package(
             dependencies: [
                 .product(name: "VoiceGlowKit", package: "VoiceGlowKit"),
                 .product(name: "ThinkingOrbsKit", package: "ThinkingOrbsKit"),
-                .product(name: "BorderBeamKit", package: "BorderBeamKit")
+                .product(name: "BorderBeamKit", package: "BorderBeamKit"),
+                .product(name: "Textual", package: "textual")
             ]
         ),
         .testTarget(name: "AskKitTests", dependencies: ["AskKit"]),

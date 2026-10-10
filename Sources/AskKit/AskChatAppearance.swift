@@ -269,10 +269,22 @@ public enum AskStreamSelection: Sendable {
     }
 }
 
+/// Whether assistant bubbles render Markdown through Textual and the writer may use rich formatting.
+/// Off keeps plain text and the short plain reply instructions.
+/// The key is `AskKit.markdown` in standard `UserDefaults`. A missing key is off.
+public enum AskMarkdownSelection: Sendable {
+    public static let storageKey = "AskKit.markdown"
+
+    public static var isOn: Bool {
+        get { UserDefaults.standard.bool(forKey: storageKey) }
+        set { UserDefaults.standard.set(newValue, forKey: storageKey) }
+    }
+}
+
 /// Shows a rewrite only while it can still be the stored line.
 /// An empty snapshot leaves the current preview in place.
-/// A second paragraph is ignored, so a background dump cannot replace a short line.
-/// A partial longer than 600 characters, or one that adds an equals sign, is taken down.
+/// In plain mode a second paragraph is ignored, so a background dump cannot replace a short line.
+/// A partial over the mode's character limit, or one that adds an equals sign in plain mode, is taken down.
 /// A reply that must call a tool stays off the bubble until the turn stores the line.
 /// Streaming off keeps every snapshot off the bubble.
 /// Otherwise a discarded draft appears, clears, and the next specialist starts over.
@@ -283,12 +295,14 @@ enum AskReplyPreview {
         guard !holdsUntilTool else { return }
         let partial = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !partial.isEmpty else { return }
-        // Snapshots are the text so far. Once a blank line appears, every later
+        let rich = AskMarkdownSelection.isOn
+        // Plain snapshots are the text so far. Once a blank line appears, every later
         // snapshot includes it, and the first paragraph stays on screen.
-        if partial.range(of: #"\n[ \t]*\n"#, options: .regularExpression) != nil {
+        // Rich Markdown needs blank lines between blocks, so those drafts still stream.
+        if !rich, partial.range(of: #"\n[ \t]*\n"#, options: .regularExpression) != nil {
             return
         }
-        guard AskGuide.acceptsReply(partial, facts: facts) else {
+        guard AskGuide.acceptsReply(partial, facts: facts, rich: rich) else {
             AskChatActivity.clearStream()
             return
         }
