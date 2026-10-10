@@ -174,4 +174,21 @@ final class AskChatAppearanceTests: XCTestCase {
         AskReplyPreview.note("Sam is expected at 2 p.m.", facts: "Sam at 2 p.m.")
         XCTAssertEqual(AskChatActivityCenter.shared.partial, "Sam is expected at 2 p.m.")
     }
+
+    func testWorkedTraceDefaultsOnAndRemembersOff() {
+        let previous = UserDefaults.standard.object(forKey: AskWorkedTraceSelection.storageKey)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: AskWorkedTraceSelection.storageKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AskWorkedTraceSelection.storageKey)
+            }
+        }
+        UserDefaults.standard.removeObject(forKey: AskWorkedTraceSelection.storageKey)
+        XCTAssertTrue(AskWorkedTraceSelection.isOn)
+        AskWorkedTraceSelection.isOn = false
+        XCTAssertFalse(AskWorkedTraceSelection.isOn)
+        AskWorkedTraceSelection.isOn = true
+        XCTAssertTrue(AskWorkedTraceSelection.isOn)
+    }
 }
