@@ -21,20 +21,15 @@ struct SampleHost: View {
                 assistant: assistant,
                 appearance: project.appearance,
                 embedsNavigation: false,
-                feedback: AskAnswerFeedback()
-            )
-            .id(project.id)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
+                feedback: AskAnswerFeedback(),
+                menu: {
+                    Button("Sample projects", systemImage: "wrench.and.screwdriver") {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         showsSamples = true
-                    } label: {
-                        Image(systemName: "wrench.and.screwdriver")
                     }
-                    .accessibilityLabel("Sample projects")
                 }
-            }
+            )
+            .id(project.id)
         }
         .sheet(isPresented: $showsSamples) {
             SampleProjectsSheet(selection: project) { chosen in

@@ -3,7 +3,8 @@ import UIKit
 
 /// Colors, logo, and copy for `AskChatView`.
 ///
-/// Bubbles stay solid. Liquid Glass is only on the composer, which sits in the bottom safe area and does not scroll.
+/// Bubbles stay solid. Liquid Glass sits on the composer and the centered toolbar title.
+/// Soft tint gradients wash the chat background behind both.
 public struct AskChatAppearance {
     /// Shown in the toolbar. `nil` uses the assistant name.
     public var title: String?
@@ -165,6 +166,53 @@ public enum AskChatLogo {
     case symbol(String)
     case image(Image)
     case none
+}
+
+/// Soft color wash behind the transcript. Liquid Glass chrome reads against these blobs.
+struct AskChatBackdrop: View {
+    let tint: Color
+    let voiceColors: [Color]
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let palette = AskVoicePalette.colors(tint: tint, override: voiceColors)
+        let depth = colorScheme == .dark ? 0.42 : 0.30
+        ZStack {
+            Color(uiColor: .systemBackground)
+            LinearGradient(
+                colors: [
+                    palette[safe: 0, else: tint].opacity(depth * 0.85),
+                    palette[safe: 2, else: tint].opacity(depth * 0.35),
+                    Color(uiColor: .systemBackground).opacity(0.15),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Ellipse()
+                .fill(palette[safe: 1, else: tint].opacity(depth))
+                .frame(width: 360, height: 300)
+                .blur(radius: 72)
+                .offset(x: -130, y: -260)
+            Ellipse()
+                .fill(palette[safe: 3, else: tint].opacity(depth * 0.9))
+                .frame(width: 300, height: 260)
+                .blur(radius: 68)
+                .offset(x: 140, y: -80)
+            Ellipse()
+                .fill(palette[safe: 5, else: tint].opacity(depth * 0.75))
+                .frame(width: 320, height: 280)
+                .blur(radius: 80)
+                .offset(x: 40, y: 320)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private extension Array where Element == Color {
+    subscript(safe index: Int, else fallback: Color) -> Color {
+        indices.contains(index) ? self[index] : fallback
+    }
 }
 
 /// What the thinking orb is showing while a turn runs.

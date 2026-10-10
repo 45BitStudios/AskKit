@@ -17,6 +17,8 @@ public struct AskChatView: View {
     private let embedsNavigation: Bool
     private let onAction: (AskAction) -> Void
     private let feedback: AskAnswerFeedback?
+    private let menu: AnyView
+    private let hasHostMenu: Bool
 
     public init(
         assistant: AskAssistant,
@@ -30,6 +32,26 @@ public struct AskChatView: View {
         self.embedsNavigation = embedsNavigation
         self.feedback = feedback
         self.onAction = onAction
+        self.menu = AnyView(EmptyView())
+        self.hasHostMenu = false
+    }
+
+    /// Host actions land in the top-trailing ellipsis menu with Clear chat and debug tools.
+    public init<MenuContent: View>(
+        assistant: AskAssistant,
+        appearance: AskChatAppearance = AskChatAppearance(),
+        embedsNavigation: Bool = true,
+        feedback: AskAnswerFeedback? = nil,
+        onAction: @escaping (AskAction) -> Void = { _ in },
+        @ViewBuilder menu: () -> MenuContent
+    ) {
+        self.assistant = assistant
+        self.appearance = appearance
+        self.embedsNavigation = embedsNavigation
+        self.feedback = feedback
+        self.onAction = onAction
+        self.menu = AnyView(menu())
+        self.hasHostMenu = true
     }
 
     public var body: some View {
@@ -44,7 +66,14 @@ public struct AskChatView: View {
     }
 
     private var screen: some View {
-        AskChatScreen(assistant: assistant, appearance: appearance, feedback: feedback, onAction: onAction)
+        AskChatScreen(
+            assistant: assistant,
+            appearance: appearance,
+            feedback: feedback,
+            menu: menu,
+            hasHostMenu: hasHostMenu,
+            onAction: onAction
+        )
     }
 }
 
@@ -52,6 +81,8 @@ private struct AskChatScreen: View {
     let assistant: AskAssistant
     let appearance: AskChatAppearance
     let feedback: AskAnswerFeedback?
+    let menu: AnyView
+    let hasHostMenu: Bool
     let onAction: (AskAction) -> Void
 
     @Query(sort: \AskTurnRecord.createdAt) private var turns: [AskTurnRecord]
@@ -75,6 +106,7 @@ private struct AskChatScreen: View {
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(AskComputeSelection.storageKey) private var computeRaw = AskCompute.onDevice.rawValue
 
     private let timeRevealLimit: CGFloat = 76
     @State private var livePages: [UUID: [AskPage]] = [:]
@@ -90,6 +122,8 @@ private struct AskChatScreen: View {
     @Namespace private var photoZoom
     @State private var votes: [UUID: Bool]
     #if DEBUG
+    @State private var showsCards = false
+    @State private var showsTrace = false
     @State private var traceFocus: AskTraceFocus?
     #endif
 
@@ -97,11 +131,15 @@ private struct AskChatScreen: View {
         assistant: AskAssistant,
         appearance: AskChatAppearance,
         feedback: AskAnswerFeedback?,
+        menu: AnyView,
+        hasHostMenu: Bool,
         onAction: @escaping (AskAction) -> Void
     ) {
         self.assistant = assistant
         self.appearance = appearance
         self.feedback = feedback
+        self.menu = menu
+        self.hasHostMenu = hasHostMenu
         self.onAction = onAction
         _votes = State(initialValue: feedback?.votes ?? [:])
     }
@@ -126,11 +164,16 @@ private struct AskChatScreen: View {
                         .allowsHitTesting(false)
                 }
             }
+            .background {
+                AskChatBackdrop(tint: appearance.tint, voiceColors: appearance.voiceColors)
+                    .ignoresSafeArea()
+            }
             .safeAreaBar(edge: .bottom) {
                 composer
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
+            .toolbarBackground(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: photoPresented) {
                 if let openPhoto {
                     let pages = openPhoto.pages
@@ -142,6 +185,14 @@ private struct AskChatScreen: View {
             }
             .task { chips = await assistant.chips() }
             #if DEBUG
+            .sheet(isPresented: $showsCards) {
+                AskCardGalleryScreen()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showsTrace) {
+                AskTraceScreen(showsClose: true, snippetCards: snippetCards(for:))
+            }
             .sheet(item: $traceFocus) { focus in
                 AskTraceScreen(showsClose: true, turnID: focus.turnID, snippetCards: snippetCards(for:))
             }
@@ -226,52 +277,92 @@ private struct AskChatScreen: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showsJumpToBottom)
     }
 
+    private var toolbarSubtitle: String {
+        (AskCompute(rawValue: computeRaw) ?? .onDevice).title
+    }
+
+    private var canClearChat: Bool {
+        !visibleTurns.isEmpty && !isThinking
+    }
+
+    private var showsMoreMenu: Bool {
+        #if DEBUG
+        true
+        #else
+        hasHostMenu || canClearChat
+        #endif
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            HStack(spacing: 6) {
-                logo
-                Text(title)
-                    .font(.headline)
+            HStack(spacing: 8) {
+                logoMark
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(toolbarSubtitle)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .foregroundStyle(appearance.tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .glassEffect(.regular.tint(appearance.tint.opacity(0.18)), in: Capsule())
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
-            .accessibilityLabel(title)
+            .accessibilityLabel("\(title), \(toolbarSubtitle)")
         }
         .sharedBackgroundVisibility(.hidden)
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            AskCardGalleryButton()
-            #if DEBUG
-            AskTraceButton(snippetCards: snippetCards(for:))
-            #else
-            AskTraceButton()
-            #endif
-            if !visibleTurns.isEmpty, !isThinking {
+
+        if showsMoreMenu {
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("Clear chat", role: .destructive) {
+                    menu
+                    #if DEBUG
+                    Button("Cards", systemImage: "rectangle.stack") {
                         AskCue.tap()
-                        clear()
+                        showsCards = true
+                    }
+                    Button("Ask trace", systemImage: "point.3.connected.trianglepath.dotted") {
+                        AskCue.tap()
+                        showsTrace = true
+                    }
+                    #endif
+                    if canClearChat {
+                        Divider()
+                        Button("Clear chat", systemImage: "trash", role: .destructive) {
+                            AskCue.tap()
+                            clear()
+                        }
                     }
                 } label: {
-                    Image(systemName: "trash")
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 24, height: 24)
                 }
-                .accessibilityLabel("Clear chat")
+                .accessibilityLabel("More")
             }
         }
     }
 
     @ViewBuilder
-    private var logo: some View {
+    private var logoMark: some View {
         switch appearance.logo {
         case .symbol(let name):
             Image(systemName: name)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(appearance.tint)
+                .frame(width: 28, height: 28)
+                .background(appearance.tint.opacity(0.16), in: Circle())
                 .accessibilityHidden(true)
         case .image(let image):
             image
                 .resizable()
                 .scaledToFit()
-                .frame(height: 22)
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
                 .accessibilityHidden(true)
         case .none:
             EmptyView()
