@@ -9,9 +9,12 @@ import SwiftUI
 /// Register `AskPhotos.specialist` on an assistant. A match runs before Apple specialists.
 /// The host app needs `NSPhotoLibraryUsageDescription`.
 ///
-/// Content search needs an on-device Vision index. When that index is empty, AskKit shows
-/// “Photos need indexing” then “Indexing photos…” with a count beside the thinking orb,
-/// then searches. Call ``warmIndex(limit:)`` to build the index ahead of a turn.
+/// Content search needs an on-device Vision index stored in Application Support (not CloudKit).
+/// When that index is empty, AskKit shows “Photos need indexing” then “Indexing photos…”
+/// with a count beside the thinking orb, then searches.
+///
+/// Call ``prepareIndexOnLaunch(limit:)`` at app launch to reload the saved index and index
+/// only photos newer than ``lastIndexDate()``.
 public enum AskPhotos {
     public static let toolName = "photos"
     public static let defaultSpecialistID = "photos"
@@ -52,10 +55,28 @@ public enum AskPhotos {
         await AskPhotosIndex.status()
     }
 
-    /// Builds the Vision index for recent photos. Updates the thinking line when a turn is active.
+    /// When the persisted index was last saved. Nil until the first successful save.
+    public static func lastIndexDate() async -> Date? {
+        await PhotoQuery.shared.lastIndexDate()
+    }
+
+    /// Writes the current in-memory index and last-index date to disk.
+    @discardableResult
+    public static func saveIndex() async -> Bool {
+        await PhotoQuery.shared.saveIndex()
+    }
+
+    /// Reloads the saved index, then indexes photos newer than ``lastIndexDate()``.
+    /// Call from app launch. Updates the thinking line when a turn is active.
+    @discardableResult
+    public static func prepareIndexOnLaunch(limit: Int = defaultIndexLimit) async -> AskPhotosIndexStatus {
+        await AskPhotosIndex.prepareOnLaunch(limit: limit)
+    }
+
+    /// Builds or refreshes the Vision index. Prefer ``prepareIndexOnLaunch(limit:)`` at launch.
     @discardableResult
     public static func warmIndex(limit: Int = defaultIndexLimit) async -> AskPhotosIndexStatus {
-        await AskPhotosIndex.ensureReady(limit: limit, force: true)
+        await AskPhotosIndex.prepareOnLaunch(limit: limit)
     }
 }
 
@@ -84,30 +105,67 @@ enum AskPhotosIndex {
             let snap = AskPhotosIndexState.shared.snapshot
             return .indexing(completed: snap.completed, total: snap.total)
         }
+        await PhotoQuery.shared.loadIndex()
         let count = await PhotoQuery.shared.indexedCount()
         if count == 0 { return .needed }
         return .ready(count: count)
     }
 
-    /// Indexes recent photos when the Vision store is empty, or when `force` is set.
+    /// App launch: load disk, index photos newer than the last save, persist again.
+    @discardableResult
+    static func prepareOnLaunch(limit: Int = AskPhotos.defaultIndexLimit) async -> AskPhotosIndexStatus {
+        let allowed = await PhotoQuery.shared.ensureAuthorized()
+        guard allowed else { return .needed }
+
+        await PhotoQuery.shared.loadIndex()
+        let before = await PhotoQuery.shared.indexedCount()
+        let since = await PhotoQuery.shared.lastIndexDate()
+        if before == 0 {
+            await announceNeeded()
+        } else if let since {
+            await announce(AskPhotosIndexCopy.updating(since: since))
+        }
+
+        return await runIndex(limit: limit) {
+            await PhotoQuery.shared.prepareIndexOnLaunch(limit: limit, onProgress: $0)
+        }
+    }
+
+    /// Indexes when content search needs Vision and the store is still empty after load.
     @discardableResult
     static func ensureReady(limit: Int = AskPhotos.defaultIndexLimit, force: Bool = false) async -> AskPhotosIndexStatus {
         let allowed = await PhotoQuery.shared.ensureAuthorized()
         guard allowed else { return .needed }
 
+        await PhotoQuery.shared.loadIndex()
         let count = await PhotoQuery.shared.indexedCount()
         if !force, count > 0 {
             return .ready(count: count)
         }
 
-        await announceNeeded()
+        if count == 0 {
+            await announceNeeded()
+        }
+
+        return await runIndex(limit: limit) { onProgress in
+            if count == 0 {
+                await PhotoQuery.shared.indexRecentImages(limit: limit, onProgress: onProgress)
+            } else {
+                await PhotoQuery.shared.indexNewImagesSinceLastIndex(limit: limit, onProgress: onProgress)
+            }
+        }
+    }
+
+    private static func runIndex(
+        limit: Int,
+        body: (@escaping @Sendable (PhotoIndexProgress) -> Void) async -> Void
+    ) async -> AskPhotosIndexStatus {
         AskPhotosIndexState.shared.begin(total: max(limit, 1))
         await announce(AskPhotosIndexCopy.indexing(completed: 0, total: max(limit, 1)))
 
-        await PhotoQuery.shared.indexRecentImages(limit: limit) { progress in
+        await body { progress in
             AskPhotosIndexState.shared.update(progress)
             let line = AskPhotosIndexCopy.indexing(completed: progress.completed, total: progress.total)
-            // Throttle UI churn; always publish the finished tick.
             if progress.isFinished || progress.completed == 0 || progress.completed % 4 == 0
                 || progress.completed == progress.total {
                 Task { @MainActor in
@@ -123,8 +181,7 @@ enum AskPhotosIndex {
     }
 
     private static func announceNeeded() async {
-        let line = AskPhotosIndexCopy.needed
-        await announce(line)
+        await announce(AskPhotosIndexCopy.needed)
     }
 
     @MainActor
@@ -136,6 +193,11 @@ enum AskPhotosIndex {
 /// Copy for the thinking orb while photos are indexed.
 enum AskPhotosIndexCopy {
     static let needed = (title: "Photos need indexing", detail: "For content search")
+
+    static func updating(since date: Date) -> (title: String, detail: String) {
+        let day = date.formatted(date: .abbreviated, time: .omitted)
+        return ("Updating photo index…", "Since \(day)")
+    }
 
     static func indexing(completed: Int, total: Int) -> (title: String, detail: String) {
         let safeTotal = max(total, 1)

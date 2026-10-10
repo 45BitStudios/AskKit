@@ -7,9 +7,15 @@ public actor PhotoQuery {
 
     private let library = PhotoLibraryService()
     private let vision = VisionIndexer()
+    private let store: PhotoIndexStore
+    private var lastIndexedAt: Date?
+    private var didLoadStore = false
     public let cache = PhotoCache()
 
-    private init() {}
+    /// - Parameter storeURL: Override the on-disk index location. Nil uses Application Support.
+    public init(storeURL: URL? = nil) {
+        self.store = PhotoIndexStore(fileURL: storeURL)
+    }
 
     // MARK: - Authorization
 
@@ -34,37 +40,127 @@ public actor PhotoQuery {
 
     // MARK: - Vision indexing
 
-    /// How many assets currently have Vision labels or OCR in the in-memory index.
+    /// How many assets currently have Vision labels or OCR in the index.
     public func indexedCount() async -> Int {
-        await vision.indexedCount()
+        await loadStoreIfNeeded()
+        return await vision.indexedCount()
+    }
+
+    /// When the index was last saved after an indexing pass. Nil until the first save.
+    public func lastIndexDate() async -> Date? {
+        await loadStoreIfNeeded()
+        return lastIndexedAt
+    }
+
+    /// Writes the in-memory index and ``lastIndexDate`` to Application Support.
+    @discardableResult
+    public func saveIndex(lastIndexedAt date: Date? = nil) async -> Bool {
+        await loadStoreIfNeeded()
+        if let date {
+            lastIndexedAt = date
+        }
+        let snapshot = PhotoIndexSnapshot(
+            lastIndexedAt: lastIndexedAt,
+            entries: await vision.exportEntries()
+        )
+        do {
+            try store.save(snapshot)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Loads the on-disk index into memory if needed.
+    public func loadIndex() async {
+        await loadStoreIfNeeded()
     }
 
     /// Index recent images. Reports progress for UI. Already-indexed assets are skipped.
+    /// Saves the index and updates ``lastIndexDate`` when the pass finishes.
     public func indexRecentImages(
         limit: Int = 200,
         includeFeaturePrint: Bool = false,
         onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
     ) async {
+        await loadStoreIfNeeded()
         var request = PhotoQueryRequest()
         request.mediaType = .image
         request.limit = limit
         request.sortDescending = true
 
         let results = await library.execute(request)
-        let assets = results.compactMap { result -> PHAsset? in
-            PHAsset.fetchAssets(withLocalIdentifiers: [result.id], options: nil).firstObject
-        }
+        let assets = assets(from: results)
         await vision.index(assets: assets, includeFeaturePrint: includeFeaturePrint, onProgress: onProgress)
+        await finishIndexingPass()
+    }
+
+    /// Indexes photos newer than ``lastIndexDate``.
+    /// When there is no saved date, indexes the most recent `limit` images instead.
+    /// Saves the index and updates ``lastIndexDate`` when the pass finishes.
+    public func indexNewImagesSinceLastIndex(
+        limit: Int = 200,
+        includeFeaturePrint: Bool = false,
+        onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
+    ) async {
+        await loadStoreIfNeeded()
+        var request = PhotoQueryRequest()
+        request.mediaType = .image
+        request.limit = limit
+        request.sortDescending = true
+        if let since = lastIndexedAt {
+            request.startDate = since
+        }
+
+        let results = await library.execute(request)
+        let assets = assets(from: results)
+        await vision.index(assets: assets, includeFeaturePrint: includeFeaturePrint, onProgress: onProgress)
+        await finishIndexingPass()
+    }
+
+    /// Load the persisted index, then index only photos newer than the last save.
+    /// Call from app launch. Safe to call repeatedly.
+    public func prepareIndexOnLaunch(
+        limit: Int = 200,
+        includeFeaturePrint: Bool = false,
+        onProgress: (@Sendable (PhotoIndexProgress) -> Void)? = nil
+    ) async {
+        await loadStoreIfNeeded()
+        await indexNewImagesSinceLastIndex(
+            limit: limit,
+            includeFeaturePrint: includeFeaturePrint,
+            onProgress: onProgress
+        )
     }
 
     public func visionSearch(query: String) async -> [String] {
-        await vision.searchLabels(containing: query)
+        await loadStoreIfNeeded()
+        return await vision.searchLabels(containing: query)
     }
 
     // MARK: - Helpers
 
     public func albums() -> [String] {
         library.albums().compactMap(\.localizedTitle)
+    }
+
+    private func loadStoreIfNeeded() async {
+        guard !didLoadStore else { return }
+        didLoadStore = true
+        let snapshot = store.load()
+        lastIndexedAt = snapshot.lastIndexedAt
+        await vision.replaceAll(snapshot.entries)
+    }
+
+    private func finishIndexingPass() async {
+        lastIndexedAt = Date()
+        _ = await saveIndex(lastIndexedAt: lastIndexedAt)
+    }
+
+    private func assets(from results: [PhotoResult]) -> [PHAsset] {
+        results.compactMap { result in
+            PHAsset.fetchAssets(withLocalIdentifiers: [result.id], options: nil).firstObject
+        }
     }
 
     // MARK: - Simple NL parser (fallback)

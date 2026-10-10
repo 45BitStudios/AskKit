@@ -86,7 +86,7 @@ enum OpenSample {
     )
 
     /// A photo-library question searches through PhotoQueryKit.
-    /// Content search indexes recent photos on demand and shows progress on the thinking line.
+    /// The host calls `AskPhotos.prepareIndexOnLaunch()` so the saved index loads and only newer photos are indexed.
     private static let photos = AskPhotos.specialist(id: "open.photos")
 
     private static let skill = AskSkill(

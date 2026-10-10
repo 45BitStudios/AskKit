@@ -7,18 +7,48 @@ import UIKit
 /// Stores classification labels and OCR text keyed by localIdentifier.
 /// Suitable for foundation-model tool calling (“photos that contain a dog” etc.).
 public actor VisionIndexer {
-    public struct IndexEntry: Codable, Sendable {
+    public struct IndexEntry: Codable, Sendable, Equatable {
         public let localIdentifier: String
         public var labels: [String]
         public var ocrText: String?
         public var featurePrintData: Data?   // optional VNFeaturePrintObservation data
         public let indexedAt: Date
+
+        public init(
+            localIdentifier: String,
+            labels: [String],
+            ocrText: String? = nil,
+            featurePrintData: Data? = nil,
+            indexedAt: Date = Date()
+        ) {
+            self.localIdentifier = localIdentifier
+            self.labels = labels
+            self.ocrText = ocrText
+            self.featurePrintData = featurePrintData
+            self.indexedAt = indexedAt
+        }
     }
 
     private var index: [String: IndexEntry] = [:]
     private let maxConcurrent = 4
 
     public init() {}
+
+    /// Replace the in-memory index (used when loading from disk).
+    public func replaceAll(_ entries: [IndexEntry]) {
+        index = Dictionary(uniqueKeysWithValues: entries.map { ($0.localIdentifier, $0) })
+    }
+
+    /// Merge entries into the in-memory index.
+    public func merge(_ entries: [IndexEntry]) {
+        for entry in entries {
+            index[entry.localIdentifier] = entry
+        }
+    }
+
+    public func exportEntries() -> [IndexEntry] {
+        Array(index.values)
+    }
 
     /// Index a batch of assets (call from background).
     /// Already-indexed identifiers are skipped but still counted in progress.

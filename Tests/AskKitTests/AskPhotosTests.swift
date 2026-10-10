@@ -117,6 +117,9 @@ final class AskPhotosTests: XCTestCase {
         let ready = AskPhotosIndexCopy.ready(count: 200)
         XCTAssertEqual(ready.title, "Searching photos")
         XCTAssertEqual(ready.detail, "200 indexed")
+        let updating = AskPhotosIndexCopy.updating(since: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(updating.title, "Updating photo index…")
+        XCTAssertTrue(updating.detail.hasPrefix("Since "))
         XCTAssertEqual(
             AskPhotosIndexCopy.indexedFact(count: 200),
             "Indexed 200 recent photos for content search."

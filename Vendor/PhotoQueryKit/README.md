@@ -87,11 +87,16 @@ let results = await PhotoQuery.shared.query(request)
 
 ## Vision Indexing
 
+The Vision index is persisted on disk under Application Support (`PhotoQueryKit/vision-index.json`), including `lastIndexedAt`. It is not synced with CloudKit.
+
 ```swift
-// Index recent images for content search. Progress is for status UI.
-await PhotoQuery.shared.indexRecentImages(limit: 300) { progress in
+// App launch: reload the saved index, then index only photos newer than lastIndexedAt.
+await PhotoQuery.shared.prepareIndexOnLaunch(limit: 300) { progress in
     print("\(progress.completed)/\(progress.total) · \(progress.indexedCount) stored")
 }
+
+let last = await PhotoQuery.shared.lastIndexDate()
+_ = await PhotoQuery.shared.saveIndex()
 
 // Later: find photos whose Vision labels or OCR contain “dog” or “receipt”
 let ids = await PhotoQuery.shared.visionSearch(query: "dog")
