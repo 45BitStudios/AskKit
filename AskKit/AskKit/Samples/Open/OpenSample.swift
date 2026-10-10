@@ -8,7 +8,7 @@ import FoundationModels
 /// the chat menu has selected, on-device or Private Cloud. A time question uses the clock specialist.
 /// A question with a page address uses the web specialist. Any other question uses one Apple specialist for each source it names.
 /// The first launch turns on calendar, reminders, contacts, location, and health. Music, weather, and
-/// alarms stay off until another source is turned off. A greeting is answered without those tools. A tool
+/// alarms stay off until the person turns them on. A greeting is answered without those tools. A tool
 /// result is the only source for a calendar, reminder, contact, place, health, music, weather, or alarm question.
 enum OpenSample {
     static let assistantName = "Open ended"

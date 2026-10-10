@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Ask Garage. Nineteen skills across battery, cabin, trip, and care.
 /// All eight Apple sources can be selected in the composer. The first five start on.
-/// Music, weather, and alarms stay off until another source is turned off. Ask about the next drive to see the fact card.
+/// Music, weather, and alarms stay off until the person turns them on. Ask about the next drive to see the fact card.
 ///
 /// `guide` appends garage lines onto the built-in AskGuide prompts.
 /// A reply prompt is QUESTION, SKILL, FACTS, the GARAGE section, and CONVERSATION.
