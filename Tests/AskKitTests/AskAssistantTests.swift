@@ -148,6 +148,19 @@ final class AskAssistantTests: XCTestCase {
         }
         XCTAssertEqual(keptReply.spoken, "Pasta.")
         XCTAssertNil(kept.followUp)
+
+        model.replyText = """
+        Tomato pasta is ready.
+
+        Olive oil is on the shelf. The freezer has ice cream.
+        """
+        model.followUp = AskFollowUp(skillID: "stock", question: "What is on hand?")
+        let trimmed = await assistant.handle(utterance: "What's for dinner?")
+        guard case .reply(let trimmedReply) = trimmed.fulfillment else {
+            return XCTFail("Expected a reply")
+        }
+        XCTAssertEqual(trimmedReply.spoken, "Tomato pasta is ready.")
+        XCTAssertFalse(trimmedReply.spoken.contains("Olive oil"))
     }
 
     func testTwelveSkillsLeaveTheRouterWithoutTools() async throws {
@@ -672,6 +685,8 @@ final class ScriptedModel: @unchecked Sendable {
     var followCalls = 0
     var failure: Error?
     var replyText = ""
+    /// When non-empty, each reply call takes the next string before falling back to `replyText`.
+    var replyTexts: [String] = []
     var replyHold: (@Sendable () async throws -> String)?
     var followUp = AskFollowUp(skillID: "none", question: "")
     var fillCounts: [Int] = []
@@ -707,6 +722,9 @@ final class ScriptedModel: @unchecked Sendable {
                 self.requests.append(request)
                 if let replyHold = self.replyHold {
                     return try await replyHold()
+                }
+                if !self.replyTexts.isEmpty {
+                    return self.replyTexts.removeFirst()
                 }
                 return self.replyText
             },

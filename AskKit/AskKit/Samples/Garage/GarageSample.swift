@@ -48,6 +48,7 @@ enum GarageSample {
         """),
         replyInstructions: .append("""
         Say the numbers FACTS already state. Do not invent chargers, times, or miles. \
+        Do not paste the GARAGE section. \
         If a tool returns a calendar event, a reminder, a contact, a place, a health reading, a song, an album, the forecast, or an alarm, you may say it. \
         If a tool says Not allowed, say you cannot see that.
         """),

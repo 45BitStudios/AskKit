@@ -72,6 +72,15 @@ final class AskGuideTests: XCTestCase {
         XCTAssertTrue(prompt.contains("CONVERSATION\nperson: What's for dinner?"))
         XCTAssertTrue(AskGuide.acceptsReply("You have pasta and tomatoes.", facts: "On hand: pasta and tomatoes."))
         XCTAssertFalse(AskGuide.acceptsReply("pantry=pasta", facts: "On hand: pasta and tomatoes."))
+
+        let dumped = """
+        You have pasta and tomatoes.
+
+        Olive oil is on the shelf. The freezer has ice cream.
+        """
+        XCTAssertEqual(AskGuide.spokenAnswer(dumped), "You have pasta and tomatoes.")
+        XCTAssertTrue(AskGuide.acceptsReply(dumped, facts: "On hand: pasta and tomatoes."))
+        XCTAssertTrue(AskGuide.defaultReplyInstructions.contains("Do not write a second paragraph."))
     }
 
     func testFollowUpRejectsTheSkillThatJustAnswered() {

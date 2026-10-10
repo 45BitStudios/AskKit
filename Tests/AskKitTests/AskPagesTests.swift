@@ -141,6 +141,105 @@ final class AskPagesTests: XCTestCase {
         XCTAssertEqual(fulfill?.attributes.first { $0.key == "shownCards" }?.value, "On hand")
     }
 
+    func testABackgroundDumpIsTrimmedOnEachPage() async throws {
+        let model = ScriptedModel()
+        model.replyTexts = [
+            """
+            Charging at home. About 32 minutes until 80 percent.
+
+            The car is an Ioniq 5, plugged in at home, charging at 11 kW. Tires are 36 psi.
+            """,
+            """
+            Electrify America is 0.4 miles away, with 2 stalls open.
+
+            The car is an Ioniq 5, plugged in at home. Washer fluid is low. The headlights are off.
+            """
+        ]
+        let assistant = try AskAssistant(
+            AskConfiguration(
+                assistantName: "Ask Garage",
+                domains: [
+                    AskDomain(id: "battery", summary: "Charging", routingNotes: "Battery."),
+                    AskDomain(id: "trip", summary: "Driving", routingNotes: "Chargers.")
+                ],
+                skills: [
+                    AskSkill(
+                        id: "chargeStatus",
+                        domainID: "battery",
+                        title: "Charge status",
+                        summary: "Battery and time to 80",
+                        routingNotes: "Charge.",
+                        fulfillment: .reply { _ in
+                            AskReply(
+                                text: "68 percent.",
+                                spoken: "68 percent.",
+                                facts: "Charging at home. About 32 minutes until 80 percent."
+                            )
+                        }
+                    ),
+                    AskSkill(
+                        id: "findCharger",
+                        domainID: "trip",
+                        title: "Find a charger",
+                        summary: "Nearest fast charger",
+                        routingNotes: "Charger.",
+                        fulfillment: .reply { _ in
+                            AskReply(
+                                text: "Electrify America.",
+                                spoken: "Electrify America.",
+                                facts: "Electrify America is 0.4 miles away. 2 stalls are open."
+                            )
+                        }
+                    )
+                ],
+                context: {
+                    AskContext(sections: [
+                        AskPromptSection(
+                            title: "GARAGE",
+                            text: "The car is an Ioniq 5. Tires are 36 psi. Washer fluid is low."
+                        )
+                    ])
+                },
+                chips: { _ in [] },
+                fastPath: { utterance in
+                    let lower = utterance.lowercased()
+                    if lower.contains("charg") && lower.contains("status") {
+                        return AskRoute(skillID: "chargeStatus")
+                    }
+                    if lower.contains("charger") || lower.contains("closet") {
+                        return AskRoute(skillID: "findCharger")
+                    }
+                    return nil
+                },
+                guide: AskGuide(replyInstructions: "Rewrite FACTS.")
+            ),
+            model: model.client
+        )
+        let result = await assistant.handle(
+            utterance: "What's my charging status and the closet charger"
+        )
+        XCTAssertEqual(result.pages.map(\.skillID), ["chargeStatus", "findCharger"])
+        XCTAssertEqual(
+            result.pages.map(\.spoken),
+            [
+                "Charging at home. About 32 minutes until 80 percent.",
+                "Electrify America is 0.4 miles away, with 2 stalls open."
+            ]
+        )
+        let joined = result.pages.map(\.spoken).joined(separator: "\n\n")
+        XCTAssertEqual(
+            joined,
+            """
+            Charging at home. About 32 minutes until 80 percent.
+
+            Electrify America is 0.4 miles away, with 2 stalls open.
+            """
+        )
+        XCTAssertFalse(joined.contains("Tires"))
+        XCTAssertFalse(joined.contains("Washer"))
+        XCTAssertFalse(joined.contains("headlights"))
+    }
+
     func testTheSameSkillStaysOnePage() async throws {
         let seen = OSAllocatedUnfairLock(initialState: "")
         let model = ScriptedModel()

@@ -1128,6 +1128,7 @@ public struct AskAssistant {
         text = AskContactLine.speech(text, question: question, readings: readings)
         text = AskLocationPin.nearbySpeech(text, question: question, readings: readings)
         text = AskHealthCatalog.weekSpeech(text, question: question, readings: readings)
+        text = AskGuide.spokenAnswer(text)
         guard AskGuide.acceptsReply(text, facts: checked) else {
             AskTrace.decision("reply rejected")
             return ReplyWrite(text: nil, readings: readings)
