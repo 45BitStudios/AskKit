@@ -237,13 +237,12 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(AskAppleSelection.active(allowed: allowed, for: "Ask Choice", defaults: defaults), [.music])
     }
 
-    func testASixthSourceIsIgnored() {
+    func testEveryAllowedSourceCanStayOn() {
         let defaults = isolatedDefaults()
-        let allowed: AskAppleAccess = [.calendar, .reminders, .contacts, .location, .health, .music]
-        let five: AskAppleAccess = [.calendar, .reminders, .contacts, .location, .health]
-        AskAppleSelection.update(five, allowed: allowed, for: "Ask Choice", defaults: defaults)
+        let allowed: AskAppleAccess = [.calendar, .reminders, .contacts, .location, .health, .music, .weather, .alarms]
         let saved = AskAppleSelection.update(allowed, allowed: allowed, for: "Ask Choice", defaults: defaults)
-        XCTAssertEqual(saved, five)
+        XCTAssertEqual(saved, allowed)
+        XCTAssertEqual(AskAppleSelection.active(allowed: allowed, for: "Ask Choice", defaults: defaults), allowed)
         let outside = AskAppleSelection.update([.music], allowed: [.calendar], for: "Ask Choice", defaults: defaults)
         XCTAssertTrue(outside.isEmpty)
     }
@@ -1432,9 +1431,9 @@ final class AskAppleAccessTests: XCTestCase {
         let allowed: AskAppleAccess = [.calendar, .reminders, .contacts, .location, .health, .music, .weather]
         AskAppleSelection.rememberIfNeeded(allowed, allowed: allowed, for: "Ask Seed", defaults: defaults)
         let seeded = AskAppleSelection.active(allowed: allowed, for: "Ask Seed", defaults: defaults)
-        XCTAssertEqual(seeded, [.calendar, .reminders, .contacts, .location, .health])
-        XCTAssertFalse(seeded.contains(.music))
-        XCTAssertFalse(seeded.contains(.weather))
+        XCTAssertEqual(seeded, allowed)
+        XCTAssertTrue(seeded.contains(.music))
+        XCTAssertTrue(seeded.contains(.weather))
     }
 
     func testCardGallerySamplesCoverEachCard() {
@@ -1588,10 +1587,10 @@ final class AskAppleAccessTests: XCTestCase {
         let allowed: AskAppleAccess = [.calendar, .reminders, .contacts, .location, .health, .music, .weather, .alarms]
         AskAppleSelection.rememberIfNeeded(allowed, allowed: allowed, for: "Ask Alarm Seed", defaults: defaults)
         let seeded = AskAppleSelection.active(allowed: allowed, for: "Ask Alarm Seed", defaults: defaults)
-        XCTAssertEqual(seeded, [.calendar, .reminders, .contacts, .location, .health])
-        XCTAssertFalse(seeded.contains(.alarms))
-        XCTAssertFalse(seeded.contains(.music))
-        XCTAssertFalse(seeded.contains(.weather))
+        XCTAssertEqual(seeded, allowed)
+        XCTAssertTrue(seeded.contains(.alarms))
+        XCTAssertTrue(seeded.contains(.music))
+        XCTAssertTrue(seeded.contains(.weather))
     }
 
     func testASkippedReminderAndAlarmArePlannedWithoutFrameworks() {

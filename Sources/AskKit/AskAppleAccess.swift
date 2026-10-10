@@ -101,8 +101,8 @@ struct AskAppleSource: Identifiable, Sendable {
 /// Which allowed Apple sources the next reply may use.
 ///
 /// The key is `AskKit.appleAccess.<assistant name>` in the defaults you pass.
-/// A missing key means the app's set. The person can turn sources off in the composer.
-/// At most five stay on. A sixth change is ignored.
+/// A missing key means the app's set. The person can turn sources on or off in the composer.
+/// Every allowed source may stay on. Each matching source still runs in its own session.
 public enum AskAppleSelection: Sendable {
     public static func storageKey(for assistantName: String) -> String {
         "AskKit.appleAccess.\(assistantName)"
@@ -129,11 +129,11 @@ public enum AskAppleSelection: Sendable {
         lock.withLockUnchecked {
             let key = storageKey(for: assistantName)
             guard defaults.object(forKey: key) == nil else { return }
-            defaults.set(capped(selection.intersection(allowed)).rawValue, forKey: key)
+            defaults.set(selection.intersection(allowed).rawValue, forKey: key)
         }
     }
 
-    /// Saves a subset of `allowed`. More than five sources leaves the saved choice unchanged.
+    /// Saves a subset of `allowed`.
     @discardableResult
     public static func update(
         _ selection: AskAppleAccess,
@@ -143,9 +143,6 @@ public enum AskAppleSelection: Sendable {
     ) -> AskAppleAccess {
         lock.withLockUnchecked {
             let next = selection.intersection(allowed)
-            guard next.rawValue.nonzeroBitCount <= AskSessionPolicy.maxToolsPerSession else {
-                return stored(allowed: allowed, assistantName: assistantName, defaults: defaults)
-            }
             defaults.set(next.rawValue, forKey: storageKey(for: assistantName))
             return next
         }
@@ -160,16 +157,6 @@ public enum AskAppleSelection: Sendable {
             return allowed
         }
         return AskAppleAccess(rawValue: raw).intersection(allowed)
-    }
-
-    /// Keeps sources in catalog order until the session limit.
-    private static func capped(_ access: AskAppleAccess) -> AskAppleAccess {
-        var kept = AskAppleAccess()
-        for source in AskAppleSource.catalog where access.contains(source.access) {
-            if kept.rawValue.nonzeroBitCount >= AskSessionPolicy.maxToolsPerSession { break }
-            kept.insert(source.access)
-        }
-        return kept
     }
 }
 

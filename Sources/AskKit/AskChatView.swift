@@ -2190,10 +2190,9 @@ private struct AskToolsSheet: View {
                                     Image(systemName: source.symbol)
                                 }
                             }
-                            .disabled(isFull && !selected.contains(source.access))
                         }
                     } footer: {
-                        Text("A reply can use five tools, including any tools the skill adds. Turn one off before turning another on. Chip taps do not use them.")
+                        Text("A reply uses the tools that are on, including any tools the skill adds. Chip taps do not use them.")
                     }
                 }
             }
@@ -2218,10 +2217,6 @@ private struct AskToolsSheet: View {
 
     private var sources: [AskAppleSource] {
         AskAppleSource.catalog.filter { allowed.contains($0.access) }
-    }
-
-    private var isFull: Bool {
-        selected.rawValue.nonzeroBitCount >= AskSessionPolicy.maxToolsPerSession
     }
 
     private func binding(for source: AskAppleSource) -> Binding<Bool> {
