@@ -175,6 +175,22 @@ final class AskChatAppearanceTests: XCTestCase {
         XCTAssertEqual(AskChatActivityCenter.shared.partial, "Sam is expected at 2 p.m.")
     }
 
+    @MainActor
+    func testRichMarkdownPreviewKeepsBlankLines() {
+        let previousStream = AskStreamSelection.isOn
+        let previousMarkdown = AskMarkdownSelection.isOn
+        defer {
+            AskStreamSelection.isOn = previousStream
+            AskMarkdownSelection.isOn = previousMarkdown
+        }
+        AskStreamSelection.isOn = true
+        AskMarkdownSelection.isOn = true
+        AskChatActivity.clearStream()
+        let list = "Open items:\n\n- Milk\n- Eggs"
+        AskReplyPreview.note(list, facts: "Milk and eggs are open.")
+        XCTAssertEqual(AskChatActivityCenter.shared.partial, list)
+    }
+
     func testWorkedTraceDefaultsOnAndRemembersOff() {
         let previous = UserDefaults.standard.object(forKey: AskWorkedTraceSelection.storageKey)
         defer {

@@ -473,8 +473,8 @@ public struct AskAssistant {
                 images: images
             )
             if let written = draft.text {
-                reply.spoken = written
                 reply.text = written
+                reply.spoken = AskGuide.plainSpeech(written)
                 usedModel = true
             }
             let pages = laidOutPages(
@@ -506,8 +506,8 @@ public struct AskAssistant {
                 images: images
             )
             if let written = draft.text {
-                card.spoken = written
                 card.text = written
+                card.spoken = AskGuide.plainSpeech(written)
                 usedModel = true
             }
             let pages = laidOutPages(
@@ -1015,7 +1015,8 @@ public struct AskAssistant {
             return detail
         }
         let photoFacts = AskImageFacts.block(images)
-        var instructions = guide.resolvedReplyInstructions
+        let rich = AskMarkdownSelection.isOn
+        var instructions = guide.resolvedReplyInstructions(rich: rich)
         if !sessionTools.isEmpty {
             let note = profile.toolNote.isEmpty ? AskAppleCopy.replyRule : profile.toolNote
             instructions = note + "\n\n" + instructions
@@ -1128,8 +1129,9 @@ public struct AskAssistant {
         text = AskContactLine.speech(text, question: question, readings: readings)
         text = AskLocationPin.nearbySpeech(text, question: question, readings: readings)
         text = AskHealthCatalog.weekSpeech(text, question: question, readings: readings)
-        text = AskGuide.spokenAnswer(text)
-        guard AskGuide.acceptsReply(text, facts: checked) else {
+        let rich = AskMarkdownSelection.isOn
+        text = AskGuide.keptAnswer(text, rich: rich)
+        guard AskGuide.acceptsReply(text, facts: checked, rich: rich) else {
             AskTrace.decision("reply rejected")
             return ReplyWrite(text: nil, readings: readings)
         }

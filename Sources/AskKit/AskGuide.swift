@@ -61,8 +61,20 @@ public struct AskGuide: Sendable, Equatable {
     Rewrite FACTS in plain English. Do not invent facts that are not in FACTS.
     Sections after FACTS are background. Do not copy a fact from them that FACTS do not state.
     Stop after those sentences. Do not write a second paragraph.
+    Do not use Markdown, headings, lists, tables, code, or math.
     CONVERSATION is earlier in this chat. Use it to understand this, that, and there. Do not repeat an earlier answer.
     Do not use key=value, labels, or equals signs.
+    Do not mention that the answer is generated.
+    """
+
+    /// Used when ``AskMarkdownSelection`` is on. The same `replyInstructions` append or replace applies.
+    public static let defaultRichReplyInstructions = """
+    Answer from FACTS. Do not invent facts that are not in FACTS.
+    Sections after FACTS are background. Do not copy a fact from them that FACTS do not state.
+    The chat bubble renders Markdown. Use headings, lists, tables, **bold**, *italics*, `code`, and math ($inline$ or $$block$$) when they help scan the answer. Prefer a Markdown table when comparing numbers.
+    Keep the answer focused on the question. Do not pad with filler.
+    CONVERSATION is earlier in this chat. Use it to understand this, that, and there. Do not repeat an earlier answer.
+    Do not use key=value labels as the answer.
     Do not mention that the answer is generated.
     """
 
@@ -78,7 +90,8 @@ public struct AskGuide: Sendable, Equatable {
     public var routeOpening: AskGuideText
     /// Lines under `RULES`. A string appends to `defaultRouteRules`.
     public var routeRules: AskGuideText
-    /// How the model turns FACTS into the spoken answer. A string appends to `defaultReplyInstructions`.
+    /// How the model turns FACTS into the spoken answer.
+    /// A string appends to `defaultReplyInstructions`, or to `defaultRichReplyInstructions` when rich text is on.
     public var replyInstructions: AskGuideText
     /// How the model offers one next question. A string appends to `defaultFollowUpInstructions`.
     public var followUpInstructions: AskGuideText
@@ -108,7 +121,14 @@ public struct AskGuide: Sendable, Equatable {
     }
 
     public var resolvedReplyInstructions: String {
-        replyInstructions.resolved(default: Self.defaultReplyInstructions)
+        resolvedReplyInstructions(rich: false)
+    }
+
+    /// Plain reply instructions, or the rich Markdown set when `rich` is true.
+    public func resolvedReplyInstructions(rich: Bool) -> String {
+        replyInstructions.resolved(
+            default: rich ? Self.defaultRichReplyInstructions : Self.defaultReplyInstructions
+        )
     }
 
     public var resolvedFollowUpInstructions: String {
@@ -121,7 +141,7 @@ public struct AskGuide: Sendable, Equatable {
     }
 
     public var writesReply: Bool {
-        !resolvedReplyInstructions.isEmpty
+        !resolvedReplyInstructions.isEmpty || !resolvedReplyInstructions(rich: true).isEmpty
     }
 
     public var offersFollowUp: Bool {
@@ -197,19 +217,51 @@ public struct AskGuide: Sendable, Equatable {
         }.joined(separator: "\n")
     }
 
-    /// The spoken line. A blank line starts a background dump the prompt says not to copy.
+    /// The spoken line in plain mode. A blank line starts a background dump the prompt says not to copy.
     public static func spokenAnswer(_ written: String) -> String {
+        keptAnswer(written, rich: false)
+    }
+
+    /// The bubble text to keep. Plain mode stops before the first blank line. Rich mode keeps the full Markdown.
+    public static func keptAnswer(_ written: String, rich: Bool = AskMarkdownSelection.isOn) -> String {
         let trimmed = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        if rich { return trimmed }
         guard let range = trimmed.range(of: #"\n[ \t]*\n"#, options: .regularExpression) else { return trimmed }
         return String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// A rewrite that echoes `key=value` when FACTS did not is discarded.
-    /// Only the paragraph before a blank line is kept, matching the streaming preview.
-    public static func acceptsReply(_ written: String, facts: String) -> Bool {
-        let trimmed = spokenAnswer(written)
-        guard !trimmed.isEmpty, trimmed.count <= 600 else { return false }
-        if trimmed.contains("="), !facts.contains("=") { return false }
+    /// Words without Markdown markers, for speech, Siri, and copy.
+    ///
+    /// Bubbles keep the Markdown when rich text is on.
+    public static func plainSpeech(_ written: String) -> String {
+        let trimmed = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
+        guard let attributed = try? AttributedString(markdown: trimmed, options: options) else {
+            let inline = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            guard let attributed = try? AttributedString(markdown: trimmed, options: inline) else { return trimmed }
+            return String(attributed.characters)
+        }
+        return String(attributed.characters)
+    }
+
+    /// A rewrite that echoes `key=value` when FACTS did not is discarded in plain mode.
+    /// Plain mode keeps only the paragraph before a blank line and caps at 600 characters.
+    /// Rich mode keeps full Markdown up to ``AskReplyBudget``'s token-based character limit
+    /// for the active model (on-device vs Private Cloud Compute).
+    public static func acceptsReply(
+        _ written: String,
+        facts: String,
+        rich: Bool = AskMarkdownSelection.isOn
+    ) -> Bool {
+        let trimmed = keptAnswer(written, rich: rich)
+        let limit = AskReplyBudget.characterLimit(rich: rich)
+        guard !trimmed.isEmpty, trimmed.count <= limit else { return false }
+        if AskReplyBudget.estimatedTokens(for: trimmed) > AskReplyBudget.responseTokenLimit(rich: rich) {
+            return false
+        }
+        if !rich, trimmed.contains("="), !facts.contains("=") { return false }
         return true
     }
 

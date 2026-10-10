@@ -73,7 +73,6 @@ extension AskCloudReasoning {
 struct AskCloudSessionOptions: Sendable {
     var reasoningLevel: ContextOptions.ReasoningLevel
     var temperature: Double?
-    var maximumResponseTokens: Int?
 }
 
 enum AskModelAvailability {
@@ -99,6 +98,7 @@ enum AskComputeRuntime {
     struct Resolved {
         var model: any LanguageModel
         var cloud: AskCloudSessionOptions?
+        var maximumResponseTokens: Int?
     }
 
     /// The model the next session should call. Records the resolved choice on the open trace span.
@@ -117,25 +117,27 @@ enum AskComputeRuntime {
         if case .unavailable(let reason) = cloud.availability {
             AskTrace.attribute("privateCloud", AskModelAvailability.cloud(reason))
         }
+        let maxTokens = AskReplyBudget.generationTokenLimit()
+        if let maxTokens {
+            AskTrace.attribute("maxTokens", String(maxTokens))
+        }
+        AskTrace.attribute("contextSize", String(choice == .onDevice ? onDevice.contextSize : cloud.contextSize))
         switch choice {
         case .onDevice:
-            return Resolved(model: onDevice, cloud: nil)
+            return Resolved(model: onDevice, cloud: nil, maximumResponseTokens: maxTokens)
         case .privateCloud:
             let options = AskCloudSettings.current
             AskTrace.attribute("reasoning", options.reasoning.rawValue)
             if let temperature = options.temperature {
                 AskTrace.attribute("temperature", String(temperature))
             }
-            if let tokens = options.length.maximumResponseTokens {
-                AskTrace.attribute("maxTokens", String(tokens))
-            }
             return Resolved(
                 model: cloud,
                 cloud: AskCloudSessionOptions(
                     reasoningLevel: options.reasoning.level,
-                    temperature: options.temperature,
-                    maximumResponseTokens: options.length.maximumResponseTokens
-                )
+                    temperature: options.temperature
+                ),
+                maximumResponseTokens: maxTokens
             )
         }
     }
@@ -207,6 +209,7 @@ struct AskRoutingProfile: LanguageModelSession.DynamicProfile {
     var instructions: String
     var model: any LanguageModel
     var cloud: AskCloudSessionOptions?
+    var maximumResponseTokens: Int?
     var activity: AskProfileActivity = .quiet
 
     var body: some LanguageModelSession.DynamicProfile {
@@ -217,7 +220,7 @@ struct AskRoutingProfile: LanguageModelSession.DynamicProfile {
         .model(model)
         .reasoningLevel(cloud?.reasoningLevel)
         .temperature(cloud?.temperature)
-        .maximumResponseTokens(cloud?.maximumResponseTokens)
+        .maximumResponseTokens(maximumResponseTokens)
         .toolCallingMode(.disallowed)
         .historyTransform(AskTranscript.forRouting)
         .transcriptErrorHandlingPolicy(.revertTranscript)
@@ -235,6 +238,7 @@ struct AskSkillProfile: LanguageModelSession.DynamicProfile {
     var tools: [any Tool]
     var model: any LanguageModel
     var cloud: AskCloudSessionOptions?
+    var maximumResponseTokens: Int?
     var toolCallingMode: GenerationOptions.ToolCallingMode = .allowed
     var activity: AskProfileActivity = .quiet
 
@@ -253,7 +257,7 @@ struct AskSkillProfile: LanguageModelSession.DynamicProfile {
         .model(model)
         .reasoningLevel(cloud?.reasoningLevel)
         .temperature(cloud?.temperature)
-        .maximumResponseTokens(cloud?.maximumResponseTokens)
+        .maximumResponseTokens(maximumResponseTokens)
         .toolCallingMode(toolCallingMode)
         .transcriptErrorHandlingPolicy(.preserveTranscript)
         .onActivate {
@@ -285,6 +289,7 @@ enum AskFoundationSessions {
                 instructions: instructions,
                 model: resolved.model,
                 cloud: resolved.cloud,
+                maximumResponseTokens: resolved.maximumResponseTokens,
                 activity: activity
             )
         )
@@ -333,6 +338,7 @@ enum AskFoundationSessions {
                 tools: tools,
                 model: resolved.model,
                 cloud: resolved.cloud,
+                maximumResponseTokens: resolved.maximumResponseTokens,
                 // Required mode keeps issuing tool calls and can end with an empty sentence.
                 toolCallingMode: .allowed,
                 activity: .specialist(
@@ -387,7 +393,8 @@ enum AskFoundationSessions {
                 instructions: request.instructions,
                 tools: tools,
                 model: resolved.model,
-                cloud: resolved.cloud
+                cloud: resolved.cloud,
+                maximumResponseTokens: resolved.maximumResponseTokens
             )
         )
         let response = try await AskTrace.respond(session, label: "fillSlots", to: request.prompt, generating: AskSkillChoice.self)
