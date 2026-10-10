@@ -384,13 +384,15 @@ struct AskHealthChartCard: View {
     @State private var pinned: AskHealthRange?
     @State private var snapshot: AskHealthSeriesSnapshot?
     @State private var loadedRange: AskHealthRange?
+    /// Held so Day/Week/Month/Year taps invalidate this card when the shared store changes.
+    @State private var ranges = AskHealthRanges.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.askSnippet) private var snippet
 
     var body: some View {
         let prepared = snippet.health[metric.key]
-        let active = AskHealthRanges.shared.activeID(for: metric.key) == cardID
-        let choice = AskHealthRanges.shared.choices[metric.key]
+        let active = ranges.activeID(for: metric.key) == cardID
+        let choice = ranges.choices[metric.key]
         let live = AskHealthChartModel.follows(choice: choice, opened: opened, active: active)
         let range = prepared?.range ?? live ?? (active ? initial : (pinned ?? initial))
         VStack(alignment: .leading, spacing: 10) {
@@ -415,7 +417,7 @@ struct AskHealthChartCard: View {
         .askCardSurface(tint: AskHealthColor.color(for: metric))
         .onAppear {
             guard prepared == nil else { return }
-            AskHealthRanges.shared.claim(metric: metric.key, id: cardID, opened: opened)
+            ranges.claim(metric: metric.key, id: cardID, opened: opened)
         }
         .onChange(of: live ?? initial) { _, newValue in
             if active { pinned = newValue }
@@ -514,6 +516,7 @@ private struct AskHealthRangeButton: View {
                             .matchedGeometryEffect(id: "health-range", in: selection)
                     }
                 }
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])

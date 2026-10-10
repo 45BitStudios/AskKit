@@ -1133,6 +1133,22 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(AskHealthChartModel.snippetRange(initial: .day, choice: earlier), .week)
         XCTAssertEqual(AskHealthChartModel.snippetRange(initial: .day, choice: nil), .day)
 
+        let ranges = AskHealthRanges()
+        let cardID = UUID()
+        let olderID = UUID()
+        ranges.claim(metric: "steps", id: olderID, opened: opened.addingTimeInterval(-1))
+        ranges.claim(metric: "steps", id: cardID, opened: opened)
+        XCTAssertEqual(ranges.activeID(for: "steps"), cardID)
+        ranges.claim(metric: "steps", id: olderID, opened: opened.addingTimeInterval(-1))
+        XCTAssertEqual(ranges.activeID(for: "steps"), cardID)
+        ranges.select(metric: "steps", range: .week)
+        let choice = ranges.choices["steps"]
+        XCTAssertEqual(choice?.range, .week)
+        XCTAssertEqual(
+            AskHealthChartModel.follows(choice: choice, opened: opened, active: true),
+            .week
+        )
+
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         calendar.locale = Locale(identifier: "en_US")
