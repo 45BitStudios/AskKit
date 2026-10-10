@@ -1815,6 +1815,7 @@ private struct AskComposerField: View {
     @State private var preferredCompute = AskComputeSelection.current
     @State private var onDeviceModel = SystemLanguageModel.default
     @State private var cloudModel = PrivateCloudComputeLanguageModel()
+    @State private var network = AskNetworkStatus.shared
     @State private var showsCloudOptions = false
     @State private var showsTools = false
     @State private var streams = AskStreamSelection.isOn
@@ -1849,6 +1850,9 @@ private struct AskComposerField: View {
         field
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+        .onAppear {
+            network.start()
+        }
         .onDisappear {
             speech.stop()
             resignKeyboard()
@@ -2056,7 +2060,8 @@ private struct AskComposerField: View {
         AskComputeChoice.resolved(
             preferred: preferredCompute,
             onDevice: onDeviceModel.isAvailable,
-            cloud: cloudModel.isAvailable
+            cloud: cloudModel.isAvailable,
+            online: network.isOnline
         )
     }
 
@@ -2098,7 +2103,7 @@ private struct AskComposerField: View {
     private func computeIsAvailable(_ choice: AskCompute) -> Bool {
         switch choice {
         case .onDevice: onDeviceModel.isAvailable
-        case .privateCloud: cloudModel.isAvailable
+        case .privateCloud: cloudModel.isAvailable && network.isOnline
         }
     }
 

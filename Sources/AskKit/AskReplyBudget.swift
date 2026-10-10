@@ -114,7 +114,8 @@ enum AskReplyBudget {
         let compute = AskComputeChoice.resolved(
             preferred: AskComputeSelection.current,
             onDevice: onDevice.isAvailable,
-            cloud: cloud.isAvailable
+            cloud: cloud.isAvailable,
+            online: AskNetwork.isOnline
         )
         switch compute {
         case .onDevice:
