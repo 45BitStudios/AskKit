@@ -14,7 +14,7 @@ public enum AskDirectionsIntentError: Error, CustomLocalizedStringResourceConver
     }
 }
 
-/// Opens Maps with directions to one place. The location card button runs this. It is not an extra Siri phrase.
+/// Opens Maps with directions to one place. Shortcuts can pass an ``AskPlaceEntity`` from Ask. It is not an extra Siri phrase.
 public struct OpenAskDirectionsIntent: AppIntent {
     public static let title: LocalizedStringResource = "Get Directions"
     public static let description = IntentDescription("Opens directions to a place in Maps.")
@@ -24,6 +24,9 @@ public struct OpenAskDirectionsIntent: AppIntent {
     public static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
     @Parameter(title: "Place")
+    public var destination: AskPlaceEntity?
+
+    @Parameter(title: "Place Name")
     public var place: String
 
     @Parameter(title: "Latitude")
@@ -33,27 +36,47 @@ public struct OpenAskDirectionsIntent: AppIntent {
     public var longitude: Double
 
     public static var parameterSummary: some ParameterSummary {
-        Summary("Get directions to \(\.$place)")
+        Summary("Get directions to \(\.$destination)") {
+            \.$place
+            \.$latitude
+            \.$longitude
+        }
     }
 
-    public init() {}
+    public init() {
+        self.destination = nil
+        self.place = ""
+        self.latitude = 0
+        self.longitude = 0
+    }
+
+    public init(place: AskPlaceEntity) {
+        self.destination = place
+        self.place = place.name
+        self.latitude = place.latitude
+        self.longitude = place.longitude
+    }
 
     public init(place: String, latitude: Double, longitude: Double) {
+        self.destination = AskPlaceEntity(name: place, latitude: latitude, longitude: longitude)
         self.place = place
         self.latitude = latitude
         self.longitude = longitude
     }
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        let name = try await askOpenDirections(
-            place: place,
-            latitude: latitude,
-            longitude: longitude,
+        let name = destination?.name ?? place
+        let lat = destination?.latitude ?? latitude
+        let lon = destination?.longitude ?? longitude
+        let opened = try await askOpenDirections(
+            place: name,
+            latitude: lat,
+            longitude: lon,
             canContinue: systemContext.currentMode.canContinueInForeground
         ) {
             try await self.continueInForeground("Opening directions in Maps.", alwaysConfirm: false)
         }
-        return .result(dialog: "Directions to \(name).")
+        return .result(dialog: "Directions to \(opened).")
     }
 }
 

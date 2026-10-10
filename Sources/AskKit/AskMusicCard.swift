@@ -12,6 +12,8 @@ enum AskMusicQuery {
         case recent
         case song
         case album
+        case playlist
+        case play
         case pause
         case next
         case previous
@@ -27,7 +29,8 @@ enum AskMusicQuery {
         let tokens = AskAppleCopy.foldedTokens(question)
         let folded = AskAppleCopy.folded(question)
         let album = tokens.contains("album") || tokens.contains("albums")
-        if isRecent(folded), !album {
+        let playlist = tokens.contains("playlist") || tokens.contains("playlists")
+        if isRecent(folded), !album, !playlist {
             return Request(kind: .recent, term: "")
         }
         if isPause(folded, tokens: tokens) {
@@ -44,6 +47,12 @@ enum AskMusicQuery {
         let clipped = String(term.prefix(80)).trimmingCharacters(in: .whitespacesAndNewlines)
         if clipped.isEmpty {
             return Request(kind: .now, term: "")
+        }
+        if isPlay(folded, tokens: tokens) {
+            return Request(kind: .play, term: clipped)
+        }
+        if playlist {
+            return Request(kind: .playlist, term: clipped)
         }
         if album {
             return Request(kind: .album, term: clipped)
@@ -67,6 +76,12 @@ enum AskMusicQuery {
         if kind.contains("recent") || kind.contains("last") {
             return Request(kind: .recent, term: "")
         }
+        if kind == "play" || kind.hasPrefix("play ") {
+            return term.isEmpty ? Request(kind: .now, term: "") : Request(kind: .play, term: term)
+        }
+        if kind.contains("playlist") {
+            return term.isEmpty ? Request(kind: .now, term: "") : Request(kind: .playlist, term: term)
+        }
         if kind.contains("album") {
             return term.isEmpty ? Request(kind: .now, term: "") : Request(kind: .album, term: term)
         }
@@ -77,6 +92,17 @@ enum AskMusicQuery {
             return Request(kind: .song, term: term)
         }
         return Request(kind: .now, term: "")
+    }
+
+    /// Play a named song or album. Pause and stop stay transport commands.
+    private static func isPlay(_ folded: String, tokens: [String]) -> Bool {
+        if tokens.contains("pause") || tokens.contains("stop") { return false }
+        if folded.localizedStandardContains("play the")
+            || folded.localizedStandardContains("play a")
+            || folded.localizedStandardContains("play some") {
+            return true
+        }
+        return tokens.contains("play") && tokens.contains(where: { !skip.contains($0) && $0 != "play" })
     }
 
     /// "Last played" is play history. The song sitting in the queue is a different question.
@@ -126,7 +152,9 @@ enum AskMusicQuery {
             return !items.contains { $0.kind == .song }
         case .album:
             return !items.contains { $0.kind == .album }
-        case .pause, .next, .previous:
+        case .playlist:
+            return !items.contains { $0.kind == .playlist }
+        case .play, .pause, .next, .previous:
             return false
         }
     }
@@ -141,15 +169,16 @@ enum AskMusicQuery {
         "Nothing was played recently.",
         "No matching songs.",
         "No matching albums.",
+        "No matching playlists.",
         "Music isn't available."
     ]
 
     private static let skip: Set<String> = [
         "what", "whats", "is", "are", "the", "a", "an", "my", "me", "playing", "now", "song", "songs",
-        "album", "albums", "music", "find", "search", "show", "play", "by", "called", "named", "for",
-        "some", "please", "this", "that", "from", "on", "of", "about", "can", "you", "i", "want", "to",
-        "listen", "hear", "look", "up", "lookup", "any", "there", "something", "current", "currently", "do",
-        "last", "played", "recent", "recently", "listened", "history"
+        "album", "albums", "playlist", "playlists", "music", "find", "search", "show", "play", "by",
+        "called", "named", "for", "some", "please", "this", "that", "from", "on", "of", "about", "can",
+        "you", "i", "want", "to", "listen", "hear", "look", "up", "lookup", "any", "there", "something",
+        "current", "currently", "do", "last", "played", "recent", "recently", "listened", "history"
     ]
 }
 
@@ -159,6 +188,7 @@ enum AskMusicLine {
         enum Kind: Equatable, Sendable {
             case song
             case album
+            case playlist
         }
 
         var kind: Kind
@@ -174,6 +204,14 @@ enum AskMusicLine {
 
         var subtitle: String {
             [detail, extra].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+
+        var musicKind: AskMusicKind {
+            switch kind {
+            case .song: .song
+            case .album: .album
+            case .playlist: .playlist
+            }
         }
     }
 
@@ -222,6 +260,21 @@ enum AskMusicLine {
         return "Album: " + parts.joined(separator: " · ")
     }
 
+    static func playlistLine(title: String, curator: String, songs: Int) -> String {
+        let name = clean(title)
+        guard !name.isEmpty else { return "No matching playlists." }
+        var parts = [name]
+        let who = clean(curator)
+        let count = songs == 1 ? "1 song" : "\(max(songs, 0)) songs"
+        if !who.isEmpty || songs > 0 {
+            parts.append(who.isEmpty ? "Playlist" : who)
+        }
+        if songs > 0 {
+            parts.append(count)
+        }
+        return "Playlist: " + parts.joined(separator: " · ")
+    }
+
     static func item(from line: String) -> Item? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         let kind: Item.Kind
@@ -231,6 +284,9 @@ enum AskMusicLine {
             rest = suffix
         } else if let suffix = trimmed.dropPrefix("Album:") {
             kind = .album
+            rest = suffix
+        } else if let suffix = trimmed.dropPrefix("Playlist:") {
+            kind = .playlist
             rest = suffix
         } else {
             return nil
@@ -258,7 +314,11 @@ enum AskMusicLine {
             if recent { return "Last played was \(who)." }
             return who.hasSuffix(".") ? who : who + "."
         }
-        let noun = first.kind == .album ? "albums" : "songs"
+        let noun = switch first.kind {
+        case .album: "albums"
+        case .playlist: "playlists"
+        case .song: "songs"
+        }
         return "\(items.count) \(noun). \(who)."
     }
 
@@ -293,6 +353,15 @@ enum AskMusicRead {
             return await catalog(term: request.term, album: false)
         case .album:
             return await catalog(term: request.term, album: true)
+        case .playlist:
+            return await playlists(term: request.term)
+        case .play:
+            do {
+                let played = try await play(kind: .song, title: request.term, artist: "")
+                return "Playing \(played)."
+            } catch {
+                return "Music isn't available."
+            }
         case .pause:
             await MainActor.run { SystemMusicPlayer.shared.pause() }
             return "Paused."
@@ -400,19 +469,41 @@ enum AskMusicRead {
         }
     }
 
+    private static func playlists(term: String) async -> String {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "No matching playlists." }
+        do {
+            var request = MusicCatalogSearchRequest(term: trimmed, types: [Playlist.self])
+            request.limit = AskMusicQuery.limit
+            let response = try await request.response()
+            var lines: [String] = []
+            for item in response.playlists {
+                if lines.count == AskMusicQuery.limit { break }
+                lines.append(AskMusicLine.playlistLine(
+                    title: item.name,
+                    curator: item.curatorName ?? "",
+                    songs: 0
+                ))
+            }
+            return lines.isEmpty ? "No matching playlists." : lines.joined(separator: "\n")
+        } catch {
+            return "Music isn't available."
+        }
+    }
+
     private static func year(_ date: Date?) -> String {
         guard let date else { return "" }
         return String(Calendar.current.component(.year, from: date))
     }
 
-    /// Plays one catalog song or album. The card calls this. Tests do not.
+    /// Plays one catalog song, album, or playlist. The card calls this. Tests do not.
     static func play(kind: AskMusicKind, title: String, artist: String) async throws -> String {
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw AskMusicIntentError.missing }
         let who = cleanedArtist(artist)
         let status = await MusicAuthorization.request()
         guard status == .authorized else { throw AskMusicIntentError.denied }
-        if let current = try await resumeQueued(title: name, artist: who) {
+        if kind != .playlist, let current = try await resumeQueued(title: name, artist: who) {
             return current
         }
         let term = String([name, who].filter { !$0.isEmpty }.joined(separator: " ").prefix(200))
@@ -441,6 +532,25 @@ enum AskMusicRead {
                 let played = album.title
                 await MainActor.run {
                     SystemMusicPlayer.shared.queue = MusicPlayer.Queue(for: [album])
+                }
+                try await SystemMusicPlayer.shared.play()
+                return played
+            case .playlist:
+                var request = MusicCatalogSearchRequest(term: term, types: [Playlist.self])
+                request.limit = 5
+                let response = try await request.response()
+                guard let playlist = choose(
+                    response.playlists,
+                    title: name,
+                    artist: who,
+                    titleOf: \.name,
+                    artistOf: { $0.curatorName ?? "" }
+                ) else {
+                    throw AskMusicIntentError.missing
+                }
+                let played = playlist.name
+                await MainActor.run {
+                    SystemMusicPlayer.shared.queue = MusicPlayer.Queue(for: [playlist])
                 }
                 try await SystemMusicPlayer.shared.play()
                 return played
@@ -540,12 +650,14 @@ enum AskMusicRead {
 public enum AskMusicKind: String, AppEnum, Sendable {
     case song = "song"
     case album = "album"
+    case playlist = "playlist"
 
     public static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Music")
 
     public static let caseDisplayRepresentations: [AskMusicKind: DisplayRepresentation] = [
         .song: "Song",
-        .album: "Album"
+        .album: "Album",
+        .playlist: "Playlist"
     ]
 }
 
@@ -566,13 +678,16 @@ public enum AskMusicIntentError: Error, CustomLocalizedStringResourceConvertible
     }
 }
 
-/// Plays the song or album named on a music card. It is not an extra Siri phrase.
+/// Plays the song, album, or playlist named on a music card. Shortcuts can pass an ``AskMusicItemEntity`` from Ask.
 public struct PlayAskMusicIntent: AppIntent {
     public static let title: LocalizedStringResource = "Play Music"
-    public static let description = IntentDescription("Plays a song or an album.")
+    public static let description = IntentDescription("Plays a song, album, or playlist.")
 
     public static var supportedModes: IntentModes { .background }
     public static var allowedExecutionTargets: IntentExecutionTargets { .main }
+
+    @Parameter(title: "Music")
+    public var item: AskMusicItemEntity?
 
     @Parameter(title: "Kind")
     public var kind: AskMusicKind
@@ -584,22 +699,39 @@ public struct PlayAskMusicIntent: AppIntent {
     public var artist: String
 
     public static var parameterSummary: some ParameterSummary {
-        Summary("Play \(\.$itemTitle)") {
+        Summary("Play \(\.$item)") {
             \.$kind
+            \.$itemTitle
             \.$artist
         }
     }
 
-    public init() {}
+    public init() {
+        self.item = nil
+        self.kind = .song
+        self.itemTitle = ""
+        self.artist = ""
+    }
+
+    public init(item: AskMusicItemEntity) {
+        self.item = item
+        self.kind = item.kind
+        self.itemTitle = item.itemTitle
+        self.artist = item.artist
+    }
 
     public init(kind: AskMusicKind, title: String, artist: String) {
+        self.item = AskMusicItemEntity(kind: kind, title: title, artist: artist)
         self.kind = kind
         self.itemTitle = title
         self.artist = artist
     }
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        let played = try await AskMusicRead.play(kind: kind, title: itemTitle, artist: artist)
+        let playKind = item?.kind ?? kind
+        let title = item?.itemTitle.isEmpty == false ? item!.itemTitle : itemTitle
+        let who = item?.artist.isEmpty == false ? item!.artist : artist
+        let played = try await AskMusicRead.play(kind: playKind, title: title, artist: who)
         return .result(dialog: "Playing \(played).")
     }
 }
@@ -646,7 +778,7 @@ struct AskMusicCard: View {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(plate)
                         .frame(width: 76, height: 76)
-                    Image(systemName: item.kind == .album ? "square.stack.fill" : "music.note")
+                    Image(systemName: badgeSymbol)
                         .font(.title)
                         .foregroundStyle(.white)
                         .accessibilityHidden(true)
@@ -666,37 +798,71 @@ struct AskMusicCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 AskCardBadge(
-                    title: item.kind == .album ? "Album" : "Song",
-                    symbol: item.kind == .album ? "square.stack.fill" : "music.note",
-                    tint: item.kind == .album ? .indigo : .pink
+                    title: badgeTitle,
+                    symbol: badgeSymbol,
+                    tint: accent
                 )
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(item.kind == .album ? "Album" : "Song")
+            .accessibilityLabel(badgeTitle)
             .accessibilityValue(spokenValue)
             AskCardCTA(
-                title: item.kind == .album ? LocalizedStringKey("Play Album") : LocalizedStringKey("Play Song"),
+                title: playTitle,
                 symbol: "play.fill",
-                tint: item.kind == .album ? .indigo : .pink,
+                tint: accent,
                 intent: AskMusicPlayTap(
-                    kind: item.kind == .album ? .album : .song,
+                    kind: item.musicKind,
                     title: item.title,
                     artist: item.artist
                 ),
-                accessibilityLabel: item.kind == .album
-                    ? Text("Play album \(item.title)")
-                    : Text("Play song \(item.title)")
+                accessibilityLabel: Text("Play \(badgeTitle.lowercased()) \(item.title)")
             )
         }
-        .askCardSurface(tint: item.kind == .album ? .indigo : .pink)
+        .askCardSurface(tint: accent)
         .accessibilityElement(children: .contain)
     }
 
-    private var plate: LinearGradient {
-        if item.kind == .album {
-            return LinearGradient(colors: [.indigo, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+    private var badgeTitle: String {
+        switch item.kind {
+        case .album: "Album"
+        case .playlist: "Playlist"
+        case .song: "Song"
         }
-        return LinearGradient(colors: [.pink, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private var badgeSymbol: String {
+        switch item.kind {
+        case .album: "square.stack.fill"
+        case .playlist: "music.note.list"
+        case .song: "music.note"
+        }
+    }
+
+    private var playTitle: LocalizedStringKey {
+        switch item.kind {
+        case .album: "Play Album"
+        case .playlist: "Play Playlist"
+        case .song: "Play Song"
+        }
+    }
+
+    private var accent: Color {
+        switch item.kind {
+        case .album: .indigo
+        case .playlist: .teal
+        case .song: .pink
+        }
+    }
+
+    private var plate: LinearGradient {
+        switch item.kind {
+        case .album:
+            return LinearGradient(colors: [.indigo, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .playlist:
+            return LinearGradient(colors: [.teal, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .song:
+            return LinearGradient(colors: [.pink, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
     }
 
     private var spokenValue: String {

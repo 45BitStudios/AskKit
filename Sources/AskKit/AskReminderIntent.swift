@@ -2,11 +2,13 @@ import AppIntents
 import Foundation
 
 /// Reminders the Complete button and Siri can mark done.
-public struct AskReminderEntity: AppEntity, Sendable {
+public struct AskReminderEntity: AppEntity, Sendable, Equatable {
     public static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Reminder")
     public static let defaultQuery = AskReminderQuery()
 
     public var id: String
+
+    @Property(title: "Title")
     public var title: String
 
     public var displayRepresentation: DisplayRepresentation {

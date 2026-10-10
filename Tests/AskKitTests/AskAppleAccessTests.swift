@@ -386,11 +386,19 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertTrue(friday?.title.localizedStandardContains("Friday") == true)
         XCTAssertNotEqual(today?.title, friday?.title)
         let earlier = AskCalendarWindow.day(offset: -4, now: now, calendar: calendar)
+        let yesterday = AskCalendarWindow.day(offset: -1, now: now, calendar: calendar)
         let capped = AskCalendarWindow.day(offset: 40, now: now, calendar: calendar)
         let limit = AskCalendarWindow.day(offset: AskCalendarWindow.maximumOffset, now: now, calendar: calendar)
-        XCTAssertEqual(earlier?.start, today?.start)
+        let pastLimit = AskCalendarWindow.day(offset: AskCalendarWindow.minimumOffset, now: now, calendar: calendar)
+        XCTAssertEqual(earlier?.start, calendar.date(from: DateComponents(year: 2026, month: 10, day: 3)))
+        XCTAssertEqual(yesterday?.start, calendar.date(from: DateComponents(year: 2026, month: 10, day: 6)))
+        XCTAssertEqual(AskCalendarWindow.offset(namedIn: "yesterday", now: now, calendar: calendar), -1)
+        XCTAssertTrue(AskSourceFocus.asksCalendar("Whose birthday is tomorrow"))
+        XCTAssertTrue(AskSourceFocus.asksBirthdays("Whose birthday is tomorrow"))
+        XCTAssertEqual(AskHealthCatalog.kind(in: "What is my blood pressure"), "blood pressure")
         XCTAssertEqual(capped?.start, limit?.start)
         XCTAssertEqual(limit?.start, calendar.date(from: DateComponents(year: 2026, month: 10, day: 20)))
+        XCTAssertEqual(pastLimit?.start, calendar.date(from: DateComponents(year: 2026, month: 9, day: 24)))
     }
 
     func testLaterCallsToTheSameToolStayOnTheCard() {
@@ -563,6 +571,12 @@ final class AskAppleAccessTests: XCTestCase {
             AskContactCommand.parse(action: "add", name: "Ada Lovelace", phone: "555", email: "ada@example.com"),
             .add(name: "Ada Lovelace", phone: "555", email: "ada@example.com")
         )
+        XCTAssertEqual(
+            AskContactCommand.parse(action: "update", name: "Ada", phone: "556", email: nil, newName: "Ada King"),
+            .update(name: "Ada", phone: "556", email: nil, newName: "Ada King")
+        )
+        XCTAssertEqual(AskContactCommand.parse(action: "delete", name: "Ada", phone: nil, email: nil), .delete(name: "Ada"))
+        XCTAssertEqual(AskContactCommand.parse(action: "update", name: "Ada", phone: nil, email: nil), .needsChange)
         XCTAssertEqual(AskContactCommand.parse(action: "add", name: "  ", phone: nil, email: nil), .needsName)
         let addedContact = AskContactLine.person(from: "Added Ada Lovelace · 555 · ada@example.com")
         XCTAssertTrue(addedContact.isPerson)
@@ -1220,6 +1234,9 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(songs.kind, .song)
         XCTAssertEqual(songs.term, "taylor swift")
         XCTAssertEqual(AskMusicQuery.request(which: "album", query: "Midnights").kind, .album)
+        XCTAssertEqual(AskMusicQuery.request(which: "playlist", query: "Chill").kind, .playlist)
+        XCTAssertEqual(AskMusicQuery.request(which: "play", query: "Anti-Hero").kind, .play)
+        XCTAssertEqual(AskMusicQuery.request(in: "find the playlist Chill Hits").kind, .playlist)
         XCTAssertEqual(AskMusicQuery.request(which: "now", query: "").kind, .now)
         let lastPlayed = AskMusicQuery.request(in: "What's my last played song?")
         XCTAssertEqual(lastPlayed.kind, .recent)

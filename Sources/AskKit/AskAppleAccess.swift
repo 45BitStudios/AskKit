@@ -44,21 +44,21 @@ struct AskAppleSource: Identifiable, Sendable {
             access: .calendar,
             title: "Calendar",
             symbol: "calendar",
-            detail: "Read or add events"
+            detail: "Read, add, change, or remove events"
         ),
         AskAppleSource(
             name: "reminders",
             access: .reminders,
             title: "Reminders",
             symbol: "checklist",
-            detail: "Read, add, or complete"
+            detail: "Read, add, change, complete, or remove"
         ),
         AskAppleSource(
             name: "contacts",
             access: .contacts,
             title: "Contacts",
             symbol: "person.crop.circle",
-            detail: "Names and numbers"
+            detail: "Look up, add, change, or remove"
         ),
         AskAppleSource(
             name: "location",
@@ -79,7 +79,7 @@ struct AskAppleSource: Identifiable, Sendable {
             access: .music,
             title: "Music",
             symbol: "music.note",
-            detail: "Songs, albums, and what is playing"
+            detail: "Songs, albums, playlists, and what is playing"
         ),
         AskAppleSource(
             name: "weather",
@@ -223,6 +223,7 @@ enum AskAppleCopy {
     To change one, call action update with its title. To remove one, call action delete with its title. \
     Say it was added only when the line starts with Added, changed when it starts with Updated, and removed when it starts with Removed. \
     To add a contact, call the contacts tool with action add and the name. Pass the phone or email when they were said. \
+    To change a contact, call the contacts tool with action update and the current name. To remove one, pass action delete. \
     For contacts that begin with letters, call the contacts tool with action look, those letters, and beginsWith true.
     For a reminder list, say how many are open in one short sentence. Do not list the titles. The card lists them.
     A calendar question calls the calendar tool only. A contact question calls the contacts tool only. \
@@ -232,7 +233,7 @@ enum AskAppleCopy {
     When the person asks for an email, say the email the contacts tool returned.
     For the forecast, pass span hourly or span daily to the weather tool, the day number, and the city when one is named. 0 is today. \
     Leave the city empty for where the person is. Say it in one or two short sentences. The card lists each day or each hour.
-    A song or an album uses the music tool. Pass song or album and the title. Pass now for what is playing. \
+    A song, album, or playlist uses the music tool. Pass song, album, or playlist and the title. Pass play and the title to start playback. Pass now for what is playing. \
     Pass recent for the last song played. Pass pause to pause, next to skip, and previous to go back. Say the title and the artist. Do not say a song is playing unless its line starts with Song.
     To read alarms, call the alarms tool with action read and do not add one. Say how many are on. \
     To change an alarm, call action update with its current time and the new time or repeats. Recurring is daily, weekdays, weekends, or a weekday name. \
@@ -391,7 +392,14 @@ enum AskSourceFocus {
     }
 
     static func asksCalendar(_ question: String) -> Bool {
-        hits(question, words: ["calendar", "schedule", "scheduled", "event", "events", "appointment", "appointments", "agenda"])
+        hits(question, words: [
+            "calendar", "schedule", "scheduled", "event", "events", "appointment", "appointments",
+            "agenda", "birthday", "birthdays"
+        ])
+    }
+
+    static func asksBirthdays(_ question: String) -> Bool {
+        hits(question, words: ["birthday", "birthdays"])
     }
 
     static func asksReminders(_ question: String) -> Bool {
@@ -610,6 +618,7 @@ enum AskContactLine {
 /// Read a day, or add, change, or remove one event. Parsing does not touch EventKit.
 enum AskCalendarCommand: Equatable {
     case read(Int)
+    case birthdays(Int)
     case add(title: String, day: Int, hour: Int?, minute: Int, place: String, notes: String)
     case update(title: String, day: Int, hour: Int?, minute: Int?, place: String?, notes: String?, newTitle: String?)
     case delete(title: String, day: Int)
@@ -629,6 +638,9 @@ enum AskCalendarCommand: Equatable {
     ) -> AskCalendarCommand {
         let name = clip(title)
         let verb = verb(action)
+        if verb == "birthday" || verb == "birthdays" {
+            return .birthdays(day)
+        }
         if verb == "delete" || verb == "remove" || verb == "cancel" {
             guard !name.isEmpty else { return .needsTitle }
             return .delete(title: name, day: day)
@@ -773,21 +785,37 @@ enum AskReminderCommand: Equatable {
     }
 }
 
-/// Look up a person, or add one contact. Parsing does not touch Contacts.
+/// Look up a person, or add, change, or remove one contact. Parsing does not touch Contacts.
 enum AskContactCommand: Equatable {
     case lookup(name: String, prefix: Bool)
     case add(name: String, phone: String, email: String)
+    case update(name: String, phone: String?, email: String?, newName: String?)
+    case delete(name: String)
     case needsName
+    case needsChange
 
     static func parse(
         action: String?,
         name: String,
         phone: String?,
         email: String?,
-        beginsWith: Bool? = nil
+        beginsWith: Bool? = nil,
+        newName: String? = nil
     ) -> AskContactCommand {
         let who = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
         let verb = action?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if verb == "delete" || verb == "remove" {
+            guard !who.isEmpty else { return .needsName }
+            return .delete(name: who)
+        }
+        if verb == "update" || verb == "edit" || verb == "change" {
+            guard !who.isEmpty else { return .needsName }
+            let number = optional(phone)
+            let address = optional(email)
+            let renamed = optional(newName)
+            guard number != nil || address != nil || renamed != nil else { return .needsChange }
+            return .update(name: who, phone: number, email: address, newName: renamed)
+        }
         guard verb == "add" || verb == "create" || verb == "new" else {
             return .lookup(name: who, prefix: beginsWith == true)
         }
@@ -797,6 +825,11 @@ enum AskContactCommand: Equatable {
 
     private static func clip(_ text: String?) -> String {
         String((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+    }
+
+    private static func optional(_ text: String?) -> String? {
+        let trimmed = clip(text)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -1780,14 +1813,14 @@ private struct AskCalendarTool: Tool, AskToolReadingSource {
         let calendar = Calendar.current
         let today = AskCalendarWindow.heading(for: Date(), calendar: calendar, includingYear: true)
         let menu = AskCalendarWindow.dayMenu(now: Date(), calendar: calendar)
-        return "Today is \(today). Read one calendar day, or add, change, or remove one event. Copy one number from this list: \(menu). Do not count the days yourself. For a read, pass action read and that day. For an add, pass action add, the title, that day, and the hour and minute. Leave the hour empty for an all-day event. Pass place and notes when the person named them. To change an event, pass action update, its current title, that day, and only the fields that change. newTitle renames it. To remove it, pass action delete and its title. Call once for each day. Each line names that weekday and date. An added event starts with Added. A changed event starts with Updated. A removed event starts with Removed. If the result is Not allowed, say you cannot see the calendar. Do not invent an event. Do not say an event was added, changed, or removed unless the line says so."
+        return "Today is \(today). Read one calendar day, upcoming birthdays, or add, change, or remove one event. Copy one number from this list: \(menu). Negative numbers are past days. Do not count the days yourself. For a read, pass action read and that day. For birthdays, pass action birthdays and that day as the start. For an add, pass action add, the title, that day, and the hour and minute. Leave the hour empty for an all-day event. Pass place and notes when the person named them. To change an event, pass action update, its current title, that day, and only the fields that change. newTitle renames it. To remove it, pass action delete and its title. Call once for each day. Each line names that weekday and date. An added event starts with Added. A changed event starts with Updated. A removed event starts with Removed. If the result is Not allowed, say you cannot see the calendar. Do not invent an event. Do not say an event was added, changed, or removed unless the line says so."
     }
 
     @Generable
     struct Arguments {
-        @Guide(description: "Copy the number listed for that weekday. 0 is today. Do not count the days yourself. Use 0 when adding an event with no day.", .range(0...AskCalendarWindow.maximumOffset))
+        @Guide(description: "Copy the number listed for that weekday. 0 is today. Negative numbers are past days. Do not count the days yourself. Use 0 when adding an event with no day.", .range(AskCalendarWindow.minimumOffset...AskCalendarWindow.maximumOffset))
         var day: Int
-        @Guide(description: "read, add, update, or delete. Use read unless the person asked to create, change, or remove an event.", .anyOf(["read", "add", "update", "delete"]))
+        @Guide(description: "read, birthdays, add, update, or delete. Use read unless the person asked for birthdays or to create, change, or remove an event.", .anyOf(["read", "birthdays", "add", "update", "delete"]))
         var action: String?
         @Guide(description: "Event title. The current title when updating or deleting. Leave empty when reading.")
         var title: String?
@@ -1817,6 +1850,10 @@ private struct AskCalendarTool: Tool, AskToolReadingSource {
         case .read(let day):
             return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "day \(day)") {
                 await AskCalendarRead.lines(day: day)
+            }
+        case .birthdays(let day):
+            return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "birthdays \(day)") {
+                await AskCalendarRead.birthdays(from: day)
             }
         case .add(let title, let day, let hour, let minute, let place, let notes):
             let clock = hour.map { "\($0):\(minute)" } ?? "all day"
@@ -1946,20 +1983,22 @@ private struct AskRemindersTool: Tool, AskToolReadingSource {
 private struct AskContactsTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "contacts"
-    let description = "Look up a contact by name, or add one contact. For a lookup, pass action look and the name. For contacts that begin with letters, pass those letters and set beginsWith to true. Leave the name empty only for a short list. Each line is one person, with the phone and the email when they exist. To add a contact, pass action add, the name, and the phone or email when they were said. An added contact starts with Added. If the result is Not allowed, say you cannot see contacts. Do not invent a phone number or email. When the person asks for an email, say the email on the line. Do not say a contact was added unless the line starts with Added."
+    let description = "Look up a contact by name, or add, change, or remove one contact. For a lookup, pass action look and the name. For contacts that begin with letters, pass those letters and set beginsWith to true. Leave the name empty only for a short list. Each line is one person, with the phone and the email when they exist. To add a contact, pass action add, the name, and the phone or email when they were said. To change one, pass action update, the current name, and only the fields that change. newName renames it. To remove one, pass action delete and the name. An added contact starts with Added. A changed contact starts with Updated. A removed contact starts with Removed. If the result is Not allowed, say you cannot see contacts. Do not invent a phone number or email. When the person asks for an email, say the email on the line. Do not say a contact was added, changed, or removed unless the line says so."
 
     @Generable
     struct Arguments {
-        @Guide(description: "look or add. Use look unless the person asked to create a contact.", .anyOf(["look", "add"]))
+        @Guide(description: "look, add, update, or delete. Use look unless the person asked to create, change, or remove a contact.", .anyOf(["look", "add", "update", "delete"]))
         var action: String?
-        @Guide(description: "The person's name, or the letters a name begins with. Leave empty only when the question asks for a short list.")
+        @Guide(description: "The person's name, or the letters a name begins with. The current name when updating or deleting. Leave empty only when the question asks for a short list.")
         var name: String
         @Guide(description: "True when the person asked for names that begin with the letters in name. Otherwise false.")
         var beginsWith: Bool?
-        @Guide(description: "Phone number when adding a contact. Leave empty when looking up.")
+        @Guide(description: "Phone number when adding or updating a contact. Leave empty when looking up or when the phone is not changing.")
         var phone: String?
-        @Guide(description: "Email address when adding a contact. Leave empty when looking up.")
+        @Guide(description: "Email address when adding or updating a contact. Leave empty when looking up or when the email is not changing.")
         var email: String?
+        @Guide(description: "New name when action is update. Leave empty when the name is not changing.")
+        var newName: String?
     }
 
     func call(arguments: Arguments) async throws -> String {
@@ -1968,7 +2007,8 @@ private struct AskContactsTool: Tool, AskToolReadingSource {
             name: arguments.name,
             phone: arguments.phone,
             email: arguments.email,
-            beginsWith: arguments.beginsWith
+            beginsWith: arguments.beginsWith,
+            newName: arguments.newName
         ) {
         case .lookup(let name, let prefix):
             return try await boundedAppleCall(
@@ -1988,8 +2028,28 @@ private struct AskContactsTool: Tool, AskToolReadingSource {
             ) {
                 await AskContactsRead.add(name: name, phone: phone, email: email)
             }
+        case .update(let name, let phone, let email, let newName):
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: self.name,
+                arguments: "update \(name)",
+                trace: "update"
+            ) {
+                await AskContactsRead.update(name: name, phone: phone, email: email, newName: newName)
+            }
+        case .delete(let name):
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: self.name,
+                arguments: "delete \(name)",
+                trace: "delete"
+            ) {
+                await AskContactsRead.remove(name: name)
+            }
         case .needsName:
             return "A name is needed."
+        case .needsChange:
+            return "Say what should change."
         }
     }
 }
@@ -2025,11 +2085,11 @@ private struct AskLocationTool: Tool, AskToolReadingSource {
 private struct AskHealthTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "health"
-    let description = "Read steps, heart rate, active energy, walking distance, flights, exercise, weight, height, body fat, resting heart rate, blood glucose, oxygen, temperature, breathing rate, VO2 max, workouts, and sleep. Pass kind workouts for workouts and kind sleep for sleep. Pass span week for this week or the last 7 days, span month for this month, and span year for this year. Otherwise pass span today. If the result is Not allowed, say you cannot see health data. Do not invent a number. Say the number the question asks about in one or two short sentences. A week, month, or year answer uses that period's total. The lines are shown on the card."
+    let description = "Read steps, heart rate, active energy, walking distance, flights, exercise, weight, height, body fat, resting heart rate, blood pressure, blood glucose, oxygen, temperature, breathing rate, VO2 max, workouts, and sleep. Pass kind workouts for workouts and kind sleep for sleep. Pass span week for this week or the last 7 days, span month for this month, and span year for this year. Otherwise pass span today. If the result is Not allowed, say you cannot see health data. Do not invent a number. Say the number the question asks about in one or two short sentences. A week, month, or year answer uses that period's total. The lines are shown on the card."
 
     @Generable
     struct Arguments {
-        @Guide(description: "all, steps, heart, energy, distance, flights, exercise, weight, height, body fat, resting heart, glucose, oxygen, temperature, breathing, vo2, workouts, or sleep. Use all unless the question names one. Use workouts for workouts and sleep for sleep.", .anyOf(AskHealthCatalog.kindChoices))
+        @Guide(description: "all, steps, heart, energy, distance, flights, exercise, weight, height, body fat, resting heart, blood pressure, glucose, oxygen, temperature, breathing, vo2, workouts, or sleep. Use all unless the question names one. Use workouts for workouts and sleep for sleep.", .anyOf(AskHealthCatalog.kindChoices))
         var kind: String
         @Guide(description: "today, week, month, or year. Use week for this week or the last 7 days, month for this month, and year for this year.", .anyOf(["today", "week", "month", "year"]))
         var span: String?
@@ -2047,13 +2107,13 @@ private struct AskHealthTool: Tool, AskToolReadingSource {
 private struct AskMusicTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "music"
-    let description = "Read what is playing, the last song played, or search songs or albums. Pause, skip, or go back when the person asks. Pass which now for what is playing. Pass which recent for the last song played. Pass which song or which album and the title to search. Pass which pause to pause, which next to skip, and which previous to go back. Each line is one song or one album. A line that starts with Recent is the last song played, not the song playing now. Say the title and the artist. The card shows the rest. If the result is Not allowed, say you cannot see the music. Do not invent a song or an album. Do not say the song changed unless the tool says so."
+    let description = "Read what is playing, the last song played, or search songs, albums, or playlists. Play, pause, skip, or go back when the person asks. Pass which now for what is playing. Pass which recent for the last song played. Pass which song, album, or playlist and the title to search. Pass which play and the title to start playback. Pass which pause to pause, which next to skip, and which previous to go back. Each line is one song, album, or playlist. A line that starts with Recent is the last song played, not the song playing now. Say the title and the artist. The card shows the rest. If the result is Not allowed, say you cannot see the music. Do not invent a song, album, or playlist. Do not say the song changed unless the tool says so."
 
     @Generable
     struct Arguments {
-        @Guide(description: "now, recent, song, album, pause, next, or previous. Use now for what is playing. Use recent for the last song played. Use pause to pause, next to skip, and previous to go back.", .anyOf(["now", "recent", "song", "album", "pause", "next", "previous"]))
+        @Guide(description: "now, recent, song, album, playlist, play, pause, next, or previous. Use now for what is playing. Use recent for the last song played. Use play to start a song or album. Use pause to pause, next to skip, and previous to go back.", .anyOf(["now", "recent", "song", "album", "playlist", "play", "pause", "next", "previous"]))
         var which: String
-        @Guide(description: "The song or album title, or the artist. Leave empty when which is now.")
+        @Guide(description: "The song, album, or playlist title, or the artist. Leave empty when which is now.")
         var query: String?
     }
 
@@ -2097,8 +2157,9 @@ private struct AskWeatherTool: Tool, AskToolReadingSource {
     }
 }
 
-/// One calendar day. Offset 0 is today. The end is the start of the next day and is not included.
+/// One calendar day. Offset 0 is today. Negative offsets are past days. The end is the start of the next day and is not included.
 struct AskCalendarWindow: Equatable {
+    static let minimumOffset = -13
     static let maximumOffset = 13
 
     var start: Date
@@ -2106,7 +2167,7 @@ struct AskCalendarWindow: Equatable {
     var title: String
 
     static func day(offset: Int, now: Date, calendar: Calendar) -> AskCalendarWindow? {
-        let clamped = min(max(offset, 0), maximumOffset)
+        let clamped = min(max(offset, minimumOffset), maximumOffset)
         let today = calendar.startOfDay(for: now)
         guard let start = calendar.date(byAdding: .day, value: clamped, to: today),
               let end = calendar.date(byAdding: .day, value: 1, to: start) else {
@@ -2115,12 +2176,13 @@ struct AskCalendarWindow: Equatable {
         return AskCalendarWindow(start: start, end: end, title: heading(for: start, calendar: calendar))
     }
 
-    /// The one day named in the question, from 0 through 13. Nil when none or more than one is named.
+    /// The one day named in the question, from -13 through 13. Nil when none or more than one is named.
     static func offset(namedIn question: String, now: Date, calendar: Calendar) -> Int? {
         let tokens = dayTokens(in: question)
         var offsets: [Int] = []
         if tokens.contains("today") || tokens.contains("tonight") { offsets.append(0) }
         if tokens.contains("tomorrow") { offsets.append(1) }
+        if tokens.contains("yesterday") { offsets.append(-1) }
         let symbols = calendar.weekdaySymbols.map { foldedDay($0) }
         let todayWeekday = calendar.component(.weekday, from: now)
         for (index, name) in symbols.enumerated() where tokens.contains(name) {
@@ -2128,7 +2190,7 @@ struct AskCalendarWindow: Equatable {
             if delta < 0 { delta += 7 }
             offsets.append(delta)
         }
-        let unique = Array(Set(offsets)).filter { $0 <= maximumOffset }
+        let unique = Array(Set(offsets)).filter { (minimumOffset...maximumOffset).contains($0) }
         guard unique.count == 1 else { return nil }
         return unique[0]
     }
@@ -2148,9 +2210,9 @@ struct AskCalendarWindow: Equatable {
         return matches ? nil : offset
     }
 
-    /// `0 Wednesday, Oct 7; 1 Thursday, Oct 8` so the model copies a number instead of counting.
+    /// `-1 Tuesday, Oct 6; 0 Wednesday, Oct 7; 1 Thursday, Oct 8` so the model copies a number instead of counting.
     static func dayMenu(now: Date, calendar: Calendar) -> String {
-        (0...maximumOffset).compactMap { offset in
+        (minimumOffset...maximumOffset).compactMap { offset in
             guard let window = day(offset: offset, now: now, calendar: calendar) else { return nil }
             return "\(offset) \(window.title)"
         }.joined(separator: "; ")
@@ -2417,9 +2479,9 @@ enum AskAppleRepair {
         }
         if let music = plan.music {
             switch music.kind {
-            case .pause, .next, .previous:
+            case .pause, .next, .previous, .play:
                 break
-            case .now, .recent, .song, .album:
+            case .now, .recent, .song, .album, .playlist:
                 let output = await AskMusicRead.lines(music)
                 readings.removeAll { $0.name == "music" }
                 readings.append(AskAppleReading(name: "music", lines: lines(output)))
@@ -2427,8 +2489,8 @@ enum AskAppleRepair {
                 let musicDecision = switch music.kind {
                 case .now: "music now"
                 case .recent: "music recent"
-                case .song, .album: "music search"
-                case .pause, .next, .previous: "music search"
+                case .song, .album, .playlist: "music search"
+                case .play, .pause, .next, .previous: "music search"
                 }
                 AskTrace.decision(musicDecision)
             }
@@ -2636,6 +2698,33 @@ private enum AskCalendarRead {
             .prefix(8)
         guard !events.isEmpty else { return "\(window.title) · Nothing scheduled." }
         return events.map { line($0, dayTitle: window.title, dayStart: window.start, calendar: calendar) }.joined(separator: "\n")
+    }
+
+    /// Birthday calendar events from the start day through the next two weeks.
+    static func birthdays(from day: Int) async -> String {
+        let store = EKEventStore()
+        let granted = await allowEvents(store, writing: false)
+        guard granted else { return AskAppleCopy.denied }
+        let calendar = Calendar.current
+        guard let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar),
+              let end = calendar.date(byAdding: .day, value: 14, to: window.start) else {
+            return "No birthdays."
+        }
+        let birthdayCalendars = store.calendars(for: .event).filter { $0.type == .birthday }
+        let calendars = birthdayCalendars.isEmpty ? nil : birthdayCalendars
+        let predicate = store.predicateForEvents(withStart: window.start, end: end, calendars: calendars)
+        let events = store.events(matching: predicate)
+            .filter { calendars != nil || $0.calendar.type == .birthday }
+            .filter { $0.startDate < end }
+            .sorted { $0.startDate < $1.startDate }
+            .prefix(8)
+        guard !events.isEmpty else { return "No birthdays." }
+        return events.map { event in
+            let dayStart = calendar.startOfDay(for: event.startDate)
+            let dayTitle = AskCalendarWindow.heading(for: dayStart, calendar: calendar)
+            let name = AskAppleCopy.plain(event.title ?? "Birthday", limit: 120)
+            return "\(dayTitle) · \(name)"
+        }.joined(separator: "\n")
     }
 
     private static func events(_ store: EKEventStore, day: Int) -> (window: AskCalendarWindow, events: [EKEvent], calendar: Calendar)? {
@@ -3122,6 +3211,104 @@ private enum AskContactsRead {
         return AskAppleCopy.addedPrefix + saved
     }
 
+    static func update(name: String, phone: String?, email: String?, newName: String?) async -> String {
+        let store = CNContactStore()
+        guard await allow(store) else { return AskAppleCopy.denied }
+        switch await match(store, name: name) {
+        case .none:
+            return "No matching contacts."
+        case .many:
+            return "More than one contact is named \(AskAppleCopy.plain(name, limit: 80))."
+        case .one(let contact):
+            let mutable = contact.mutableCopy() as! CNMutableContact
+            if let newName {
+                let cleaned = AskAppleCopy.plain(newName, limit: 120)
+                let parts = cleaned.split(whereSeparator: \.isWhitespace).map(String.init).filter { !$0.isEmpty }
+                if let given = parts.first {
+                    mutable.givenName = given
+                    mutable.familyName = parts.count > 1 ? parts.dropFirst().joined(separator: " ") : ""
+                }
+            }
+            if let phone {
+                let number = AskAppleCopy.plain(phone, limit: 40)
+                mutable.phoneNumbers = number.isEmpty
+                    ? []
+                    : [CNLabeledValue(label: CNLabelPhoneNumberMain, value: CNPhoneNumber(stringValue: number))]
+            }
+            if let email {
+                let address = AskAppleCopy.plain(email, limit: 120)
+                mutable.emailAddresses = address.isEmpty
+                    ? []
+                    : [CNLabeledValue(label: CNLabelHome, value: address as NSString)]
+            }
+            let request = CNSaveRequest()
+            request.update(mutable)
+            do {
+                try store.execute(request)
+            } catch {
+                return "Could not change the contact."
+            }
+            return AskAppleCopy.updatedPrefix + line(mutable)
+        }
+    }
+
+    static func remove(name: String) async -> String {
+        let store = CNContactStore()
+        guard await allow(store) else { return AskAppleCopy.denied }
+        switch await match(store, name: name) {
+        case .none:
+            return "No matching contacts."
+        case .many:
+            return "More than one contact is named \(AskAppleCopy.plain(name, limit: 80))."
+        case .one(let contact):
+            let saved = line(contact)
+            let mutable = contact.mutableCopy() as! CNMutableContact
+            let request = CNSaveRequest()
+            request.delete(mutable)
+            do {
+                try store.execute(request)
+            } catch {
+                return "Could not remove the contact."
+            }
+            return AskAppleCopy.removedPrefix + saved
+        }
+    }
+
+    private enum Match {
+        case one(CNContact)
+        case none
+        case many
+    }
+
+    private static func match(_ store: CNContactStore, name: String) async -> Match {
+        let wanted = AskAppleCopy.folded(name)
+        guard !wanted.isEmpty else { return .none }
+        let keys: [CNKeyDescriptor] = [
+            CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
+            CNContactPhoneNumbersKey as CNKeyDescriptor,
+            CNContactEmailAddressesKey as CNKeyDescriptor,
+            CNContactIdentifierKey as CNKeyDescriptor
+        ]
+        let request = CNContactFetchRequest(keysToFetch: keys)
+        request.predicate = CNContact.predicateForContacts(matchingName: name)
+        var found: [CNContact] = []
+        do {
+            try store.enumerateContacts(with: request) { contact, stop in
+                let formatted = CNContactFormatter.string(from: contact, style: .fullName)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let folded = AskAppleCopy.folded(formatted)
+                if folded == wanted || AskContactLine.matches(name: formatted, query: name) {
+                    found.append(contact)
+                }
+                if found.count > 1 { stop.pointee = true }
+            }
+        } catch {
+            return .none
+        }
+        if found.count == 1, let contact = found.first { return .one(contact) }
+        return found.isEmpty ? .none : .many
+    }
+
     static func lines(matching name: String, prefix: Bool = false) async -> String {
         let store = CNContactStore()
         let granted = await allow(store)
@@ -3421,6 +3608,12 @@ private actor AskHealthAuthorization {
                 types.insert(type)
             }
         }
+        if let diastolic = HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic) {
+            types.insert(diastolic)
+        }
+        if let correlation = HKCorrelationType.correlationType(forIdentifier: .bloodPressure) {
+            types.insert(correlation)
+        }
         types.insert(HKWorkoutType.workoutType())
         if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {
             types.insert(sleep)
@@ -3440,7 +3633,7 @@ enum AskHealthCatalog {
     /// Words the health tool accepts for `kind`. The guide uses this list.
     static let kindChoices = [
         "all", "steps", "heart", "energy", "distance", "flights", "exercise",
-        "weight", "height", "body fat", "resting heart", "glucose", "oxygen",
+        "weight", "height", "body fat", "resting heart", "blood pressure", "glucose", "oxygen",
         "temperature", "breathing", "vo2", "workouts", "sleep"
     ]
 
@@ -3454,7 +3647,7 @@ enum AskHealthCatalog {
 
     enum Metric: CaseIterable, Sendable {
         case steps, heart, energy, distance, flights, exercise
-        case weight, height, bodyFat, restingHeart, glucose, oxygen, temperature, breathing, vo2
+        case weight, height, bodyFat, restingHeart, bloodPressure, glucose, oxygen, temperature, breathing, vo2
 
         var title: String {
             switch self {
@@ -3468,6 +3661,7 @@ enum AskHealthCatalog {
             case .height: "Height"
             case .bodyFat: "Body fat"
             case .restingHeart: "Resting heart rate"
+            case .bloodPressure: "Blood pressure"
             case .glucose: "Blood glucose"
             case .oxygen: "Oxygen"
             case .temperature: "Temperature"
@@ -3488,6 +3682,7 @@ enum AskHealthCatalog {
             case .height: ["height"]
             case .bodyFat: ["body fat", "fat"]
             case .restingHeart: ["resting heart", "resting"]
+            case .bloodPressure: ["blood pressure", "systolic", "diastolic"]
             case .glucose: ["blood sugar", "glucose", "sugar"]
             case .oxygen: ["oxygen", "spo2", "saturation"]
             case .temperature: ["temperature", "temp"]
@@ -3508,6 +3703,7 @@ enum AskHealthCatalog {
             case .height: .height
             case .bodyFat: .bodyFatPercentage
             case .restingHeart: .restingHeartRate
+            case .bloodPressure: .bloodPressureSystolic
             case .glucose: .bloodGlucose
             case .oxygen: .oxygenSaturation
             case .temperature: .bodyTemperature
@@ -3520,7 +3716,7 @@ enum AskHealthCatalog {
         var latestSample: Bool {
             switch self {
             case .steps, .heart, .energy, .distance, .flights, .exercise: false
-            case .weight, .height, .bodyFat, .restingHeart, .glucose, .oxygen, .temperature, .breathing, .vo2: true
+            case .weight, .height, .bodyFat, .restingHeart, .bloodPressure, .glucose, .oxygen, .temperature, .breathing, .vo2: true
             }
         }
 
@@ -3540,6 +3736,7 @@ enum AskHealthCatalog {
             case .height: .height
             case .bodyFat: .bodyFat
             case .restingHeart: .restingHeart
+            case .bloodPressure: .bloodPressure
             case .glucose: .glucose
             case .oxygen: .oxygen
             case .temperature: .temperature
@@ -3569,6 +3766,7 @@ enum AskHealthCatalog {
         case .weight: return metricSystem ? "kg" : "lb"
         case .height: return metricSystem ? "cm" : "in"
         case .bodyFat, .oxygen: return "%"
+        case .bloodPressure: return "mmHg"
         case .glucose: return "mg/dL"
         case .temperature: return metricSystem ? "°C" : "°F"
         case .breathing: return "breaths"
@@ -3890,6 +4088,14 @@ enum AskHealthRead {
     }
 
     private static func reading(_ metric: AskHealthCatalog.Metric, span: String) async -> String {
+        if metric == .bloodPressure {
+            do {
+                return try await bloodPressure()
+            } catch {
+                let value = refusal(error) ? AskAppleCopy.denied : "Nothing recorded."
+                return "\(metric.title): \(value)"
+            }
+        }
         guard let type = HKQuantityType.quantityType(forIdentifier: metric.identifier) else {
             return "\(metric.title): \(AskAppleCopy.denied)"
         }
@@ -3904,6 +4110,37 @@ enum AskHealthRead {
             let value = refusal(error) ? AskAppleCopy.denied : (metric.latestSample ? "Nothing recorded." : AskHealthCatalog.missingValue(span: covered))
             return "\(metric.title): \(value)"
         }
+    }
+
+    private static func bloodPressure() async throws -> String {
+        guard let type = HKCorrelationType.correlationType(forIdentifier: .bloodPressure),
+              let systolicType = HKQuantityType.quantityType(forIdentifier: .bloodPressureSystolic),
+              let diastolicType = HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic) else {
+            return "Blood pressure: \(AskAppleCopy.denied)"
+        }
+        let predicate = HKSamplePredicate.correlation(type: type)
+        let descriptor = HKSampleQueryDescriptor<HKCorrelation>(
+            predicates: [predicate],
+            sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)],
+            limit: 1
+        )
+        guard let sample = try await descriptor.result(for: HKHealthStore()).first else {
+            return "Blood pressure: Nothing recorded."
+        }
+        let unit = HKUnit.millimeterOfMercury()
+        let systolic = sample.objects(for: systolicType)
+            .compactMap { ($0 as? HKQuantitySample)?.quantity.doubleValue(for: unit) }
+            .first
+        let diastolic = sample.objects(for: diastolicType)
+            .compactMap { ($0 as? HKQuantitySample)?.quantity.doubleValue(for: unit) }
+            .first
+        guard let systolic, let diastolic else {
+            return "Blood pressure: Nothing recorded."
+        }
+        let sys = formatted(systolic, fraction: 0, percent: false)
+        let dia = formatted(diastolic, fraction: 0, percent: false)
+        let when = sample.endDate.formatted(date: .abbreviated, time: .omitted)
+        return "Blood pressure: \(sys)/\(dia) mmHg · \(when)"
     }
 
     /// Today, or a longer range when the question asked for one. The end is now.
@@ -4066,6 +4303,8 @@ enum AskHealthRead {
                 : (.inch(), "inches", 0)
         case .bodyFat, .oxygen:
             return (.percent(), "percent", 0)
+        case .bloodPressure:
+            return (.millimeterOfMercury(), "mmHg", 0)
         case .glucose:
             return (HKUnit(from: "mg/dL"), "milligrams per deciliter", 0)
         case .temperature:

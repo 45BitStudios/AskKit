@@ -155,6 +155,12 @@ final class AskIntentTests: XCTestCase {
         XCTAssertEqual(pages.map(\.spoken), ["Pasta."])
     }
 
+    func testAnswerExportsTypedOutputsForShortcuts() async throws {
+        let assistant = try makeAssistant()
+        let answer = try await AskIntent.answer("what's for dinner?", using: assistant)
+        XCTAssertEqual(answer.outputs, [.text("Pasta.")])
+    }
+
     private func makeAssistant() throws -> AskAssistant {
         try AskAssistant(
             AskConfiguration(
