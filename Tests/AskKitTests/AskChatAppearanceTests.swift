@@ -49,6 +49,13 @@ final class AskChatAppearanceTests: XCTestCase {
         XCTAssertEqual(colors[1], .green)
     }
 
+    func testVoicePaletteSuppliesBackdropColorsWhenOverrideIsEmpty() {
+        let tint = Color(red: 0.05, green: 0.45, blue: 0.32)
+        let colors = AskVoicePalette.colors(tint: tint, override: [])
+        XCTAssertEqual(colors.count, 7)
+        XCTAssertGreaterThan(colors.count, 5)
+    }
+
     private func brightness(of color: Color) -> CGFloat {
         var hue: CGFloat = 0
         var saturation: CGFloat = 0
