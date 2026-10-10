@@ -87,6 +87,7 @@ public enum AskHealthMeasurement: String, AppEnum, Sendable {
     case height = "height"
     case bodyFat = "bodyFat"
     case restingHeart = "restingHeart"
+    case bloodPressure = "bloodPressure"
     case glucose = "glucose"
     case oxygen = "oxygen"
     case temperature = "temperature"
@@ -106,6 +107,7 @@ public enum AskHealthMeasurement: String, AppEnum, Sendable {
         .height: "Height",
         .bodyFat: "Body Fat",
         .restingHeart: "Resting Heart Rate",
+        .bloodPressure: "Blood Pressure",
         .glucose: "Blood Glucose",
         .oxygen: "Oxygen",
         .temperature: "Temperature",
@@ -125,6 +127,7 @@ public enum AskHealthMeasurement: String, AppEnum, Sendable {
         case .height: "height"
         case .bodyFat: "body fat"
         case .restingHeart: "resting heart rate"
+        case .bloodPressure: "blood pressure"
         case .glucose: "blood glucose"
         case .oxygen: "oxygen"
         case .temperature: "temperature"
@@ -596,6 +599,7 @@ private enum AskHealthColor {
         case .weight: .indigo
         case .height: .blue
         case .bodyFat: .purple
+        case .bloodPressure: .red
         case .glucose: .red
         case .oxygen: .cyan
         case .temperature: .orange
@@ -615,6 +619,7 @@ private enum AskHealthColor {
         case .weight: "scalemass.fill"
         case .height: "ruler"
         case .bodyFat: "percent"
+        case .bloodPressure: "heart.text.square.fill"
         case .glucose: "drop.fill"
         case .oxygen: "lungs.fill"
         case .temperature: "thermometer.medium"

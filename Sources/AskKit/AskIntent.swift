@@ -42,6 +42,8 @@ public struct AskIntentAnswer {
     public var view: AnyView
     /// Interactive cards. A host returns `.result(dialog: dialog, snippetIntent: snippet)`.
     public var snippet: AskAnswerSnippetIntent
+    /// Typed facts Shortcuts can pass to other App Intents.
+    public var outputs: [AskOutput]
     /// The dialog string. The speech bubble when the chat would show one, otherwise the spoken line.
     let speech: String
 
@@ -60,6 +62,7 @@ public struct AskIntentAnswer {
         }
         self.view = AnyView(AskIntentCards(cards: pages.compactMap { $0.card?.view }))
         self.snippet = AskAnswerSnippetIntent(turnID: turn.id)
+        self.outputs = AskAnswerExport.outputs(from: turn)
     }
 }
 
@@ -141,10 +144,10 @@ public struct AskIntent: AppIntent {
     }
 
     @MainActor
-    public func perform() async throws -> some IntentResult & ShowsSnippetIntent & ProvidesDialog {
+    public func perform() async throws -> some IntentResult & ReturnsValue<[AskOutput]> & ShowsSnippetIntent & ProvidesDialog {
         let asked = try await questionToRun()
         let answer = try await Self.answer(asked, using: client)
-        return .result(dialog: answer.dialog, snippetIntent: answer.snippet)
+        return .result(value: answer.outputs, dialog: answer.dialog, snippetIntent: answer.snippet)
     }
 
     /// Runs one question through the registered client. ``perform()`` calls this.

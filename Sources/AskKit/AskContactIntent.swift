@@ -33,7 +33,7 @@ enum AskContactDial {
     }
 }
 
-/// Starts a phone call. The contact card button runs this. It is not an extra Siri phrase.
+/// Starts a phone call. Shortcuts can pass an ``AskContactEntity`` from Ask. It is not an extra Siri phrase.
 public struct OpenAskCallIntent: AppIntent {
     public static let title: LocalizedStringResource = "Call Contact"
     public static let description = IntentDescription("Starts a phone call to a contact.")
@@ -41,27 +41,42 @@ public struct OpenAskCallIntent: AppIntent {
     public static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
     public static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
+    @Parameter(title: "Contact")
+    public var contact: AskContactEntity?
+
     @Parameter(title: "Phone")
     public var phone: String
 
     public static var parameterSummary: some ParameterSummary {
-        Summary("Call \(\.$phone)")
+        Summary("Call \(\.$contact)") {
+            \.$phone
+        }
     }
 
-    public init() {}
+    public init() {
+        self.contact = nil
+        self.phone = ""
+    }
+
+    public init(contact: AskContactEntity) {
+        self.contact = contact
+        self.phone = contact.phone
+    }
 
     public init(phone: String) {
+        self.contact = nil
         self.phone = phone
     }
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
+        let number = contact?.phone.isEmpty == false ? contact!.phone : phone
         try await askOpenContactURL(
-            AskContactDial.telURL(phone),
+            AskContactDial.telURL(number),
             canContinue: systemContext.currentMode.canContinueInForeground
         ) {
             try await self.continueInForeground("Opening Phone.", alwaysConfirm: false)
         }
-        return .result(dialog: "Calling \(phone).")
+        return .result(dialog: "Calling \(number).")
     }
 }
 
@@ -93,7 +108,7 @@ struct AskCallTap: AppIntent {
     }
 }
 
-/// Opens Mail to a contact. The contact card button runs this. It is not an extra Siri phrase.
+/// Opens Mail to a contact. Shortcuts can pass an ``AskContactEntity`` from Ask. It is not an extra Siri phrase.
 public struct OpenAskEmailIntent: AppIntent {
     public static let title: LocalizedStringResource = "Email Contact"
     public static let description = IntentDescription("Opens Mail to a contact.")
@@ -101,27 +116,42 @@ public struct OpenAskEmailIntent: AppIntent {
     public static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
     public static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
+    @Parameter(title: "Contact")
+    public var contact: AskContactEntity?
+
     @Parameter(title: "Email")
     public var email: String
 
     public static var parameterSummary: some ParameterSummary {
-        Summary("Email \(\.$email)")
+        Summary("Email \(\.$contact)") {
+            \.$email
+        }
     }
 
-    public init() {}
+    public init() {
+        self.contact = nil
+        self.email = ""
+    }
+
+    public init(contact: AskContactEntity) {
+        self.contact = contact
+        self.email = contact.email
+    }
 
     public init(email: String) {
+        self.contact = nil
         self.email = email
     }
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
+        let address = contact?.email.isEmpty == false ? contact!.email : email
         try await askOpenContactURL(
-            AskContactDial.mailURL(email),
+            AskContactDial.mailURL(address),
             canContinue: systemContext.currentMode.canContinueInForeground
         ) {
             try await self.continueInForeground("Opening Mail.", alwaysConfirm: false)
         }
-        return .result(dialog: "Emailing \(email).")
+        return .result(dialog: "Emailing \(address).")
     }
 }
 
