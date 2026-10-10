@@ -15,10 +15,13 @@ struct SampleSkillSpec {
     var actionTitle: String
     var covered: [String] = []
     var replyOnly: Bool = false
+    /// Status line while this skill runs, before the reply rewrite.
+    var workingTitle: String = ""
 }
 
 enum SampleSkill {
     nonisolated static func make(_ spec: SampleSkillSpec) -> AskSkill {
+        let line = workingTitle(for: spec)
         if spec.replyOnly {
             return AskSkill(
                 id: spec.id,
@@ -27,7 +30,8 @@ enum SampleSkill {
                 summary: spec.summary,
                 routingNotes: spec.routingNotes,
                 fulfillment: .reply { _ in
-                    AskReply(
+                    AskChatActivity.update(line)
+                    return AskReply(
                         text: spec.spoken,
                         spoken: spec.spoken,
                         actions: [AskAction(id: spec.id, title: spec.actionTitle)],
@@ -43,7 +47,8 @@ enum SampleSkill {
             summary: spec.summary,
             routingNotes: spec.routingNotes,
             fulfillment: .intent { _ in
-                AskIntentCard(
+                AskChatActivity.update(line)
+                return AskIntentCard(
                     title: spec.title,
                     spoken: spec.spoken,
                     coveredPhrases: spec.covered,
@@ -76,5 +81,11 @@ enum SampleSkill {
             }
         }
         return nil
+    }
+
+    nonisolated static func workingTitle(for spec: SampleSkillSpec) -> String {
+        let custom = spec.workingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty { return custom }
+        return "Checking \(spec.title.lowercased())"
     }
 }

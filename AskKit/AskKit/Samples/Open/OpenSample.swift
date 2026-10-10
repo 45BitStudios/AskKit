@@ -1,6 +1,5 @@
 import AskKit
 import Foundation
-import FoundationModels
 
 /// Open ended. One skill. The person may ask anything.
 ///
@@ -80,14 +79,8 @@ enum OpenSample {
         Call the clock tool once and say the time it returns. \
         If it says Not allowed, say you cannot see that. Do not invent the time.
         """,
-        tools: { [OpenClockTool()] },
-        matches: { question in
-            let tokens = question
-                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-                .split { !$0.isLetter && !$0.isNumber }
-                .map(String.init)
-            return tokens.contains("time") || tokens.contains("clock")
-        }
+        tools: { [SampleClockTool()] },
+        matches: { SampleSpecialist.matches($0, anyOf: ["time", "clock"]) }
     )
 
     private static let skill = AskSkill(
@@ -97,28 +90,12 @@ enum OpenSample {
         summary: "Answered from the Apple tools that are on",
         routingNotes: "Every request. The person may ask anything.",
         fulfillment: .reply { _ in
-            AskReply(
+            AskChatActivity.update("Answering from the tools that are on")
+            return AskReply(
                 text: "I can answer from the tools that are on.",
                 spoken: "I can answer from the tools that are on.",
                 facts: "No app facts. Only a tool result may be stated. A greeting needs no tool result."
             )
         }
     )
-}
-
-/// The current time. The line has no equals sign, so a reply can repeat it.
-private struct OpenClockTool: Tool {
-    let name = "clock"
-    let description = "The current time on this device."
-
-    @Generable
-    struct Arguments {
-        @Guide(description: "Leave empty.")
-        var note: String?
-    }
-
-    func call(arguments: Arguments) async throws -> String {
-        let time = Date.now.formatted(date: .omitted, time: .shortened)
-        return "The time is \(time)."
-    }
 }

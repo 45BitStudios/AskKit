@@ -37,9 +37,9 @@ enum SampleProject: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .garage: "Eighteen skills for charge, the cabin, the trip, and upkeep."
-        case .pantry: "Eighteen skills for meals, the pantry, the kitchen, and the table."
-        case .desk: "Eighteen skills for visits, rooms, the building, and the schedule."
+        case .garage: "Nineteen skills plus battery, cabin, and trip specialists with working titles."
+        case .pantry: "Eighteen skills plus clock, pantry, and dinner specialists with working titles."
+        case .desk: "Eighteen skills plus visitor, room, and package specialists with working titles."
         case .open: "Any question. On-device or Private Cloud answers from the tools that are on."
         }
     }

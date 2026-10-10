@@ -2,6 +2,7 @@ import AskKit
 import SwiftUI
 
 /// Ask Desk. Eighteen skills across visit, workplace, building, and schedule.
+/// Three host specialists cover visitors, rooms, and packages. Each has a working title in the status line.
 ///
 /// `guide` appends desk lines onto the built-in AskGuide prompts.
 /// A reply prompt is QUESTION, SKILL, FACTS, the DESK section, and CONVERSATION.
@@ -72,9 +73,44 @@ enum DeskSample {
             context: { context() },
             chips: { _ in chips },
             fastPath: { route($0) },
-            guide: guide
+            guide: guide,
+            specialists: specialists
         ))
     }
+
+    /// Host specialists. Matching questions show each working title beside the thinking orb.
+    private static let specialists: [AskSpecialist] = [
+        SampleSpecialist.lookup(
+            id: "desk.visitor",
+            title: "Visitor",
+            symbolName: "person.text.rectangle",
+            workingTitle: "Checking today's visitor",
+            toolName: "visitor",
+            toolDescription: "Today's visitor pass and host.",
+            result: "\(guest) is visiting \(host). The visitor badge prints at the desk.",
+            words: ["visitor", "guest", "pass", "badge", "ada"]
+        ),
+        SampleSpecialist.lookup(
+            id: "desk.room",
+            title: "Room",
+            symbolName: "door.left.hand.open",
+            workingTitle: "Checking meeting rooms",
+            toolName: "room",
+            toolDescription: "Which meeting room is free this afternoon.",
+            result: "\(room) is free until \(freeUntil) and holds \(roomCapacity) people.",
+            words: ["room", "birch", "meeting", "capacity", "seats"]
+        ),
+        SampleSpecialist.lookup(
+            id: "desk.packages",
+            title: "Packages",
+            symbolName: "shippingbox",
+            workingTitle: "Checking packages",
+            toolName: "packages",
+            toolDescription: "Deliveries waiting at the desk.",
+            result: "One package for \(packageFor) is at the desk.",
+            words: ["package", "packages", "delivery", "parcel", "mail"]
+        )
+    ]
 
     static func context() -> AskContext {
         AskContext(
@@ -159,7 +195,8 @@ enum DeskSample {
             headline: network,
             detail: "Password is at the desk",
             actionTitle: "Wi-Fi",
-            covered: [network]
+            covered: [network],
+            workingTitle: "Checking Wi-Fi"
         ),
         SampleSkillSpec(
             id: "restroom",
@@ -172,7 +209,8 @@ enum DeskSample {
             headline: "Down the hall",
             detail: "On the left",
             actionTitle: "Restroom",
-            covered: ["down the hall"]
+            covered: ["down the hall"],
+            workingTitle: "Checking the restroom"
         ),
         SampleSkillSpec(
             id: "parking",
@@ -185,7 +223,8 @@ enum DeskSample {
             headline: parkingRow.capitalized,
             detail: "First hour free",
             actionTitle: "Parking",
-            covered: [parkingRow]
+            covered: [parkingRow],
+            workingTitle: "Checking parking"
         ),
         SampleSkillSpec(
             id: "badge",
@@ -198,7 +237,8 @@ enum DeskSample {
             headline: guest,
             detail: "Prints at the desk",
             actionTitle: "Badge",
-            covered: [guest]
+            covered: [guest],
+            workingTitle: "Checking the badge"
         ),
         SampleSkillSpec(
             id: "directory",
@@ -211,7 +251,8 @@ enum DeskSample {
             headline: host,
             detail: floor.capitalized,
             actionTitle: "Directory",
-            covered: [floor]
+            covered: [floor],
+            workingTitle: "Looking up the directory"
         ),
         SampleSkillSpec(
             id: "printer",
@@ -224,7 +265,8 @@ enum DeskSample {
             headline: printerName,
             detail: "Paper loaded",
             actionTitle: "Printer",
-            covered: [printerName]
+            covered: [printerName],
+            workingTitle: "Checking the printer"
         ),
         SampleSkillSpec(
             id: "capacity",
@@ -237,7 +279,8 @@ enum DeskSample {
             headline: roomCapacity,
             detail: room,
             actionTitle: "Capacity",
-            covered: [roomCapacity]
+            covered: [roomCapacity],
+            workingTitle: "Checking room size"
         ),
         SampleSkillSpec(
             id: "coffee",
@@ -250,7 +293,8 @@ enum DeskSample {
             headline: "Until \(coffeeUntil)",
             detail: "Lounge",
             actionTitle: "Coffee",
-            covered: [coffeeUntil]
+            covered: [coffeeUntil],
+            workingTitle: "Checking coffee"
         ),
         SampleSkillSpec(
             id: "elevator",
@@ -263,7 +307,8 @@ enum DeskSample {
             headline: "On the right",
             detail: "Past the desk",
             actionTitle: "Elevators",
-            covered: ["on the right"]
+            covered: ["on the right"],
+            workingTitle: "Checking elevators"
         ),
         SampleSkillSpec(
             id: "lostFound",
@@ -276,7 +321,8 @@ enum DeskSample {
             headline: "Umbrella",
             detail: "Turned in today",
             actionTitle: "Lost and found",
-            covered: ["umbrella"]
+            covered: ["umbrella"],
+            workingTitle: "Checking lost and found"
         ),
         SampleSkillSpec(
             id: "emergency",
@@ -289,7 +335,8 @@ enum DeskSample {
             headline: "End of the hall",
             detail: "Stairs on the left",
             actionTitle: "Exit",
-            covered: ["end of the hall"]
+            covered: ["end of the hall"],
+            workingTitle: "Checking the exit"
         ),
         SampleSkillSpec(
             id: "lobbyTemp",
@@ -302,7 +349,8 @@ enum DeskSample {
             headline: lobbyTemperature,
             detail: "Lobby",
             actionTitle: "Temperature",
-            covered: [lobbyTemperature]
+            covered: [lobbyTemperature],
+            workingTitle: "Checking lobby temperature"
         ),
         SampleSkillSpec(
             id: "nextVisitor",
@@ -315,7 +363,8 @@ enum DeskSample {
             headline: nextGuest,
             detail: nextGuestTime,
             actionTitle: "Next",
-            covered: [nextGuestTime]
+            covered: [nextGuestTime],
+            workingTitle: "Checking the next visitor"
         ),
         SampleSkillSpec(
             id: "afterHours",
@@ -328,7 +377,8 @@ enum DeskSample {
             headline: "Security",
             detail: "Lobby phone",
             actionTitle: "After hours",
-            covered: [closes]
+            covered: [closes],
+            workingTitle: "Checking after hours"
         )
     ]
 
@@ -340,6 +390,7 @@ enum DeskSample {
         contextKeys: ["opens", "closes"],
         routingNotes: "Opening time, closing time, and whether the desk is open.",
         fulfillment: .reply { invocation in
+            AskChatActivity.update("Checking desk hours")
             let opens = invocation.context.value(for: "opens") ?? Self.opens
             let closes = invocation.context.value(for: "closes") ?? Self.closes
             return AskReply(
@@ -359,6 +410,7 @@ enum DeskSample {
         contextKeys: ["guest", "host"],
         routingNotes: "A visitor pass, who it is for, and who they are meeting.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Checking today's visitor")
             let guest = invocation.context.value(for: "guest") ?? Self.guest
             let host = invocation.context.value(for: "host") ?? Self.host
             return AskIntentCard(
@@ -380,6 +432,7 @@ enum DeskSample {
         contextKeys: ["room", "freeUntil"],
         routingNotes: "Booking a meeting room and which room is free.",
         fulfillment: .intent { invocation in
+            AskChatActivity.update("Checking meeting rooms")
             let room = invocation.context.value(for: "room") ?? Self.room
             let freeUntil = invocation.context.value(for: "freeUntil") ?? Self.freeUntil
             return AskIntentCard(
@@ -401,6 +454,7 @@ enum DeskSample {
         contextKeys: ["packageFor"],
         routingNotes: "Packages, mail, and deliveries waiting to be picked up.",
         fulfillment: .reply { invocation in
+            AskChatActivity.update("Checking packages")
             let person = invocation.context.value(for: "packageFor") ?? Self.packageFor
             return AskReply(
                 text: "One package for \(person) is at the desk.",
