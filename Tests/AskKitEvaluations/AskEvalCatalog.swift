@@ -55,6 +55,7 @@ enum AskEvalCatalog {
         """),
         replyInstructions: .append("""
         Say the numbers FACTS already state. Do not invent chargers, times, or miles. \
+        Do not paste the GARAGE section. \
         If a tool returns a calendar event, a reminder, a contact, a place, a health reading, or what is playing, you may say it. \
         If a tool says Not allowed, say you cannot see that.
         """),

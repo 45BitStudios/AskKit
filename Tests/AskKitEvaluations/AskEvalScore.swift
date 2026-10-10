@@ -46,9 +46,7 @@ enum AskEvalScore {
 
     /// The spoken answer. A blank line starts the garage background the prompt says not to copy.
     static func answerParagraph(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let range = trimmed.range(of: #"\n[ \t]*\n"#, options: .regularExpression) else { return trimmed }
-        return String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        AskGuide.spokenAnswer(text)
     }
 
     static func hasBackgroundCopy(_ text: String) -> Bool {

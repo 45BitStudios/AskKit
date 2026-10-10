@@ -34,7 +34,7 @@ targets: [
 6. With an `AskGuide`, one session routes the whole catalog. Its instructions are the app's opening, then `CAPABILITIES`, then `RULES`.
 7. If a required slot is missing, one new session carries that domain's tools. The cap is 5. More than five is ignored and the skill still runs with the slots already in hand.
 8. A routing session is never reused as a skill session.
-9. When the guide has reply instructions, one more session rewrites the skill's facts into the spoken line. The skill's line stays if that rewrite is empty or echoes `key=value`.
+9. When the guide has reply instructions, one more session rewrites the skill's facts into the spoken line. Only the paragraph before a blank line is kept. The skill's line stays if that rewrite is empty or echoes `key=value`.
 10. When the guide has follow-up instructions, one more session offers a single next question. The chat shows it under the answer. Tapping it asks that question. A turn with more than one page does not offer a follow-up.
 
 A message that asks two or three different things is split on `?`, `;`, `!`, or on `and`, `also`, or `plus`. Those parts become one turn when they resolve to different skills. The answer text stays in one speech bubble. The cards sit under that bubble and page sideways, with the next card left in view. One card has no page dots. `AskTurnResult.pages` lists each page. The saved turn keeps the first skill id and joins the page text.
@@ -113,7 +113,7 @@ context: {
 
 The route instructions the trace shows are the resolved opening, a blank line, `CAPABILITIES` built from the domains and skills, a blank line, and the resolved `RULES`. The route prompt is `CONTEXT`, `EARLIER` when there is one, and `REQUEST`. `resolvedRouteOpening` and the other `resolved…` properties are the full text after append or replace.
 
-The reply prompt is `QUESTION`, `SKILL`, `FACTS`, then each `AskPromptSection` under its own title, then `CONVERSATION`. `FACTS` is the skill's `facts` string, or its spoken line when `facts` is omitted. A follow-up prompt adds `JUST ASKED`, `SKILL JUST ANSWERED`, and `ALLOWED`.
+The reply prompt is `QUESTION`, `SKILL`, `FACTS`, then each `AskPromptSection` under its own title, then `CONVERSATION`. `FACTS` is the skill's `facts` string, or its spoken line when `facts` is omitted. The spoken rewrite keeps only the paragraph before the first blank line, so a background copy of a section such as `GARAGE` does not replace the short answer. A follow-up prompt adds `JUST ASKED`, `SKILL JUST ANSWERED`, and `ALLOWED`.
 
 `guide.routeInstructions(domains:skills:)` returns that route block, so an app can read the same text the model sees.
 
@@ -476,9 +476,9 @@ xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 
 
 A pass/fail mean is the fraction of samples that passed. Route credit is 1 for the right skill, 0.5 when the skill is wrong but the domain is right, and 0 otherwise. Returning the domain id, such as `cabin`, earns that half. The reply answer is the paragraph before the first blank line. A later paragraph is a background copy of the garage section. A number token has to match FACTS exactly, so `2` is not covered by `214`. Relevance is a judge score from 1 to 4 and is not a gate. Replies do not use a judge.
 
-Floors sit under one noisy on-device run, except no background copy, which is gated at the rule itself. Routing: skill match 0.60, domain match 0.80, route credit 0.70. Replies: key facts 0.80, numbers from FACTS 0.60, one or two sentences 0.50, no background copy 0.80. Follow-ups: the chat's accept rule 0.50, and under 12 words 0.80. Plausible skill is the mean over offers the chat would show, and it is not gated. Rewrite kept is reported and not gated. The chat drops a rewrite that is empty, longer than 600 characters, or that adds an equals sign.
+Floors sit under one noisy on-device run, except no background copy, which is gated at the rule itself. Routing: skill match 0.60, domain match 0.80, route credit 0.70. Replies: key facts 0.80, numbers from FACTS 0.60, one or two sentences 0.50, no background copy 0.80. Follow-ups: the chat's accept rule 0.50, and under 12 words 0.80. Plausible skill is the mean over offers the chat would show, and it is not gated. Rewrite kept is reported and not gated. The chat keeps only the paragraph before a blank line, and drops a rewrite that is empty, longer than 600 characters, or that adds an equals sign.
 
-On 7 Oct 2026 the on-device run scored routing at skill 0.71 (15 of 21), domain 1.00, and credit 0.86. The other six named the right domain and the wrong skill. Replies scored key facts 1.00, numbers from FACTS 1.00, one or two sentences 0.83, rewrite kept 0.17, and no background copy 0.00. Follow-ups scored accepted 0.83, plausible skill 0.80, under 12 words 1.00, and relevance 2.5. The skills test fails on no background copy until the rewrite stops pasting the garage section after the answer.
+On 7 Oct 2026 the on-device run scored routing at skill 0.71 (15 of 21), domain 1.00, and credit 0.86. The other six named the right domain and the wrong skill. Replies scored key facts 1.00, numbers from FACTS 1.00, one or two sentences 0.83, rewrite kept 0.17, and no background copy 0.00. The chat now trims a second paragraph before storing the answer. The on-device skills score still fails no background copy when the raw rewrite pastes the garage section.
 
 ```sh
 TEST_RUNNER_ASKKIT_EVALUATIONS=1 xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' -only-testing:AskKitEvaluations/AskEvaluationTests

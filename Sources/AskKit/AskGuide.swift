@@ -60,6 +60,7 @@ public struct AskGuide: Sendable, Equatable {
     Answer out loud in one or two short sentences.
     Rewrite FACTS in plain English. Do not invent facts that are not in FACTS.
     Sections after FACTS are background. Do not copy a fact from them that FACTS do not state.
+    Stop after those sentences. Do not write a second paragraph.
     CONVERSATION is earlier in this chat. Use it to understand this, that, and there. Do not repeat an earlier answer.
     Do not use key=value, labels, or equals signs.
     Do not mention that the answer is generated.
@@ -196,9 +197,17 @@ public struct AskGuide: Sendable, Equatable {
         }.joined(separator: "\n")
     }
 
-    /// A rewrite that echoes `key=value` when FACTS did not is discarded.
-    public static func acceptsReply(_ written: String, facts: String) -> Bool {
+    /// The spoken line. A blank line starts a background dump the prompt says not to copy.
+    public static func spokenAnswer(_ written: String) -> String {
         let trimmed = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let range = trimmed.range(of: #"\n[ \t]*\n"#, options: .regularExpression) else { return trimmed }
+        return String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A rewrite that echoes `key=value` when FACTS did not is discarded.
+    /// Only the paragraph before a blank line is kept, matching the streaming preview.
+    public static func acceptsReply(_ written: String, facts: String) -> Bool {
+        let trimmed = spokenAnswer(written)
         guard !trimmed.isEmpty, trimmed.count <= 600 else { return false }
         if trimmed.contains("="), !facts.contains("=") { return false }
         return true

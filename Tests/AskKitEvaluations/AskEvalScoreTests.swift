@@ -43,6 +43,8 @@ struct AskEvalScoreTests {
         let facts = "The Ioniq 5 battery is at 68 percent. Charging at home. About 32 minutes until 80 percent."
         let answer = AskEvalScore.answerParagraph(written)
         #expect(answer == "The battery is at 68 percent. Charging at home. About 32 minutes until 80 percent.")
+        #expect(AskGuide.spokenAnswer(written) == answer)
+        #expect(AskGuide.acceptsReply(written, facts: facts))
         #expect(AskEvalScore.sentenceCount(answer) == 3)
         #expect(AskEvalScore.inventedNumbers(in: answer, facts: facts).isEmpty)
         #expect(AskEvalScore.hasBackgroundCopy(written))
