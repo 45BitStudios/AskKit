@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Every question other than "What can I do?" goes to that skill. The reply is the model
 /// the chat menu has selected, on-device or Private Cloud. A time question uses the clock specialist.
-/// A question with a page address uses the web specialist. Any other question uses one Apple specialist for each source it names.
+/// A photo-library question uses the photos specialist. A question with a page address uses the web specialist.
+/// Any other question uses one Apple specialist for each source it names.
 /// The first launch turns on calendar, reminders, contacts, location, and health. Music, weather, and
 /// alarms stay off until the person turns them on. A greeting is answered without those tools. A tool
 /// result is the only source for a calendar, reminder, contact, place, health, music, weather, or alarm question.
@@ -22,6 +23,7 @@ enum OpenSample {
         The person may ask anything.
         A greeting, thanks, or small talk needs no tool. Answer it in one or two short sentences.
         A question that contains a page address uses the web tool. Say the title it returns. Do not invent the title.
+        A photo-library question uses the photos tool. Say how many matches it found. Do not invent photos.
         Call a tool for the person's calendar, reminders, contacts, location, health, music, weather, or alarms, and for where a named place is.
         Pass here to the location tool for where the person is. Pass the place name for where that place is.
         Do not mention coordinates unless the person asked for them. The map shows the place.
@@ -63,7 +65,7 @@ enum OpenSample {
                 return trimmed.isEmpty ? nil : AskRoute(skillID: "answer")
             },
             guide: guide,
-            specialists: [clock],
+            specialists: [clock, photos],
             webMetadata: true,
             appleAccess: appleAccess
         ))
@@ -82,6 +84,9 @@ enum OpenSample {
         tools: { [SampleClockTool()] },
         matches: { SampleSpecialist.matches($0, anyOf: ["time", "clock"]) }
     )
+
+    /// A photo-library question searches through PhotoQueryKit.
+    private static let photos = AskPhotos.specialist(id: "open.photos")
 
     private static let skill = AskSkill(
         id: "answer",

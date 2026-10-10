@@ -1,0 +1,413 @@
+import Foundation
+import FoundationModels
+import Photos
+import PhotoQueryKit
+import SwiftUI
+
+/// Photo library search for host specialists. Built on PhotoQueryKit.
+///
+/// Register `AskPhotos.specialist` on an assistant. A match runs before Apple specialists.
+/// The host app needs `NSPhotoLibraryUsageDescription`.
+public enum AskPhotos {
+    public static let toolName = "photos"
+    public static let defaultSpecialistID = "photos"
+
+    public static let note = """
+    Call the photos tool once with the filters the question named. \
+    Say how many matches it found and name a few. \
+    If it says Not allowed, say you cannot see the photo library. Do not invent photos.
+    """
+
+    /// A library-search question. Attached-photo questions such as "where was this photo taken" stay off.
+    public static func matches(_ question: String) -> Bool {
+        AskPhotosFocus.matches(question)
+    }
+
+    /// Host specialist that searches the photo library through PhotoQueryKit.
+    public static func specialist(
+        id: String = defaultSpecialistID,
+        title: String = "Photos",
+        symbolName: String = "photo.on.rectangle",
+        workingTitle: String = "Searching photos"
+    ) -> AskSpecialist {
+        AskSpecialist(
+            id: id,
+            title: title,
+            symbolName: symbolName,
+            workingTitle: workingTitle,
+            instructions: note,
+            tools: { [AskPhotosTool(toolLedger: AskToolLedger())] },
+            matches: matches
+        )
+    }
+}
+
+/// Words that mean search the library, not an attached picture.
+enum AskPhotosFocus {
+    static func matches(_ question: String) -> Bool {
+        let folded = AskAppleCopy.folded(question)
+        let tokens = Set(AskAppleCopy.foldedTokens(question))
+        if phrases.contains(where: { folded.localizedStandardContains($0) }) { return true }
+        if tokens.contains(where: { libraryWords.contains($0) }) { return true }
+        if tokens.contains("screenshots") || tokens.contains("screenshot") { return true }
+        if tokens.contains(where: { ["favorite", "favorites", "favourite", "favourites"].contains($0) }) {
+            return tokens.contains(where: { pictureWords.contains($0) })
+        }
+        // "photos of dogs", "pictures from June"
+        if tokens.contains(where: { pictureWords.contains($0) }) {
+            return tokens.contains("of") || tokens.contains("from") || tokens.contains("in")
+                || tokens.contains("wider") || tokens.contains("taller")
+                || tokens.contains("album") || tokens.contains("library")
+        }
+        return false
+    }
+
+    private static let phrases = [
+        "camera roll", "photo library", "live photo", "live photos",
+        "find photos", "find pictures", "find images", "search photos", "search pictures",
+        "photos of", "pictures of", "images of", "photos from", "pictures from", "images from",
+        "my photos", "my pictures", "my screenshots"
+    ]
+
+    private static let libraryWords: Set<String> = [
+        "screenshot", "screenshots", "panorama", "panoramas", "album", "albums",
+        "roll", "library"
+    ]
+
+    private static let pictureWords: Set<String> = [
+        "photo", "photos", "picture", "pictures", "image", "images"
+    ]
+}
+
+/// Builds a PhotoQueryKit request from tool arguments or a question.
+enum AskPhotosQuery {
+    static let maximumLimit = 25
+    static let defaultLimit = 12
+
+    static func request(
+        mediaType: String?,
+        minWidth: Int?,
+        maxWidth: Int?,
+        minHeight: Int?,
+        maxHeight: Int?,
+        daysAgo: Int?,
+        throughDaysAgo: Int?,
+        isFavorite: Bool?,
+        subtype: String?,
+        albumTitle: String?,
+        textSearch: String?,
+        limit: Int?
+    ) -> PhotoQueryRequest {
+        var request = PhotoQueryRequest()
+        request.mediaType = media(mediaType)
+        request.minWidth = positive(minWidth)
+        request.maxWidth = positive(maxWidth)
+        request.minHeight = positive(minHeight)
+        request.maxHeight = positive(maxHeight)
+        request.isFavorite = isFavorite
+        if let subtype, !subtype.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.mediaSubtypes = [subtype.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
+        }
+        let album = trimmed(albumTitle)
+        if !album.isEmpty { request.albumTitle = album }
+        let search = trimmed(textSearch)
+        if !search.isEmpty { request.textSearch = search }
+        applyDates(daysAgo: daysAgo, throughDaysAgo: throughDaysAgo, to: &request)
+        let capped = min(max(limit ?? defaultLimit, 1), maximumLimit)
+        request.limit = capped
+        request.sortDescending = true
+        return request
+    }
+
+    /// Fills gaps the model left empty from the question text.
+    static func enrich(_ request: PhotoQueryRequest, question: String) -> PhotoQueryRequest {
+        var next = request
+        let folded = AskAppleCopy.folded(question)
+        let tokens = Set(AskAppleCopy.foldedTokens(question))
+
+        if next.mediaType == nil {
+            if tokens.contains("video") || tokens.contains("videos") {
+                next.mediaType = .video
+            } else if folded.localizedStandardContains("live photo") {
+                next.mediaType = .livePhoto
+            } else if tokens.contains(where: { ["photo", "photos", "picture", "pictures", "image", "images", "screenshot", "screenshots"].contains($0) }) {
+                next.mediaType = .image
+            }
+        }
+
+        if next.mediaSubtypes == nil || next.mediaSubtypes?.isEmpty == true {
+            if tokens.contains("screenshot") || tokens.contains("screenshots") {
+                next.mediaSubtypes = ["screenshot"]
+            } else if folded.localizedStandardContains("live photo") {
+                next.mediaSubtypes = ["live"]
+            } else if tokens.contains("panorama") || tokens.contains("panoramas") {
+                next.mediaSubtypes = ["panorama"]
+            }
+        }
+
+        if next.isFavorite == nil,
+           tokens.contains(where: { ["favorite", "favorites", "favourite", "favourites"].contains($0) }) {
+            next.isFavorite = true
+        }
+
+        if next.startDate == nil {
+            if folded.localizedStandardContains("last week") {
+                next.startDate = Calendar.current.date(byAdding: .day, value: -7, to: Date())
+            } else if folded.localizedStandardContains("last month") {
+                next.startDate = Calendar.current.date(byAdding: .month, value: -1, to: Date())
+            } else if folded.localizedStandardContains("this year") {
+                let comps = Calendar.current.dateComponents([.year], from: Date())
+                next.startDate = Calendar.current.date(from: comps)
+            }
+        }
+
+        if next.minWidth == nil, let px = pixelSize(in: folded) {
+            if folded.contains("wider") || folded.contains("width") {
+                next.minWidth = px
+            } else if folded.contains("taller") || folded.contains("height") {
+                next.minHeight = px
+            } else {
+                next.minWidth = px
+            }
+        }
+
+        if next.textSearch == nil || next.textSearch?.isEmpty == true {
+            if let of = contentAfter(folded, marker: " of ") {
+                next.textSearch = of
+            }
+        }
+
+        if next.limit == nil || next.limit == 0 {
+            next.limit = defaultLimit
+        }
+        return next
+    }
+
+    private static func media(_ raw: String?) -> PhotoQueryRequest.MediaType? {
+        switch AskAppleCopy.folded(raw ?? "") {
+        case "image", "photo", "photos", "picture", "pictures": .image
+        case "video", "videos": .video
+        case "livephoto", "live", "live photo", "live photos": .livePhoto
+        case "any": .any
+        default: nil
+        }
+    }
+
+    private static func applyDates(daysAgo: Int?, throughDaysAgo: Int?, to request: inout PhotoQueryRequest) {
+        let calendar = Calendar.current
+        let now = Date()
+        if let daysAgo {
+            let start = calendar.date(byAdding: .day, value: -max(daysAgo, 0), to: now)
+            request.startDate = start
+        }
+        if let throughDaysAgo {
+            let end = calendar.date(byAdding: .day, value: -max(throughDaysAgo, 0), to: now)
+            request.endDate = end
+        }
+    }
+
+    private static func pixelSize(in folded: String) -> Int? {
+        guard let range = folded.range(of: #"(\d+)\s*px"#, options: .regularExpression) else { return nil }
+        let digits = folded[range].filter(\.isNumber)
+        return Int(digits)
+    }
+
+    private static func contentAfter(_ folded: String, marker: String) -> String? {
+        guard let range = folded.range(of: marker) else { return nil }
+        var rest = String(folded[range.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .punctuationCharacters)
+        let stop: Set<String> = [
+            "from", "in", "on", "last", "this", "my", "the", "a", "an", "wider", "taller", "than"
+        ]
+        var words = rest.split(separator: " ").map(String.init)
+        if let cut = words.firstIndex(where: { stop.contains($0) }) {
+            words = Array(words.prefix(cut))
+        }
+        rest = words.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rest.count >= 2, rest.count <= 40 else { return nil }
+        return rest
+    }
+
+    private static func positive(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
+    }
+
+    private static func trimmed(_ value: String?) -> String {
+        (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Lines the model and the card both read. None of them contain an equals sign.
+enum AskPhotosLine {
+    static let denied = AskAppleCopy.denied
+    static let empty = "No matching photos."
+    static let maximumListed = 8
+
+    static func spoken(_ lines: [String]) -> String? {
+        let kept = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard let head = kept.first else { return nil }
+        if head == denied || head == empty { return head }
+        if head.hasPrefix("Found ") { return head }
+        return kept.prefix(3).joined(separator: " ")
+    }
+
+    static func format(_ results: [PhotoResult], request: PhotoQueryRequest) -> String {
+        guard !results.isEmpty else { return empty }
+        let count = results.count
+        let kind = label(for: request)
+        var rows = ["Found \(count) \(kind)."]
+        for result in results.prefix(maximumListed) {
+            rows.append(row(result))
+        }
+        if results.count > maximumListed {
+            rows.append("And \(results.count - maximumListed) more.")
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    static func row(_ result: PhotoResult) -> String {
+        var parts: [String] = []
+        if let name = result.filename, !name.isEmpty {
+            parts.append(AskAppleCopy.plain(name, limit: 48))
+        } else {
+            parts.append(mediaName(result.mediaType))
+        }
+        if let date = result.creationDate {
+            parts.append(date.formatted(date: .abbreviated, time: .omitted))
+        }
+        parts.append("\(result.pixelWidth)×\(result.pixelHeight)")
+        if result.isFavorite { parts.append("favorite") }
+        if !result.visionLabels.isEmpty {
+            let labels = result.visionLabels.prefix(3).joined(separator: ", ")
+            parts.append(AskAppleCopy.plain(labels, limit: 40))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func label(for request: PhotoQueryRequest) -> String {
+        if request.mediaSubtypes?.contains(where: { $0.lowercased() == "screenshot" }) == true {
+            return request.limit == 1 ? "screenshot" : "screenshots"
+        }
+        if request.isFavorite == true {
+            return "favorite photos"
+        }
+        switch request.mediaType {
+        case .video: return request.limit == 1 ? "video" : "videos"
+        case .livePhoto: return request.limit == 1 ? "Live Photo" : "Live Photos"
+        case .image, .any, .none: return request.limit == 1 ? "photo" : "photos"
+        }
+    }
+
+    private static func mediaName(_ type: PHAssetMediaType) -> String {
+        switch type {
+        case .video: "Video"
+        case .audio: "Audio"
+        case .image: "Photo"
+        default: "Item"
+        }
+    }
+}
+
+enum AskPhotosRead {
+    static func lines(_ request: PhotoQueryRequest) async -> String {
+        let allowed = await PhotoQuery.shared.ensureAuthorized()
+        guard allowed else { return AskPhotosLine.denied }
+        var results = await PhotoQuery.shared.query(request)
+        if results.isEmpty, let search = request.textSearch, !search.isEmpty {
+            let ids = await PhotoQuery.shared.visionSearch(query: search)
+            if !ids.isEmpty {
+                var fallback = request
+                fallback.textSearch = nil
+                fallback.limit = AskPhotosQuery.maximumLimit
+                let broad = await PhotoQuery.shared.query(fallback)
+                let matched = Set(ids)
+                results = broad.filter { matched.contains($0.id) }
+                if let limit = request.limit, limit > 0, results.count > limit {
+                    results = Array(results.prefix(limit))
+                }
+            }
+        }
+        return AskPhotosLine.format(results, request: request)
+    }
+}
+
+struct AskPhotosTool: Tool, AskToolReadingSource {
+    var toolLedger: AskToolLedger
+    let name = AskPhotos.toolName
+    let description = """
+    Search the photo library. Pass mediaType image, video, livePhoto, or any. \
+    Pass subtype screenshot, live, or panorama when named. \
+    Pass daysAgo for how far back to look, such as 7 or 30. \
+    Pass isFavorite true for favorites. Pass albumTitle for an album. \
+    Pass textSearch for a filename or content word such as dog. \
+    Pass minWidth for a pixel width floor. Pass limit up to 25. Call once.
+    """
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "image, video, livePhoto, or any.", .anyOf(["image", "video", "livePhoto", "any"]))
+        var mediaType: String?
+        @Guide(description: "Minimum pixel width. Leave empty when unused.", .range(1...20_000))
+        var minWidth: Int?
+        @Guide(description: "Maximum pixel width. Leave empty when unused.", .range(1...20_000))
+        var maxWidth: Int?
+        @Guide(description: "Minimum pixel height. Leave empty when unused.", .range(1...20_000))
+        var minHeight: Int?
+        @Guide(description: "Maximum pixel height. Leave empty when unused.", .range(1...20_000))
+        var maxHeight: Int?
+        @Guide(description: "How many days back to start. 7 is last week. 30 is last month. Leave empty for any time.", .range(0...3_650))
+        var daysAgo: Int?
+        @Guide(description: "How many days back the range ends. Leave empty for now.", .range(0...3_650))
+        var throughDaysAgo: Int?
+        @Guide(description: "True for favorites only. Leave empty otherwise.")
+        var isFavorite: Bool?
+        @Guide(description: "screenshot, live, or panorama when named. Leave empty otherwise.", .anyOf(["screenshot", "live", "panorama", "hdr", "depth", "timelapse", "slowmo"]))
+        var subtype: String?
+        @Guide(description: "Album title. Leave empty when unused.")
+        var albumTitle: String?
+        @Guide(description: "A filename or content word such as dog or receipt. Leave empty when unused.")
+        var textSearch: String?
+        @Guide(description: "How many results to return, from 1 to 25.", .range(1...AskPhotosQuery.maximumLimit))
+        var limit: Int?
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        let request = AskPhotosQuery.request(
+            mediaType: arguments.mediaType,
+            minWidth: arguments.minWidth,
+            maxWidth: arguments.maxWidth,
+            minHeight: arguments.minHeight,
+            maxHeight: arguments.maxHeight,
+            daysAgo: arguments.daysAgo,
+            throughDaysAgo: arguments.throughDaysAgo,
+            isFavorite: arguments.isFavorite,
+            subtype: arguments.subtype,
+            albumTitle: arguments.albumTitle,
+            textSearch: arguments.textSearch,
+            limit: arguments.limit
+        )
+        let label = summary(request)
+        return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: label) {
+            await AskPhotosRead.lines(request)
+        }
+    }
+
+    private func summary(_ request: PhotoQueryRequest) -> String {
+        var parts: [String] = []
+        if let type = request.mediaType { parts.append(type.rawValue) }
+        if let subtypes = request.mediaSubtypes, !subtypes.isEmpty {
+            parts.append(subtypes.joined(separator: "+"))
+        }
+        if request.isFavorite == true { parts.append("favorites") }
+        if let search = request.textSearch, !search.isEmpty { parts.append(search) }
+        if let album = request.albumTitle, !album.isEmpty { parts.append(album) }
+        if let days = request.startDate {
+            let delta = Calendar.current.dateComponents([.day], from: days, to: Date()).day ?? 0
+            parts.append("\(max(delta, 0))d")
+        }
+        if parts.isEmpty { parts.append("search") }
+        return parts.joined(separator: " ")
+    }
+}

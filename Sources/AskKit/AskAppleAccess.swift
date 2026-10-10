@@ -282,6 +282,10 @@ enum AskAppleCopy {
             let lines = readings.filter { $0.name == "alarms" }.flatMap(\.lines)
             if let spoken = AskAlarmLine.spoken(lines) { return spoken }
         }
+        if reading.name == "photos" {
+            let lines = readings.filter { $0.name == "photos" }.flatMap(\.lines)
+            if let spoken = AskPhotosLine.spoken(lines) { return spoken }
+        }
         let lines = AskLocationPin.labels(in: reading.lines)
         var spoken = ""
         for line in lines {
@@ -812,7 +816,7 @@ enum AskAppleFacts {
 }
 
 enum AskAppleCards {
-    static let names: Set<String> = ["calendar", "reminders", "contacts", "location", "health", "music", "weather", "alarms", "web"]
+    static let names: Set<String> = ["calendar", "reminders", "contacts", "location", "health", "music", "weather", "alarms", "web", "photos"]
 
     /// The first Apple source that ran. Later calls to that same source stay on the card, in order.
     static func first(_ readings: [AskAppleReading]) -> AskAppleReading? {
@@ -874,6 +878,7 @@ enum AskAppleCards {
         case "weather": "Weather"
         case "alarms": "Alarm"
         case "web": "Web"
+        case "photos": "Photos"
         default: name
         }
     }
