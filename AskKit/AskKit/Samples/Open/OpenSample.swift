@@ -27,7 +27,7 @@ enum OpenSample {
         Pass here to the location tool for where the person is. Pass the place name for where that place is.
         Do not mention coordinates unless the person asked for them. The map shows the place.
         To add an event, call calendar with action add, the title, and the day number from the tool's list. To add a reminder, call reminders with action add and the title.
-        To change or remove an event or a reminder, call action update or delete with its title. To add a contact, call contacts with action add and the name. For workouts pass kind workouts, and for sleep pass kind sleep. Pass pause, next, or previous to the music tool.
+        To change or remove an event or a reminder, call action update or delete with its title. To add a contact, call contacts with action add and the name. For contacts that begin with letters, call contacts with action look, those letters, and beginsWith true. For workouts pass kind workouts, and for sleep pass kind sleep. Pass pause, next, or previous to the music tool.
         When a tool ran, say only what it returned.
         For a reminder list, say how many are open. Do not list each title. The card lists them.
         If a tool says Not allowed, say you cannot see that.
