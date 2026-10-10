@@ -5,34 +5,49 @@ import XCTest
 final class AskComputeTests: XCTestCase {
     func testPreferredModelRunsWhenItIsAvailable() {
         XCTAssertEqual(
-            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: true, cloud: true),
+            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: true, cloud: true, online: true),
             .privateCloud
         )
         XCTAssertEqual(
-            AskComputeChoice.resolved(preferred: .onDevice, onDevice: true, cloud: false),
+            AskComputeChoice.resolved(preferred: .onDevice, onDevice: true, cloud: false, online: true),
             .onDevice
         )
     }
 
     func testUnavailablePreferenceUsesTheOtherModel() {
         XCTAssertEqual(
-            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: true, cloud: false),
+            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: true, cloud: false, online: true),
             .onDevice
         )
         XCTAssertEqual(
-            AskComputeChoice.resolved(preferred: .onDevice, onDevice: false, cloud: true),
+            AskComputeChoice.resolved(preferred: .onDevice, onDevice: false, cloud: true, online: true),
             .privateCloud
+        )
+    }
+
+    func testOfflinePrivateCloudFallsBackToOnDevice() {
+        XCTAssertEqual(
+            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: true, cloud: true, online: false),
+            .onDevice
+        )
+        XCTAssertEqual(
+            AskComputeChoice.resolved(preferred: .onDevice, onDevice: false, cloud: true, online: false),
+            .onDevice
         )
     }
 
     func testBothUnavailableKeepsThePreference() {
         XCTAssertEqual(
-            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: false, cloud: false),
+            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: false, cloud: false, online: true),
             .privateCloud
         )
         XCTAssertEqual(
-            AskComputeChoice.resolved(preferred: .onDevice, onDevice: false, cloud: false),
+            AskComputeChoice.resolved(preferred: .onDevice, onDevice: false, cloud: false, online: true),
             .onDevice
+        )
+        XCTAssertEqual(
+            AskComputeChoice.resolved(preferred: .privateCloud, onDevice: false, cloud: true, online: false),
+            .privateCloud
         )
     }
 

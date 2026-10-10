@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import os
 
 /// The Foundation Models backend for a turn: the on-device system model, or Private Cloud Compute.
@@ -58,16 +59,64 @@ public enum AskComputeSelection: Sendable {
     }
 }
 
+/// Whether this device currently has a usable network path.
+///
+/// Private Cloud Compute needs the network. On-device turns ignore this.
+enum AskNetwork {
+    private static let lock = OSAllocatedUnfairLock(initialState: true)
+
+    private static let monitor: NWPathMonitor = {
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "AskKit.network")
+        monitor.pathUpdateHandler = { path in
+            let online = path.status == .satisfied
+            lock.withLock { $0 = online }
+            Task { @MainActor in
+                AskNetworkStatus.shared.apply(online)
+            }
+        }
+        monitor.start(queue: queue)
+        lock.withLock { $0 = monitor.currentPath.status == .satisfied }
+        return monitor
+    }()
+
+    /// Satisfied path from `NWPathMonitor`. Starts the monitor on first read.
+    static var isOnline: Bool {
+        _ = monitor
+        return lock.withLock { $0 }
+    }
+}
+
+/// Path status the composer observes so the capsule can fall back while offline.
+@MainActor
+@Observable
+final class AskNetworkStatus {
+    static let shared = AskNetworkStatus()
+
+    private(set) var isOnline = true
+
+    /// Starts the path monitor and syncs the current value.
+    func start() {
+        isOnline = AskNetwork.isOnline
+    }
+
+    fileprivate func apply(_ online: Bool) {
+        isOnline = online
+    }
+}
+
 enum AskComputeChoice {
     /// Preferred model when that one is up. Otherwise the other model when it is up.
-    /// Both down returns the preference so the session reports the model's own error.
-    static func resolved(preferred: AskCompute, onDevice: Bool, cloud: Bool) -> AskCompute {
+    /// Private Cloud also needs a network path. Both down returns the preference so the
+    /// session reports the model's own error.
+    static func resolved(preferred: AskCompute, onDevice: Bool, cloud: Bool, online: Bool) -> AskCompute {
+        let cloudReady = cloud && online
         switch preferred {
         case .onDevice where onDevice:
             return .onDevice
-        case .privateCloud where cloud:
+        case .privateCloud where cloudReady:
             return .privateCloud
-        case .onDevice where cloud:
+        case .onDevice where cloudReady:
             return .privateCloud
         case .privateCloud where onDevice:
             return .onDevice

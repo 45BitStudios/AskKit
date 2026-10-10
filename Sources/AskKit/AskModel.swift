@@ -105,16 +105,20 @@ enum AskComputeRuntime {
     static func resolve() -> Resolved {
         let onDevice = SystemLanguageModel.default
         let cloud = PrivateCloudComputeLanguageModel()
+        let online = AskNetwork.isOnline
         let choice = AskComputeChoice.resolved(
             preferred: AskComputeSelection.current,
             onDevice: onDevice.isAvailable,
-            cloud: cloud.isAvailable
+            cloud: cloud.isAvailable,
+            online: online
         )
         AskTrace.attribute("compute", choice.rawValue)
         if case .unavailable(let reason) = onDevice.availability {
             AskTrace.attribute("onDevice", AskModelAvailability.onDevice(reason))
         }
-        if case .unavailable(let reason) = cloud.availability {
+        if !online {
+            AskTrace.attribute("privateCloud", "offline")
+        } else if case .unavailable(let reason) = cloud.availability {
             AskTrace.attribute("privateCloud", AskModelAvailability.cloud(reason))
         }
         let maxTokens = AskReplyBudget.generationTokenLimit()
