@@ -7,7 +7,8 @@ public enum AskConversationStep {
     case askAgain(AskTurnResult, prompt: String)
 }
 
-/// The "what else?" loop for an app's own Ask intent. This is not an App Intent.
+/// Stop or ask again after a turn. This is not an App Intent.
+/// ``AskIntent`` returns one answer. A host that asks again calls ``AskIntent/answer(_:using:entry:)`` for the next question and returns that snippet.
 public struct AskConversation {
     public var followUpPrompt: String
 

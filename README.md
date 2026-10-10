@@ -1,20 +1,53 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Artwork/logo-dark.png">
+    <img src="Artwork/logo-light.png" alt="AskKit" width="220">
+  </picture>
+</p>
+
 # AskKit
 
-AskKit is an on-device receptionist for iOS 27. An app registers domains and skills. A person asks an open question. AskKit picks one skill and either replies, or shows a card from an intent the app already shipped.
+AskKit is a receptionist for iOS 27. An app registers domains and skills. A person asks an open question. AskKit picks one skill and either replies, or shows a card from an intent the app already shipped. Answers use the on-device model, or Private Cloud Compute when the chat has chosen it and Apple reports that model is available.
 
 The package does not know about a particular app's screens, accounts, or catalogs. United's Ask United app is not this package.
+
+Add the library product `AskKit` and `import AskKit`. The package is iOS 27.
+
+```swift
+dependencies: [
+    .package(path: "../AskKit")
+],
+targets: [
+    .target(name: "MyApp", dependencies: [
+        .product(name: "AskKit", package: "AskKit")
+    ])
+]
+```
 
 ## Turn
 
 1. A chip tap runs that skill. No model.
 2. "what about", "how about", and "also" are stitched onto the previous user question from the saved thread.
-3. An optional fast path can pick a skill before the model runs.
-4. Hop 1 is a new `LanguageModelSession` with a routing profile, zero tools, and tool calling disallowed. It picks one domain.
-5. Hop 2 is another new zero-tool session. It picks one skill in that domain.
-6. If a required slot is missing, one new session carries that domain's tools. The cap is 5. More than five is ignored and the skill still runs with the slots already in hand.
-7. A routing session is never reused as a skill session.
+3. "What can I do?" is answered from the app's chips and skills before any model call. See [What you can ask](#what-you-can-ask).
+4. An optional fast path can pick a skill before the model runs.
+5. Without an `AskGuide`, hop 1 picks one domain and hop 2 picks one skill. Each hop is a new `LanguageModelSession` with zero tools and tool calling disallowed. The session uses the model saved from the chat menu.
+6. With an `AskGuide`, one session routes the whole catalog. Its instructions are the app's opening, then `CAPABILITIES`, then `RULES`.
+7. If a required slot is missing, one new session carries that domain's tools. The cap is 5. More than five is ignored and the skill still runs with the slots already in hand.
+8. A routing session is never reused as a skill session.
+9. When the guide has reply instructions, one more session rewrites the skill's facts into the spoken line. The skill's line stays if that rewrite is empty or echoes `key=value`.
+10. When the guide has follow-up instructions, one more session offers a single next question. The chat shows it under the answer. Tapping it asks that question. A turn with more than one page does not offer a follow-up.
+
+A message that asks two or three different things is split on `?`, `;`, `!`, or on `and`, `also`, or `plus`. Those parts become one turn when they resolve to different skills. The answer text stays in one speech bubble. The cards sit under that bubble and page sideways, with the next card left in view. One card has no page dots. `AskTurnResult.pages` lists each page. The saved turn keeps the first skill id and joins the page text.
 
 Operational facts come from the app's tools and from the skill handler. They do not come from model weights.
+
+## What you can ask
+
+"What can I do?", "What can you help with?", and the same kind of question are answered from the app's chips and skills. No model call. The bubble is `You can ask me questions like Charge status or Range and I can help with that.` The two examples are the first chip titles, then skill titles if there are fewer than two chips. The answer text is its own bubble. A card under that bubble lists every skill, grouped by domain. A skill whose id is `unknown` is left off that card. "What can I do?" stays one page.
+
+A question that matches no skill gets `I can't help with that.` and then the same examples and card. When that assistant has Apple sources turned on, the miss instead writes a reply with those tools. A tool result becomes the answer and the fact card. No tool result keeps the miss card. An app that registers a skill with id `unknown` still handles that miss itself.
+
+Apple's Foundation Models guardrails run on every model call. A `guardrailViolation` or a `refusal` while choosing a skill stops the turn. The reply is `Sorry, this feature isn't designed to handle that kind of input.` plus the examples. The person's words are not repeated. A guardrail during slot filling, the reply rewrite, or the follow-up drops that model text and keeps the skill's own line.
 
 ## Skills
 
@@ -54,7 +87,153 @@ let ask = try AskAssistant(AskConfiguration(
 ))
 ```
 
-`AskChatView(assistant:)` shows the chips, the transcript, and a composer.
+The model sees `assistantName`, each domain and skill `summary` and `routingNotes`, `requiredSlots`, and `promptBlock`. The spoken line comes from the skill unless the guide asks the model to rewrite `facts`.
+
+## Guide
+
+`AskGuide()` starts from four built-in prompts: `defaultRouteOpening`, `defaultRouteRules`, `defaultReplyInstructions`, and `defaultFollowUpInstructions`. A string appends to that block. `.replace` uses only the app's text. `.replace("")` turns that block off. AskKit still fills in the catalog and the labeled sections.
+
+```swift
+guide: AskGuide(
+    routeOpening: .append("This assistant answers questions about cooking and the pantry."),
+    routeRules: .append("""
+    What to cook tonight is dinner. What is already on the shelf is stock.
+    """),
+    replyInstructions: .append("Do not invent ingredients."),
+    followUpInstructions: .replace("Offer nothing unless the person asked about dinner.")
+),
+context: {
+    AskContext(
+        promptBlock: "onHand=pasta,tomatoes",
+        values: ["onHand": "pasta, tomatoes"],
+        sections: [AskPromptSection(title: "PANTRY", text: "On hand: pasta, tomatoes.")]
+    )
+}
+```
+
+The route instructions the trace shows are the resolved opening, a blank line, `CAPABILITIES` built from the domains and skills, a blank line, and the resolved `RULES`. The route prompt is `CONTEXT`, `EARLIER` when there is one, and `REQUEST`. `resolvedRouteOpening` and the other `resolved…` properties are the full text after append or replace.
+
+The reply prompt is `QUESTION`, `SKILL`, `FACTS`, then each `AskPromptSection` under its own title, then `CONVERSATION`. `FACTS` is the skill's `facts` string, or its spoken line when `facts` is omitted. A follow-up prompt adds `JUST ASKED`, `SKILL JUST ANSWERED`, and `ALLOWED`.
+
+`guide.routeInstructions(domains:skills:)` returns that route block, so an app can read the same text the model sees.
+
+An app runs a turn through `AskAssistant`. `handle(utterance:)` records the trace as `composer`. Pass `entry` for another origin, such as `.siri` or `AskTraceEntry(rawValue: "voice")`. Pass `priorUserQuestions` when this call should stitch a follow-up onto questions the store does not have yet. An empty list uses the saved thread.
+
+```swift
+let chips = await ask.chips()
+let result = await ask.handle(utterance: "What's for dinner?")
+let fromChip = await ask.handle(chip: chips[0])
+let fromSiri = await ask.handle(
+    utterance: "what about the gate",
+    entry: .siri,
+    priorUserQuestions: ["What's my flight status?"]
+)
+let turns = try ask.transcript()
+if let id = turns.last?.id {
+    let card = await ask.intentCard(for: id)
+}
+try ask.clearThread()
+```
+
+`chips()` returns at most three. `handle(chip:)` runs that skill and does not open a model session. `transcript()` is the saved thread. `intentCard(for:)` builds the card again. The view is not stored. `clearThread()` deletes that assistant's thread.
+
+`fastPath` skips the model when it returns a route. `tools` supplies at most five tools for the slot-fill session. On a reply those tools are their own specialist, in their own session, separate from the Apple specialists. Router sessions and chip taps do not receive tools. `omittedSlotKeys` are dropped before save. The skill for that turn still sees them.
+
+`specialists` is how an app adds its own profiles. Each `AskSpecialist` has an id, a title, a symbol, a working title, instructions, a tool builder, and a `matches` check. A match runs before any Apple specialist. The Open ended sample registers one, a clock, for a question whose words include time or clock.
+
+Each route, specialist, and follow-up is a new session with an empty transcript. The last eight spoken turns are the `CONVERSATION` block in the prompt, so "this" and "that" have context and an earlier answer is not a tool result. A router session drops tool entries and reasoning before the model sees them, and rolls a failed call back. A specialist session keeps its transcript when a call fails, so a tool result can still become the card.
+
+`webMetadata` is off until the app sets it. It is not one of the sources in the tools sheet. A question that contains an http or https address runs a web specialist first, with the working title "Reading the page". The lines are the page title, `Page:` and the address, and the description from the page. A page that cannot be read says so. The Open ended sample turns this on. There is no web search.
+
+Tool arguments use generation guides. Calendar and reminder actions are read, add, update, or delete. Music which includes pause, next, and previous. Health kind includes workouts and sleep. Hours are 0 to 23, minutes are 0 to 59, and a day offset stays inside the list the tool already prints. Health kind, weather span, music which, and alarm repeats are closed lists. Counts stay inside the same bounds the parsers already enforce. A pattern guide is not used. A guide the model cannot apply is traced as unsupported guide and the skill line stays. A reply the schema cannot parse does the same. A context window, a rate limit, a timeout, an unsupported language, a busy session, or an on-device model that is not ready is one short sentence. Private Cloud Compute says when it cannot connect, is at its limit, or is unavailable. Guardrail and refusal stay the capabilities line. Debug text stays in the trace. When the on-device model or Private Cloud Compute is down, the trace records `onDevice` or `privateCloud` with the reason. The saved choice does not change.
+
+`appleAccess` turns on Apple sources for the reply: calendar, reminders, contacts, location, health, music, weather, and alarms. Nothing is on until the app sets it. That set is what the composer can offer. The person turns sources on or off there, up to five, and the choice is remembered for that assistant name under `AskKit.appleAccess.<name>`. With no saved choice, the app's set is what runs. `AskAppleSelection.rememberIfNeeded` can save a starting subset once. A reply loads only the specialists the question needs: matching host specialists, then that skill's tools, then each matching Apple source. At most three specialists run on a turn, each in its own session, and each holds at most five tools. A specialist the question does not name stays off. A fourth match is dropped. More than five tools on a skill keeps the skill's own line. The sheet still allows at most five sources. A tool asks for permission the first time it runs. A denial comes back as "Not allowed." and the answer must not invent the missing fact. The tool text is part of the facts for that rewrite, so the 600-character limit and the equals-sign check still apply. When a reply used one of these tools, a fact card sits under the speech bubble. `appleCard` can replace that card. Return nil to keep the built-in one. Skills that already draw a card keep that card, and the Apple lines appear under it. Calendar can add, change, or remove one event, including a place and notes. Reminders can add, change, or remove one reminder, including notes and a priority of high, medium, or low. A list answer says how many are open, and the card lists each one. An open row shows a circle that runs Complete Reminder. A completed row shows a filled checkmark that runs Reopen Reminder. Siri uses those same intents. Contacts can add one person. Weather stays read-only. Location answers where you are, looks up a place you name, and lists places nearby. The card shows a map and the address, and Get Directions opens that place in Maps. Each place on a nearby card has its own button. Coordinates stay off that answer unless the question asked for them. A question that names one source leaves the others off, so a calendar day is not answered with reminders. Each matching contact is its own card. An email question says the email. A week of steps, energy, distance, flights, or exercise is the total for the last seven days. A month is the calendar month through today, and a year is the calendar year. The health card shows that number and a chart. Steps, energy, distance, flights, and exercise use bars. Heart rate and measurements such as weight use a line. Both axes are labeled. Day, Week, Month, and Year sit on the card and run Show Health Range, so Siri can switch the range too. The chart opens on the range the question asked. A song question and an album question each return their own cards, up to three. Play Song and Play Album on those cards start playback. Nothing playing, no match, and music unavailable stay fact cards and have no play button. What is playing is a song card. The last song played is a separate read, and it is not answered with the song in the queue. A daily forecast is one card per day, up to seven. An hourly forecast lists the hours on that day's card. The weather card credits Apple Weather. Alarms can add several in one question. Each alarm can carry a button label, an SF Symbol, and a registered action. `AskAlarms.register` supplies that action as a Live Activity intent. The built-in action id is `open`. An unknown id is left off that alarm. One alarm is one card, and later alarms in the same answer page beside it.
+
+The host app owns the usage strings and entitlements. Calendar needs `NSCalendarsFullAccessUsageDescription`. Reminders need `NSRemindersFullAccessUsageDescription`. Contacts need `NSContactsUsageDescription`. Location needs `NSLocationWhenInUseUsageDescription`. Health needs `NSHealthShareUsageDescription` and the HealthKit entitlement. It reads steps, heart rate, active energy, walking distance, flights, exercise time, weight, height, body fat, resting heart rate, blood glucose, oxygen, temperature, breathing rate, VO2 max, workouts, and sleep. A question that does not name one of those returns every reading. Music needs `NSAppleMusicUsageDescription`. It reads what is playing, searches songs and albums, and can pause, skip, or go back. Play stays a button on the song or album card. Alarms need `NSAlarmKitUsageDescription`. There is no AlarmKit entitlement. The system asks the first time alarms are read, changed, or set. The Garage sample allows all eight. The first launch turns on calendar, reminders, contacts, location, and health. Music, weather, and alarms stay off until another source is turned off. Weather uses the location permission to read the forecast where you are. A city named in the question is the forecast place. The card shows Apple Weather attribution. The WeatherKit capability has to be on for the App ID before the entitlement key is added. Asking about the next drive can show the fact card. The calendar tool reads one day. 0 is today, 1 is tomorrow, through 13. Each line names that weekday and date, and another day is another call. The tool lists those numbers beside the weekday, and a result for a different weekday than the one asked is read again. A health question that names a measurement and never calls the health tool still reads that measurement. A week question reads the last seven days. A month question reads the calendar month through today, and a year question reads the calendar year. The card reads the series again when the person changes the range. A place question on a skill whose facts say that only a tool result may be stated still looks that place up when the location tool never ran. Nearby does that lookup for places around the person. A named calendar day is read when that day is missing. An email question looks up the contact when the email is missing. Adding an event, a reminder, or a contact says it was added only when the tool line starts with Added. A change starts with Updated. A removal starts with Removed. Several matches, or none, change nothing. The Open ended sample allows the same eight and starts with the same five. It has one skill and one specialist, the clock. Every question other than "What can I do?" is sent to the model the menu has selected, on-device or Private Cloud. The person may ask anything. A greeting, thanks, or small talk is answered in one or two sentences and does not call the tools. A time question uses the clock specialist and no Apple tool. A calendar, reminder, contact, place, health, music, weather, or alarm question says only what a tool returned. When a tool says it is not allowed, the reply says it cannot see that. When the skill facts say that only a tool result may be stated, a rewrite of one of those questions that did not use a tool is dropped and the skill's own line stays. Open ended uses that rule, so an earlier day's events are not reused for a later day. Calling the same tool again with the same arguments stops the reply and answers from the results already read.
+
+```swift
+fastPath: { utterance in
+    utterance.localizedCaseInsensitiveContains("dinner") ? AskRoute(skillID: "whatsForDinner") : nil
+},
+tools: { domain in
+    domain == "recipes" ? [PantryTool()] : []
+},
+specialists: [
+    AskSpecialist(
+        id: "pantry.clock",
+        title: "Clock",
+        symbolName: "clock",
+        workingTitle: "Checking the time",
+        instructions: "Call the clock tool once and say the time it returns.",
+        tools: { [ClockTool()] },
+        matches: { question in
+            question.split { !$0.isLetter && !$0.isNumber }
+                .contains { $0.caseInsensitiveCompare("time") == .orderedSame || $0.caseInsensitiveCompare("clock") == .orderedSame }
+        }
+    )
+],
+appleAccess: [.calendar, .reminders],
+appleCard: { name, lines in
+    nil
+},
+omittedSlotKeys: ["recordLocator"]
+```
+
+## Chat
+
+`AskChatView` shows the chips, the transcript, and a composer. `AskChatAppearance` sets the tint, logo, bubble colors, placeholder, empty state, and thinking title. With no messages, the middle of the chat shows a symbol, a title, and a description. The symbol defaults to the logo, and the title defaults to the toolbar title. `emptyLogo`, `emptyTitle`, and `emptyMessage` replace them. The composer is one Liquid Glass rounded rectangle. [BorderBeamKit](https://github.com/Jakubantalik/Libraries.dev/tree/main/packages/border-beam/ports/ios/BorderBeamKit)'s medium beam travels that edge in shades of the same palette as the listening glow, and only while the field is empty, no photo is attached, and the keyboard is down. A plus in the logo's place opens Take Photo, Attach Photo, or Add File. Foundation Models reads images, so a file has to be JPEG, PNG, HEIC, HEIF, GIF, TIFF, BMP, WebP, AVIF, or JPEG 2000. Up to four pictures go out with the question. Date, place, camera, megapixels, and coordinates stored in the file are added to the reply facts. A later question about where that picture was taken, when it was taken, what phone took it, or its megapixels, still uses it. The answer names the place and shows the map. Coordinates stay off unless the question asked for them. A file with no place says so and keeps the date. A file with no date or camera says so. Several questions in one message share one speech bubble. Each Apple source that answered, such as the map and the reminders, is its own card. The cards page only when more than one card is needed. Attach Photo selects up to the slots still open. Tap a picture and it zooms open from that thumbnail. A message with several pictures opens on the one you tapped and swipes through that set. Closing zooms back to the picture on screen. Hold it for a larger preview with Copy, Share, and Save. A picture still in the field can also be removed from that menu. The question sits on top and grows to six lines. Under it are Add, a model menu, a tools button, a streaming button, a round microphone button, and Send. The streaming button is off until it is turned on. Off keeps the thinking row until the answer is stored. On shows the first paragraph as it is written. The choice is remembered on this device in standard defaults under `AskKit.stream`. The tools button opens a thin sheet of the Apple sources this assistant allows. Each one can be turned on or off, up to five. While Private Cloud is the model that will run, a button beside the menu opens a thin sheet for reasoning, temperature, and response length. Light is the starting reasoning level. The menu switches the next answer between On-Device and Private Cloud. A phone sits beside On-Device and a cloud beside Private Cloud. A row stays disabled until that model reports it is available. When the saved choice is down and the other model is ready, the capsule shows the ready model for that turn and the saved choice stays. The choice is remembered on this device in standard defaults under `AskKit.compute`. Private Cloud Compute stays unavailable until the system says it is available. Shortcuts use that same saved choice. Send points down in gray until there is text, then turns up in the accent color. The microphone is a tinted circle. While it is listening that circle turns red and shows a stop, Send hides, and [VoiceGlowKit](https://github.com/Jakubantalik/Libraries.dev/tree/main/packages/voice-glow/ports/ios/VoiceGlowKit)'s chat glow follows the voice along the bottom of the field in shades of the tint. Before any words stream, a smaller [ThinkingOrb](https://github.com/Jakubantalik/Libraries.dev/tree/main/packages/thinking-orbs/ports/ios/ThinkingOrbsKit) sits beside the status line. It shows working while a skill is being chosen, searching while a tool runs, and composing while the answer is written. The line reads "Looking at the question" only while the router model runs, the specialist's working title while that profile is active, "Reading" plus the specialist name while its tool runs, and "Writing an answer" for a reply with no tools. A second line names the specialist. The Cards sheet still walks working, connecting, and searching. The line shimmers. While that request is running, Send becomes a red stop. Stop plays a light haptic and the end-recording sound, cancels the request, and leaves the question in the thread without an answer. Taps play a light haptic. Starting and stopping the microphone play the system record sounds, and Send plays a sent sound. When streaming is on and a guide rewrites the answer, the first paragraph streams into the bubble as the model writes it, with a soft haptic as each new word arrives. A later paragraph, such as a copied background section, stays off the bubble. A rewrite that runs past 600 characters, or that adds an equals sign the facts did not have, is taken off the screen. The skill's own line is what stays. A date, such as Today 4:49 PM or Yesterday 8:03 PM, sits above the first message and again when a new day starts or an hour has passed. Drag the transcript to the left, as in Messages, and each bubble shows its time on the right. Paging the cards does not. When the thread is taller than the screen and you are at the top, a down button above the composer scrolls to the latest message. Long-press a bubble to copy it. On an answer, that menu also marks a good or bad response, and a debug build can open that turn's trace. Long-press a card to share a picture of it, save that picture to Photos, or copy the words on the card. The card is still drawn by the skill when the turn finishes. A new card rises into place under the answer, and the next card follows. Reduce Motion shows it at once. Older cards stay where they are. A card view is not `@Generable`, so the card itself does not stream in field by field. Pass `voiceColors` with up to seven colors to replace that palette. Set `showsMicrophone` to false to keep Send only. The host app needs microphone and speech-recognition usage strings for the mic, and a photo-library add usage string so Save can put a card or an attached photo in Photos. `embedsNavigation` is true unless the screen is already inside a stack. `onAction` receives the card or reply button.
+
+```swift
+AskChatView(
+    assistant: ask,
+    appearance: AskChatAppearance(
+        title: "Ask Pantry",
+        tint: .orange,
+        logo: .symbol("fork.knife"),
+        composerSymbol: "fork.knife"
+    ),
+    feedback: AskAnswerFeedback(votes: savedVotes) { vote in
+        if let helpful = vote.helpful {
+            savedVotes[vote.turnID] = helpful
+        } else {
+            savedVotes.removeValue(forKey: vote.turnID)
+        }
+        record(question: vote.question, helpful: vote.helpful)
+    },
+    onAction: { action in
+        open(action.id)
+    }
+)
+```
+
+Leave `feedback` nil and the row stays hidden. The row reads "Was this answer helpful?" and sits under the latest answer. It stays on the previous answer while the next one is still running. A second tap on the same thumb clears it. The chat holds that selection. `votes` restores it the next time the view appears. `onVote` receives the turn id, the thumb, and the question. The answer text stays in the thread. `title`, `yesLabel`, and `noLabel` replace the copy. The selected thumb uses `appearance.tint`.
+
+A chat the app draws itself uses the same control and the same decisions:
+
+```swift
+let anchor = AskFeedback.anchorID(in: turns)
+if let anchor {
+    let question = AskFeedback.question(before: anchor, in: turns)
+    AskHelpfulRow(
+        title: "Was this answer helpful?",
+        yesLabel: "Yes, this was helpful",
+        noLabel: "No, this was not helpful",
+        vote: votes[anchor],
+        tint: .orange
+    ) { helpful in
+        votes = AskFeedback.votes(votes, toggling: anchor, helpful: helpful)
+        record(question: question, helpful: votes[anchor])
+    }
+}
+```
+
+`AskFeedbackTurn` is one row in that list: `id`, `isUser`, and `text`. `anchorID(in:)` is nil for a greeting or a question that has no earlier answer. `question(before:in:)` is the user text this answer responds to. `votes(_:toggling:helpful:)` selects the thumb, or removes it when that thumb was already selected.
+
+A skill can change the thinking line while its turn is running:
+
+```swift
+AskChatActivity.update("Checking the pantry")
+```
 
 ## Context
 
@@ -125,21 +304,108 @@ AskSkill(
 )
 ```
 
-The app's own Ask intent has one result type. It returns the card's view for an `.intent` skill and Ask's reply view otherwise.
+The chat shows the card, then the card's action. The view does not own that button. Sentences that repeat a fact in `coveredPhrases`, and lines such as "I can open…" when the card has an action, stay out of the bubble. `replacesBubble` shows the card alone. `spoken` can still be the full answer. The stored turn keeps the shorter bubble, and a later launch rebuilds the view through the same loader.
+
+A custom transcript asks for that bubble the same way:
 
 ```swift
-let result = await ask.handle(utterance: asked)
-switch AskConversation().step(after: result) {
-case .stop(let turn):
-    // An intent card stays on screen. Do not ask "what else?" over it.
-    return snippet(for: turn)
-case .askAgain(let turn, let prompt):
-    // Show the reply, then request another utterance with `prompt`.
-    return snippet(for: turn, followUp: prompt)
+let bubble = AskCardTranscript.bubble(card.text, card: card)
+```
+
+`bubble` is nil when the card stands alone.
+
+## AskIntent
+
+`AskIntent` takes one question, runs that turn, and returns a snippet. The dialog is the speech bubble. An `.intent` skill puts the card in the snippet, on its own. A `.reply` skill leaves the snippet empty because the reply is the dialog. Several skills in one question put every speech bubble in the dialog and every card in the snippet. The intent does not ask "what else?" A second question would replace the snippet on screen.
+
+The shortcut returns `.result(dialog:snippetIntent:)`. That snippet intent reads the saved turn and draws the cards again, so a button on a card runs its intent and the card refreshes. A static `.result(view:)` snapshot cannot run those buttons. In the snippet, a location card shows the place and Get Directions. It does not take a MapKit snapshot, because that call does not return while Siri is waiting and the dialog never appears. The chat still uses a live map. Swift Charts does not draw into that snapshot, so a health card draws its bars or line with shapes, already loaded, when the snippet appears. Day, Week, Month, and Year store the range and the snippet redraws. They do not open another result. Siri still speaks through `ShowAskHealthRangeIntent`. The snippet headline stays on one line. Get Directions opens Maps and does not open another result. Play starts the song or album and does not open another result. The circle and the checkmark on a reminder complete and reopen in place. Siri still speaks through `CompleteAskReminderIntent` and `ReopenAskReminderIntent`. Skill action capsules stay on the chat. They are not part of the shortcut snippet.
+
+It runs in the app, in the background, and records the trace as `shortcut`. Create the client on the main actor and register it in `App.init()`. A shortcut can launch the process before any view appears. If this line never ran, that launch stops in the dependency getter.
+
+```swift
+init() {
+    let assistant = try! AskAssistant(AskConfiguration(/* ... */))
+    self.assistant = assistant
+    let client = AskIntentClient(assistant: assistant)
+    AppDependencyManager.shared.add(dependency: client)
 }
 ```
 
-AskKit does not ship an `AppIntent`. Titles, shortcuts, and snippet chrome belong to the app.
+Pass `entry: .siri` when the trace should say Siri. Set `client.assistant` when the app swaps assistants. The registered client is the one a shortcut uses. `.memory` keeps the turn for this process. `.swiftData` keeps it for the next time the chat opens.
+
+Shortcuts finds `AskIntent` only when the app's `AppIntentsPackage` lists `AskKitAppIntents`. An app that already has a package adds it to `includedPackages`. Then add `AskIntent()` to the app's `AppShortcutsProvider`. `CompleteAskReminderIntent` marks one reminder complete. Siri can run it with "Complete a reminder in AskKit." The circle on the card completes the reminder and draws a line through the title without opening another result. Reduce Motion shows that line at once. `ReopenAskReminderIntent` marks that reminder incomplete. Siri can run it with "Reopen a reminder in AskKit." The filled checkmark reopens it in place and takes the line back off. A phrase includes `\(.applicationName)` and cannot include the question, so Siri asks "What do you want to ask?" `OpenAskDirectionsIntent` and `PlayAskMusicIntent` show up in Shortcuts. They are not extra Siri phrases. The card buttons do not use those spoken results, so a tap does not cover the snippet.
+
+```swift
+struct GarageAppIntents: AppIntentsPackage {
+    static var includedPackages: [any AppIntentsPackage.Type] {
+        [AskKitAppIntents.self]
+    }
+}
+
+struct GarageShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: AskIntent(),
+            phrases: ["Ask \(.applicationName)"],
+            shortTitle: "Ask",
+            systemImageName: "bubble.left.and.bubble.right"
+        )
+        AppShortcut(
+            intent: CompleteAskReminderIntent(),
+            phrases: ["Complete a reminder in \(.applicationName)"],
+            shortTitle: "Complete Reminder",
+            systemImageName: "checkmark.circle"
+        )
+        AppShortcut(
+            intent: ReopenAskReminderIntent(),
+            phrases: ["Reopen a reminder in \(.applicationName)"],
+            shortTitle: "Reopen Reminder",
+            systemImageName: "circle"
+        )
+    }
+}
+```
+
+An intent the app owns calls `AskIntent.answer` and returns its own result. It does not `return try await AskIntent().perform()`. Those `perform()` methods return different opaque types. `answer(_:using:)` reads the assistant and the trace entry from the registered client. `answer(_:using:entry:)` takes an assistant the intent already has. A blank question throws `AskIntentError.emptyQuestion`.
+
+The registered client:
+
+```swift
+@Dependency var client: AskIntentClient
+
+@MainActor
+func perform() async throws -> some IntentResult & ShowsSnippetIntent & ProvidesDialog {
+    let answer = try await AskIntent.answer(question, using: client)
+    return .result(dialog: answer.dialog, snippetIntent: answer.snippet)
+}
+```
+
+An assistant the intent already holds. `entry` is the trace name for this call.
+
+```swift
+@MainActor
+func perform() async throws -> some IntentResult & ShowsSnippetIntent & ProvidesDialog {
+    let answer = try await AskIntent.answer(question, using: assistant, entry: .siri)
+    return .result(dialog: answer.dialog, snippetIntent: answer.snippet)
+}
+```
+
+`answer.spoken` is the full spoken line. `answer.dialog` is the speech bubble, or that full line when the card stands alone. `answer.snippet` is the interactive card. `answer.view` is those same cards as a static snapshot, and the buttons in it do not run. `answer.turn` is the `AskTurnResult`. `answer.turn.id` is the stored turn the snippet reloads.
+
+The sample app saves the selected sample and registers that assistant. Ask then uses only that sample's skills, including when a shortcut launches the app.
+
+`AskConversation.step(after:)` says whether a card should stop the loop. `.stop` keeps the card on screen. `.askAgain` carries the follow-up prompt. `AskIntent` itself returns one snippet. A host that asks again calls `answer` for the next question and returns that snippet.
+
+```swift
+switch AskConversation(followUpPrompt: "What else can I help with?").step(after: answer.turn) {
+case .stop:
+    return .result(dialog: answer.dialog, snippetIntent: answer.snippet)
+case .askAgain(_, let prompt):
+    let next = try await $question.requestValue(IntentDialog(stringLiteral: prompt))
+    let follow = try await AskIntent.answer(next, using: client)
+    return .result(dialog: follow.dialog, snippetIntent: follow.snippet)
+}
+```
 
 ## Store
 
@@ -162,10 +428,58 @@ An app that already has a SwiftData stack can add `AskThread` and `AskTurnRecord
 
 `AskChatView` reads the thread with `@Query`. Clear deletes that thread.
 
+## Trace
+
+`handle` already opens a turn. Debug builds record the route, the model transcript, and the bubble and card that were shown. Release builds compile the same calls and record nothing. `AskTrace.isEnabled` is true in Debug only.
+
+`AskChatView` puts `AskTraceButton()` in the toolbar. A screen that owns its window calls `AskTraceViewer.present(in:)`. Debug builds also put `AskCardGalleryButton()` beside the trace button. That screen shows each card with sample data. It does not read Music, Weather, Health, or Reminders. The first section is the thinking orb. It plays working, then connecting, then searching, and stays on searching. Hold it to look at one style. The thinking row always plays that sequence.
+
+A host wraps its own work so it shows up on that turn:
+
+```swift
+await AskTrace.turn(question, entry: AskTraceEntry(rawValue: "voice")) {
+    await AskTrace.span("lookup", ["bin": "A1"]) {
+        AskTrace.attribute("domain", "garage")
+        AskTrace.decision("used the cache")
+        AskTrace.event("shelf was warm")
+        AskTrace.result("68 percent")
+        AskTrace.shown("68 percent", cards: "Battery")
+    }
+}
+
+let output = try await AskTrace.tool("battery", arguments: "bin=A1") {
+    try await readBattery()
+}
+
+let next = try await AskTrace.userWait("follow-up") {
+    try await requestNextQuestion()
+}
+```
+
+`turn` nests under a turn that is already open. `span` records nothing when no turn is open. `tool` is the wrapper for a Foundation Models tool body. `userWait` is time spent waiting on the person, and `handle` does not call it. `attribute` replaces the same key. `shown` skips an empty answer or an empty card name.
+
+Entries the viewer already names are `.composer`, `.chip`, `.shortcut`, and `.siri`. Any other raw value is shown as that string.
+
+Call `AskTraceStore.live(appGroup:)` once at launch when a widget or Siri process should share the debug files. The default directory is the app's caches, and the newest 20 turns are kept.
+
+Share from a turn includes a picture of the question, the answer, and the cards, plus the indented text and a JSON file. Drop a trace JSON onto the list to open it under Viewing. That copy is not written into the saved traces. Swipe the row to remove it. The Story tab shows the cards from that answer under Snippet, on the same white row as the rest of the story. A turn that showed no card says no snippet card. Holding a speech bubble or a card shows that bubble or card above the menu.
+
 ## Tests
 
 The package tests use a scripted model, so they do not need Apple Intelligence. Run them on an iOS 27 simulator:
 
 ```sh
 xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'
+```
+
+`AskKitEvaluations` scores the on-device model on the Garage catalog. It stays out of that run. Pass `TEST_RUNNER_ASKKIT_EVALUATIONS=1` when you want the scores. `xcodebuild` forwards that prefix into the simulator.
+
+A pass/fail mean is the fraction of samples that passed. Route credit is 1 for the right skill, 0.5 when the skill is wrong but the domain is right, and 0 otherwise. Returning the domain id, such as `cabin`, earns that half. The reply answer is the paragraph before the first blank line. A later paragraph is a background copy of the garage section. A number token has to match FACTS exactly, so `2` is not covered by `214`. Relevance is a judge score from 1 to 4 and is not a gate. Replies do not use a judge.
+
+Floors sit under one noisy on-device run, except no background copy, which is gated at the rule itself. Routing: skill match 0.60, domain match 0.80, route credit 0.70. Replies: key facts 0.80, numbers from FACTS 0.60, one or two sentences 0.50, no background copy 0.80. Follow-ups: the chat's accept rule 0.50, and under 12 words 0.80. Plausible skill is the mean over offers the chat would show, and it is not gated. Rewrite kept is reported and not gated. The chat drops a rewrite that is empty, longer than 600 characters, or that adds an equals sign.
+
+On 7 Oct 2026 the on-device run scored routing at skill 0.71 (15 of 21), domain 1.00, and credit 0.86. The other six named the right domain and the wrong skill. Replies scored key facts 1.00, numbers from FACTS 1.00, one or two sentences 0.83, rewrite kept 0.17, and no background copy 0.00. Follow-ups scored accepted 0.83, plausible skill 0.80, under 12 words 1.00, and relevance 2.5. The skills test fails on no background copy until the rewrite stops pasting the garage section after the answer.
+
+```sh
+TEST_RUNNER_ASKKIT_EVALUATIONS=1 xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' -only-testing:AskKitEvaluations/AskEvaluationTests
 ```

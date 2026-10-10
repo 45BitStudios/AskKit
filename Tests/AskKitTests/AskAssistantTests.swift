@@ -1,8 +1,9 @@
-import AskKit
 import FoundationModels
+import os
 import SwiftData
 import SwiftUI
 import XCTest
+@testable import AskKit
 
 @MainActor
 final class AskAssistantTests: XCTestCase {
@@ -20,6 +21,133 @@ final class AskAssistantTests: XCTestCase {
         }
         XCTAssertEqual(reply.spoken, "Pasta.")
         XCTAssertFalse(result.usedModel)
+        XCTAssertNil(result.followUp)
+    }
+
+    func testCancellingATurnKeepsTheQuestionAndDropsTheAnswer() async throws {
+        let model = ScriptedModel()
+        let started = expectation(description: "reply started")
+        model.replyHold = {
+            started.fulfill()
+            try await Task.sleep(for: .seconds(30))
+            return "This answer should not be saved."
+        }
+        let assistant = try AskAssistant(
+            AskConfiguration(
+                assistantName: "Ask Cancel",
+                domains: [AskDomain(id: "open", summary: "Anything", routingNotes: "Any question.")],
+                skills: [
+                    AskSkill(
+                        id: "answer",
+                        domainID: "open",
+                        title: "Any question",
+                        summary: "A reply",
+                        routingNotes: "Every request.",
+                        fulfillment: .reply { _ in
+                            AskReply(text: "The skill line.", spoken: "The skill line.")
+                        }
+                    )
+                ],
+                context: { AskContext() },
+                chips: { _ in [] },
+                fastPath: { _ in AskRoute(skillID: "answer") },
+                guide: AskGuide(replyInstructions: "Rewrite FACTS.")
+            ),
+            model: model.client
+        )
+        let task = Task { @MainActor in
+            _ = await assistant.handle(utterance: "What do I have on Friday")
+        }
+        await fulfillment(of: [started], timeout: 2)
+        task.cancel()
+        await task.value
+        let roles = try assistant.transcript().map(\.role)
+        XCTAssertEqual(roles, ["user"])
+        XCTAssertEqual(model.replyCalls, 1)
+    }
+
+    func testGuideRoutesOnceThenRewritesAndOffersAFollowUp() async throws {
+        let model = ScriptedModel()
+        model.skillResult = AskModelSkillChoice(skillID: "dinner")
+        model.replyText = "Tomato pasta is ready."
+        model.followUp = AskFollowUp(skillID: "stock", question: "What is on hand?")
+        let assistant = try AskAssistant(
+            AskConfiguration(
+                assistantName: "Ask Pantry",
+                domains: [
+                    AskDomain(id: "meals", summary: "Cooking", routingNotes: "Meals."),
+                    AskDomain(id: "supplies", summary: "Supplies", routingNotes: "The shelf.")
+                ],
+                skills: [
+                    AskSkill(
+                        id: "dinner",
+                        domainID: "meals",
+                        title: "Dinner",
+                        summary: "Suggest dinner",
+                        routingNotes: "Dinner.",
+                        fulfillment: .reply { _ in
+                            AskReply(text: "Pasta.", spoken: "Pasta.", facts: "Tomato pasta.")
+                        }
+                    ),
+                    AskSkill(
+                        id: "stock",
+                        domainID: "supplies",
+                        title: "Stock",
+                        summary: "What is on hand",
+                        routingNotes: "The shelf.",
+                        fulfillment: .reply { _ in AskReply(text: "Pasta.", spoken: "Pasta.") }
+                    )
+                ],
+                context: {
+                    AskContext(
+                        promptBlock: "onHand=pasta",
+                        sections: [AskPromptSection(title: "PANTRY", text: "Olive oil is on the shelf.")]
+                    )
+                },
+                chips: { _ in [] },
+                guide: AskGuide(
+                    routeOpening: "Pick one skill id.",
+                    routeRules: "Dinner is dinner.",
+                    replyInstructions: "Rewrite FACTS.",
+                    followUpInstructions: "Offer one question."
+                )
+            ),
+            model: model.client
+        )
+        let result = await assistant.handle(
+            utterance: "What's in the pantry",
+            priorUserQuestions: ["What is for dinner?"]
+        )
+        XCTAssertEqual(model.domainCalls, 0)
+        XCTAssertEqual(model.skillCalls, 0)
+        XCTAssertEqual(model.routeCalls, 1)
+        XCTAssertEqual(model.replyCalls, 1)
+        XCTAssertEqual(model.followCalls, 1)
+        let instructions = model.requests[0].instructions
+        XCTAssertTrue(instructions.contains("Pick one skill id."))
+        XCTAssertTrue(instructions.contains("CAPABILITIES"))
+        XCTAssertTrue(instructions.contains("meals: dinner (Suggest dinner)"))
+        XCTAssertTrue(instructions.contains("RULES"))
+        XCTAssertTrue(model.requests[0].prompt.contains("EARLIER\nWhat is for dinner?"))
+        XCTAssertTrue(model.requests[0].prompt.contains("REQUEST\nWhat's in the pantry"))
+        XCTAssertTrue(model.requests[1].prompt.contains("FACTS\nTomato pasta."))
+        XCTAssertTrue(model.requests[1].prompt.contains("PANTRY\nOlive oil is on the shelf."))
+        XCTAssertTrue(model.requests[2].prompt.contains("ALLOWED\nstock"))
+        guard case .reply(let reply) = result.fulfillment else {
+            return XCTFail("Expected a reply")
+        }
+        XCTAssertEqual(reply.spoken, "Tomato pasta is ready.")
+        XCTAssertEqual(result.followUp, AskFollowUp(skillID: "stock", question: "What is on hand?"))
+        XCTAssertTrue(result.usedModel)
+
+        model.replyText = "pantry=pasta"
+        model.followUp = AskFollowUp(skillID: "dinner", question: "What is for dinner?")
+        let kept = await assistant.handle(utterance: "What's for dinner?")
+        guard case .reply(let keptReply) = kept.fulfillment else {
+            return XCTFail("Expected a reply")
+        }
+        XCTAssertEqual(keptReply.spoken, "Pasta.")
+        XCTAssertNil(kept.followUp)
     }
 
     func testTwelveSkillsLeaveTheRouterWithoutTools() async throws {
@@ -151,6 +279,108 @@ final class AskAssistantTests: XCTestCase {
         } else {
             XCTFail("An intent card ends the follow-up loop")
         }
+    }
+
+    func testIntentCardStoresTheDedupedBubble() async throws {
+        let finished = OSAllocatedUnfairLock(initialState: [AskTraceTurn]())
+        let recorder = AskTraceRecorder { turn in
+            finished.withLock { $0.append(turn) }
+        }
+        let model = ScriptedModel()
+        model.domainResult = "travel"
+        model.skillResult = AskModelSkillChoice(skillID: "status")
+        let assistant = try AskAssistant(
+            AskConfiguration(
+                assistantName: "Ask Sample",
+                domains: [AskDomain(id: "travel", summary: "Trips", routingNotes: "Travel.")],
+                skills: [
+                    AskSkill(
+                        id: "status",
+                        domainID: "travel",
+                        title: "Flight status",
+                        summary: "Live status",
+                        routingNotes: "Flight status.",
+                        fulfillment: .intent { _ in
+                            AskIntentCard(
+                                title: "Flight status",
+                                spoken: "UA 123 is on time. Doors close at noon. I can open the map.",
+                                coveredPhrases: ["on time"],
+                                action: AskAction(id: "map", title: "Map"),
+                                view: Text("UA 123")
+                            )
+                        }
+                    )
+                ],
+                context: { AskContext() },
+                chips: { _ in [] }
+            ),
+            model: model.client
+        )
+        let result = await AskTrace.$recorder.withValue(recorder) {
+            await assistant.handle(utterance: "What's my flight status?")
+        }
+        guard case .intent(let card) = result.fulfillment else {
+            return XCTFail("Expected a card")
+        }
+        XCTAssertEqual(card.spoken, "UA 123 is on time. Doors close at noon. I can open the map.")
+        let saved = try XCTUnwrap(assistant.transcript().last { $0.role == "assistant" })
+        XCTAssertEqual(saved.text, "Doors close at noon.")
+        XCTAssertEqual(saved.spoken, card.spoken)
+        let replayed = await assistant.intentCard(for: saved.id)
+        XCTAssertEqual(replayed?.title, "Flight status")
+        XCTAssertEqual(replayed?.action?.title, "Map")
+        let turn = finished.withLock { $0.last }
+        XCTAssertTrue(turn?.spans.contains { $0.name == "routeDomain" } ?? false)
+        XCTAssertTrue(turn?.spans.contains { $0.name == "routeSkill" } ?? false)
+        let fulfill = turn?.spans.first { $0.name == "fulfill" }
+        XCTAssertEqual(fulfill?.attributes.first { $0.key == "skill" }?.value, "status")
+        XCTAssertEqual(fulfill?.attributes.first { $0.key == "shownAnswer" }?.value, "Doors close at noon.")
+        XCTAssertEqual(fulfill?.attributes.first { $0.key == "shownCards" }?.value, "Flight status")
+        let rawBodies = try XCTUnwrap(fulfill?.attributes.first { $0.key == "shownCardBodies" }?.value)
+        let bodies = try JSONDecoder().decode([String].self, from: Data(rawBodies.utf8))
+        XCTAssertEqual(bodies, ["Flight status\nUA 123 is on time. Doors close at noon. I can open the map."])
+        let poster = AskTracePoster.content(for: try XCTUnwrap(turn))
+        XCTAssertEqual(poster.answer, "Doors close at noon.")
+        XCTAssertEqual(poster.cards, [
+            AskTracePosterCard(title: "Flight status", body: "UA 123 is on time. Doors close at noon. I can open the map.")
+        ])
+    }
+
+    func testTraceDropsOmittedSlotKeys() async throws {
+        let finished = OSAllocatedUnfairLock(initialState: [AskTraceTurn]())
+        let recorder = AskTraceRecorder { turn in
+            finished.withLock { $0.append(turn) }
+        }
+        let assistant = try AskAssistant(
+            AskConfiguration(
+                assistantName: "Ask Pantry",
+                domains: [AskDomain(id: "recipes", summary: "Cooking", routingNotes: "Food.")],
+                skills: [
+                    AskSkill(
+                        id: "dinner",
+                        domainID: "recipes",
+                        title: "Dinner",
+                        summary: "Suggest dinner",
+                        routingNotes: "Dinner questions.",
+                        fulfillment: .reply { _ in AskReply(text: "Pasta.", spoken: "Pasta.") }
+                    )
+                ],
+                context: { AskContext() },
+                chips: { _ in [] },
+                fastPath: { _ in
+                    AskRoute(skillID: "dinner", slots: ["city": "Austin", "recordLocator": "ABC123"])
+                },
+                omittedSlotKeys: ["recordLocator"]
+            ),
+            model: ScriptedModel().client
+        )
+        _ = await AskTrace.$recorder.withValue(recorder) {
+            await assistant.handle(utterance: "dinner")
+        }
+        let fulfill = finished.withLock { $0.last }?.spans.first { $0.name == "fulfill" }
+        let slots = fulfill?.attributes.first { $0.key == "slots" }?.value ?? ""
+        XCTAssertTrue(slots.contains("Austin"))
+        XCTAssertFalse(slots.contains("ABC123"))
     }
 
     func testStoredTurnIsTheNextFollowUp() async throws {
@@ -437,6 +667,13 @@ final class ScriptedModel: @unchecked Sendable {
     var fillResult: [String: String] = [:]
     var domainCalls = 0
     var skillCalls = 0
+    var routeCalls = 0
+    var replyCalls = 0
+    var followCalls = 0
+    var failure: Error?
+    var replyText = ""
+    var replyHold: (@Sendable () async throws -> String)?
+    var followUp = AskFollowUp(skillID: "none", question: "")
     var fillCounts: [Int] = []
     var requests: [AskModelRequest] = []
     var prompts: [String] { requests.map(\.prompt) }
@@ -446,6 +683,7 @@ final class ScriptedModel: @unchecked Sendable {
             routeDomain: { [self] request in
                 self.domainCalls += 1
                 self.requests.append(request)
+                if let failure = self.failure { throw failure }
                 return self.domainResult
             },
             routeSkill: { [self] request in
@@ -457,6 +695,25 @@ final class ScriptedModel: @unchecked Sendable {
                 self.fillCounts.append(tools.count)
                 self.requests.append(request)
                 return self.fillResult
+            },
+            route: { [self] request in
+                self.routeCalls += 1
+                self.requests.append(request)
+                if let failure = self.failure { throw failure }
+                return self.skillResult
+            },
+            writeReply: { [self] request in
+                self.replyCalls += 1
+                self.requests.append(request)
+                if let replyHold = self.replyHold {
+                    return try await replyHold()
+                }
+                return self.replyText
+            },
+            offerFollowUp: { [self] request in
+                self.followCalls += 1
+                self.requests.append(request)
+                return self.followUp
             }
         )
     }

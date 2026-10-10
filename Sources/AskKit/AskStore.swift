@@ -82,6 +82,8 @@ public final class AskTurnRecord {
     public var skillID: String = ""
     public var domainID: String = ""
     public var slotsJSON: String = "{}"
+    /// Encoded pages for this turn. `[]` for a user turn and for turns saved before paging.
+    public var pagesJSON: String = "[]"
     public var createdAt: Date = Date()
     public var thread: AskThread?
 
@@ -93,6 +95,7 @@ public final class AskTurnRecord {
         skillID: String = "",
         domainID: String = "",
         slotsJSON: String = "{}",
+        pagesJSON: String = "[]",
         createdAt: Date = Date(),
         thread: AskThread? = nil
     ) {
@@ -103,6 +106,7 @@ public final class AskTurnRecord {
         self.skillID = skillID
         self.domainID = domainID
         self.slotsJSON = slotsJSON
+        self.pagesJSON = pagesJSON
         self.createdAt = createdAt
         self.thread = thread
     }
@@ -209,7 +213,8 @@ final class AskStore {
         skillID: String,
         domainID: String,
         slots: [String: String],
-        omitting keys: Set<String>
+        omitting keys: Set<String>,
+        pagesJSON: String = "[]"
     ) throws -> UUID {
         let thread = try thread(named: assistantName)
         let turn = AskTurnRecord(
@@ -219,6 +224,7 @@ final class AskStore {
             skillID: skillID,
             domainID: domainID,
             slotsJSON: AskSlots.json(slots, omitting: keys),
+            pagesJSON: pagesJSON,
             thread: thread
         )
         context.insert(turn)
@@ -252,6 +258,11 @@ final class AskStore {
                     createdAt: turn.createdAt
                 )
             }
+    }
+
+    func assistantTurn(id: UUID, assistantName: String) throws -> AskTurnRecord? {
+        guard let thread = try existingThread(named: assistantName) else { return nil }
+        return thread.turns?.first { $0.id == id && $0.role == "assistant" }
     }
 
     func clear(assistantName: String) throws {

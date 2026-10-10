@@ -1,16 +1,33 @@
 import Foundation
 
+/// One labeled block in a reply or follow-up prompt, such as `TRIP` or `PANTRY`.
+/// The title is the heading the model sees. The text is the body under it.
+public struct AskPromptSection: Sendable, Equatable, Identifiable {
+    public var title: String
+    public var text: String
+
+    public var id: String { title }
+
+    public init(title: String, text: String) {
+        self.title = title
+        self.text = text
+    }
+}
+
 /// The current state of the person or the app for one turn.
 ///
-/// `values` are for skill code. `promptBlock` is the only text sent to the model.
-/// Leave a private value out of `promptBlock` when the skill needs it and the model does not.
+/// `values` are for skill code. `promptBlock` is the CONTEXT block on a route.
+/// `sections` are the named blocks on a reply and a follow-up, titled by the app.
+/// Leave a private value out of both when the skill needs it and the model does not.
 public struct AskContext: Sendable, Equatable {
     public var values: [String: String]
     public var promptBlock: String
+    public var sections: [AskPromptSection]
 
-    public init(promptBlock: String = "", values: [String: String] = [:]) {
+    public init(promptBlock: String = "", values: [String: String] = [:], sections: [AskPromptSection] = []) {
         self.promptBlock = promptBlock
         self.values = values
+        self.sections = sections
     }
 
     public func value(for key: String) -> String? {
@@ -24,7 +41,8 @@ public struct AskContext: Sendable, Equatable {
         let allowed = Set(keys)
         return AskContext(
             promptBlock: promptBlock,
-            values: values.filter { allowed.contains($0.key) }
+            values: values.filter { allowed.contains($0.key) },
+            sections: sections
         )
     }
 }

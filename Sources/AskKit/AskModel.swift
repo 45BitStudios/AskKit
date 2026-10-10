@@ -14,10 +14,13 @@ public enum AskSessionPolicy {
 }
 
 enum AskTranscript {
-    static func withoutToolCalls(_ entries: [Transcript.Entry]) -> [Transcript.Entry] {
+    /// What a tool-free structured session may see. Drops tool calls, tool output,
+    /// and reasoning. A reasoning signature replayed into a structured generation
+    /// throws unsupportedTranscriptContent. Prompts and responses stay, in order.
+    static func forRouting(_ entries: [Transcript.Entry]) -> [Transcript.Entry] {
         entries.filter { entry in
             switch entry {
-            case .toolCalls, .toolOutput:
+            case .toolCalls, .toolOutput, .reasoning:
                 return false
             default:
                 return true
@@ -49,52 +52,378 @@ struct AskSkillChoice {
     var slots: [AskSlotValue]
 }
 
+@Generable
+struct AskFollowUpDraft {
+    @Guide(description: "One skill id copied from ALLOWED, or none")
+    var skill: String
+    @Guide(description: "One short question, or empty when skill is none")
+    var question: String
+}
+
+extension AskCloudReasoning {
+    var level: ContextOptions.ReasoningLevel {
+        switch self {
+        case .light: .light
+        case .moderate: .moderate
+        case .deep: .deep
+        }
+    }
+}
+
+struct AskCloudSessionOptions: Sendable {
+    var reasoningLevel: ContextOptions.ReasoningLevel
+    var temperature: Double?
+    var maximumResponseTokens: Int?
+}
+
+enum AskModelAvailability {
+    static func onDevice(_ reason: SystemLanguageModel.Availability.UnavailableReason) -> String {
+        switch reason {
+        case .deviceNotEligible: "deviceNotEligible"
+        case .appleIntelligenceNotEnabled: "appleIntelligenceNotEnabled"
+        case .modelNotReady: "modelNotReady"
+        @unknown default: "unavailable"
+        }
+    }
+
+    static func cloud(_ reason: PrivateCloudComputeLanguageModel.Availability.UnavailableReason) -> String {
+        switch reason {
+        case .deviceNotEligible: "deviceNotEligible"
+        case .systemNotReady: "systemNotReady"
+        @unknown default: "unavailable"
+        }
+    }
+}
+
+enum AskComputeRuntime {
+    struct Resolved {
+        var model: any LanguageModel
+        var cloud: AskCloudSessionOptions?
+    }
+
+    /// The model the next session should call. Records the resolved choice on the open trace span.
+    static func resolve() -> Resolved {
+        let onDevice = SystemLanguageModel.default
+        let cloud = PrivateCloudComputeLanguageModel()
+        let choice = AskComputeChoice.resolved(
+            preferred: AskComputeSelection.current,
+            onDevice: onDevice.isAvailable,
+            cloud: cloud.isAvailable
+        )
+        AskTrace.attribute("compute", choice.rawValue)
+        if case .unavailable(let reason) = onDevice.availability {
+            AskTrace.attribute("onDevice", AskModelAvailability.onDevice(reason))
+        }
+        if case .unavailable(let reason) = cloud.availability {
+            AskTrace.attribute("privateCloud", AskModelAvailability.cloud(reason))
+        }
+        switch choice {
+        case .onDevice:
+            return Resolved(model: onDevice, cloud: nil)
+        case .privateCloud:
+            let options = AskCloudSettings.current
+            AskTrace.attribute("reasoning", options.reasoning.rawValue)
+            if let temperature = options.temperature {
+                AskTrace.attribute("temperature", String(temperature))
+            }
+            if let tokens = options.length.maximumResponseTokens {
+                AskTrace.attribute("maxTokens", String(tokens))
+            }
+            return Resolved(
+                model: cloud,
+                cloud: AskCloudSessionOptions(
+                    reasoningLevel: options.reasoning.level,
+                    temperature: options.temperature,
+                    maximumResponseTokens: options.length.maximumResponseTokens
+                )
+            )
+        }
+    }
+}
+
+enum AskProfileActivity: Sendable {
+    case quiet
+    case choosing
+    case writing
+    case specialist(id: String, title: String, workingTitle: String)
+}
+
+enum AskProfileHooks {
+    static func activate(_ activity: AskProfileActivity) async {
+        switch activity {
+        case .quiet:
+            break
+        case .choosing:
+            AskTrace.event("activate router")
+            await AskChatActivity.show("Looking at the question", phase: .choosing)
+        case .writing:
+            AskTrace.event("activate writer")
+            await AskChatActivity.show("Writing an answer", phase: .writing)
+        case .specialist(let id, let title, let workingTitle):
+            AskTrace.event("activate \(id)")
+            let line = workingTitle.isEmpty ? title : workingTitle
+            await AskChatActivity.show(line, detail: title, phase: .choosing)
+        }
+    }
+
+    static func toolCall(_ activity: AskProfileActivity, toolName: String) async {
+        AskTrace.event("tool call \(toolName)")
+        guard case .specialist(_, let title, _) = activity else { return }
+        let name = title.isEmpty ? "the tool" : title
+        await AskChatActivity.show("Reading \(name)", detail: title, phase: .tool)
+    }
+
+    static func toolOutput(_ activity: AskProfileActivity, toolName: String) async {
+        AskTrace.event("tool output \(toolName)")
+        guard case .specialist(_, let title, _) = activity else { return }
+        let name = title.isEmpty ? "Tool" : title
+        await AskChatActivity.show("\(name) is in", detail: title, phase: .tool)
+    }
+
+    static func response(_ activity: AskProfileActivity) async {
+        switch activity {
+        case .quiet:
+            break
+        case .choosing:
+            AskTrace.event("response router")
+        case .writing:
+            AskTrace.event("response writer")
+        case .specialist(let id, _, _):
+            AskTrace.event("response \(id)")
+        }
+    }
+
+    static func deactivate(_ activity: AskProfileActivity) {
+        switch activity {
+        case .quiet, .choosing, .writing:
+            break
+        case .specialist(let id, _, _):
+            AskTrace.event("deactivate \(id)")
+        }
+    }
+}
+
 struct AskRoutingProfile: LanguageModelSession.DynamicProfile {
     var instructions: String
+    var model: any LanguageModel
+    var cloud: AskCloudSessionOptions?
+    var activity: AskProfileActivity = .quiet
 
     var body: some LanguageModelSession.DynamicProfile {
-        LanguageModelSession.Profile {
+        let activity = activity
+        return LanguageModelSession.Profile {
             Instructions(instructions)
         }
+        .model(model)
+        .reasoningLevel(cloud?.reasoningLevel)
+        .temperature(cloud?.temperature)
+        .maximumResponseTokens(cloud?.maximumResponseTokens)
         .toolCallingMode(.disallowed)
-        .historyTransform(AskTranscript.withoutToolCalls)
+        .historyTransform(AskTranscript.forRouting)
+        .transcriptErrorHandlingPolicy(.revertTranscript)
+        .onActivate {
+            await AskProfileHooks.activate(activity)
+        }
+        .onResponse { _ in
+            await AskProfileHooks.response(activity)
+        }
     }
 }
 
 struct AskSkillProfile: LanguageModelSession.DynamicProfile {
     var instructions: String
     var tools: [any Tool]
+    var model: any LanguageModel
+    var cloud: AskCloudSessionOptions?
+    var toolCallingMode: GenerationOptions.ToolCallingMode = .allowed
+    var activity: AskProfileActivity = .quiet
+
+    /// Tool sessions keep every entry, including tool output and reasoning.
+    /// historyTransform only changes what the model sees. Stripping tool output
+    /// makes the next generation fail with "Transcript must end with a .prompt
+    /// or .toolOutput entry." preserveTranscript leaves those outputs in place
+    /// when a generation throws, so the catch can still read them.
 
     var body: some LanguageModelSession.DynamicProfile {
-        LanguageModelSession.Profile {
+        let activity = activity
+        return LanguageModelSession.Profile {
             Instructions(instructions)
             tools
         }
-        .toolCallingMode(.allowed)
-        .historyTransform(AskTranscript.withoutToolCalls)
+        .model(model)
+        .reasoningLevel(cloud?.reasoningLevel)
+        .temperature(cloud?.temperature)
+        .maximumResponseTokens(cloud?.maximumResponseTokens)
+        .toolCallingMode(toolCallingMode)
+        .transcriptErrorHandlingPolicy(.preserveTranscript)
+        .onActivate {
+            await AskProfileHooks.activate(activity)
+        }
+        .onToolCall { call in
+            await AskProfileHooks.toolCall(activity, toolName: call.toolName)
+        }
+        .onToolOutput { call, _ in
+            await AskProfileHooks.toolOutput(activity, toolName: call.toolName)
+        }
+        .onResponse { _ in
+            await AskProfileHooks.response(activity)
+        }
+        .onDeactivate {
+            AskProfileHooks.deactivate(activity)
+        }
     }
 }
 
 enum AskFoundationSessions {
+    /// Each route, reply, and follow-up starts empty. Earlier turns stay in the
+    /// CONVERSATION prompt. Replaying them as transcript entries would carry tool
+    /// calls and reasoning signatures from one specialist into the next.
+    private static func routingSession(instructions: String, activity: AskProfileActivity) -> LanguageModelSession {
+        let resolved = AskComputeRuntime.resolve()
+        return LanguageModelSession(
+            profile: AskRoutingProfile(
+                instructions: instructions,
+                model: resolved.model,
+                cloud: resolved.cloud,
+                activity: activity
+            )
+        )
+    }
+
     static func routeDomain(_ request: AskModelRequest) async throws -> String {
-        let session = LanguageModelSession(profile: AskRoutingProfile(instructions: request.instructions))
-        let response = try await session.respond(to: request.prompt, generating: AskDomainChoice.self)
+        let session = routingSession(instructions: request.instructions, activity: .choosing)
+        let response = try await AskTrace.respond(session, label: "routeDomain", to: request.prompt, generating: AskDomainChoice.self)
         return response.content.domain
     }
 
     static func routeSkill(_ request: AskModelRequest) async throws -> AskModelSkillChoice {
-        let session = LanguageModelSession(profile: AskRoutingProfile(instructions: request.instructions))
-        let response = try await session.respond(to: request.prompt, generating: AskSkillChoice.self)
+        try await skillChoice(request, label: "routeSkill")
+    }
+
+    static func route(_ request: AskModelRequest) async throws -> AskModelSkillChoice {
+        try await skillChoice(request, label: "route")
+    }
+
+    static func writeReply(_ request: AskModelRequest, tools: [any Tool]) async throws -> AskWrittenReply {
+        let facts = request.facts
+        let holdsUntilTool = request.requiresToolCall
+        let onSnapshot: @Sendable (String) async -> Void = { text in
+            await MainActor.run {
+                AskReplyPreview.note(text, facts: facts, holdsUntilTool: holdsUntilTool)
+            }
+        }
+        if tools.isEmpty {
+            let writer = request.profileID == "writer"
+            let session = routingSession(instructions: request.instructions, activity: writer ? .writing : .quiet)
+            let text = try await AskTrace.respondStream(
+                session,
+                label: writer ? "writer" : "writeReply",
+                to: request.prompt,
+                images: request.imageURLs,
+                attributes: writer ? ["profile": "writer"] : [:],
+                onSnapshot: onSnapshot
+            )
+            return AskWrittenReply(text: text, readings: AskToolTranscript.readings(in: session.transcript))
+        }
+        let resolved = AskComputeRuntime.resolve()
+        let profileID = request.profileID.isEmpty ? "reply" : request.profileID
+        let session = LanguageModelSession(
+            profile: AskSkillProfile(
+                instructions: request.instructions,
+                tools: tools,
+                model: resolved.model,
+                cloud: resolved.cloud,
+                // Required mode keeps issuing tool calls and can end with an empty sentence.
+                toolCallingMode: .allowed,
+                activity: .specialist(
+                    id: profileID,
+                    title: request.profileTitle,
+                    workingTitle: request.workingTitle
+                )
+            )
+        )
+        do {
+            let text = try await AskTrace.respondStream(
+                session,
+                label: "specialist \(profileID)",
+                to: request.prompt,
+                images: request.imageURLs,
+                attributes: [
+                    "profile": profileID,
+                    "tools": tools.map(\.name).joined(separator: ", ")
+                ],
+                onSnapshot: onSnapshot
+            )
+            return AskWrittenReply(text: text, readings: AskToolTranscript.readings(in: session.transcript))
+        } catch {
+            let readings = AskToolTranscript.readings(in: session.transcript)
+            guard !readings.isEmpty else { throw error }
+            return AskWrittenReply(text: "", readings: readings)
+        }
+    }
+
+    static func offerFollowUp(_ request: AskModelRequest) async throws -> AskFollowUp {
+        let session = routingSession(instructions: request.instructions, activity: .quiet)
+        let response = try await AskTrace.respond(
+            session,
+            label: "offerFollowUp",
+            to: request.prompt,
+            generating: AskFollowUpDraft.self
+        )
+        return AskFollowUp(skillID: response.content.skill, question: response.content.question)
+    }
+
+    private static func skillChoice(_ request: AskModelRequest, label: String) async throws -> AskModelSkillChoice {
+        let session = routingSession(instructions: request.instructions, activity: .choosing)
+        let response = try await AskTrace.respond(session, label: label, to: request.prompt, generating: AskSkillChoice.self)
         let slots = Dictionary(response.content.slots.map { ($0.key, $0.value) }, uniquingKeysWith: { _, latest in latest })
         return AskModelSkillChoice(skillID: response.content.skill, slots: slots, confidence: response.content.confidence)
     }
 
     static func fillSlots(_ request: AskModelRequest, tools: [any Tool]) async throws -> [String: String] {
+        let resolved = AskComputeRuntime.resolve()
         let session = LanguageModelSession(
-            profile: AskSkillProfile(instructions: request.instructions, tools: tools)
+            profile: AskSkillProfile(
+                instructions: request.instructions,
+                tools: tools,
+                model: resolved.model,
+                cloud: resolved.cloud
+            )
         )
-        let response = try await session.respond(to: request.prompt, generating: AskSkillChoice.self)
+        let response = try await AskTrace.respond(session, label: "fillSlots", to: request.prompt, generating: AskSkillChoice.self)
         return Dictionary(response.content.slots.map { ($0.key, $0.value) }, uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+enum AskToolTranscript {
+    static func readings(in transcript: Transcript) -> [AskAppleReading] {
+        var readings: [AskAppleReading] = []
+        for entry in transcript {
+            guard case .toolOutput(let output) = entry else { continue }
+            let text = segments(output.segments)
+            let lines = text
+                .split(whereSeparator: \.isNewline)
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            readings.append(AskAppleReading(name: output.toolName, lines: lines))
+        }
+        return readings
+    }
+
+    private static func segments(_ segments: [Transcript.Segment]) -> String {
+        segments.map { segment in
+            switch segment {
+            case .text(let text):
+                return text.content
+            case .structure(let structure):
+                return structure.content.jsonString
+            case .attachment:
+                return ""
+            @unknown default:
+                return ""
+            }
+        }
+        .joined(separator: "\n")
     }
 }
 
