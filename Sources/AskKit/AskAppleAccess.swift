@@ -235,7 +235,8 @@ enum AskAppleCopy {
     To add an event or a reminder, call that tool with action add and the title. Pass a place or notes when the person named them. A reminder can also take priority high, medium, or low. \
     To change one, call action update with its title. To remove one, call action delete with its title. \
     Say it was added only when the line starts with Added, changed when it starts with Updated, and removed when it starts with Removed. \
-    To add a contact, call the contacts tool with action add and the name. Pass the phone or email when they were said.
+    To add a contact, call the contacts tool with action add and the name. Pass the phone or email when they were said. \
+    For contacts that begin with letters, call the contacts tool with action look, those letters, and beginsWith true.
     For a reminder list, say how many are open in one short sentence. Do not list the titles. The card lists them.
     A calendar question calls the calendar tool only. A contact question calls the contacts tool only. \
     Pass nearby to the location tool for places around the person. \
@@ -450,6 +451,12 @@ enum AskSourceFocus {
 
 /// A person named in a contact question. Nil when the question is not asking about one name.
 enum AskContactQuery {
+    /// A lookup name, and whether the question asked for names that begin with it.
+    struct Request: Equatable {
+        var name: String
+        var prefix: Bool
+    }
+
     static func asksEmail(_ question: String) -> Bool {
         let folded = AskAppleCopy.folded(question)
         return folded.localizedStandardContains("email") || folded.localizedStandardContains("e-mail")
@@ -460,16 +467,26 @@ enum AskContactQuery {
         return folded.localizedStandardContains("how many") || folded.localizedStandardContains("number of")
     }
 
+    static func asksPrefix(_ question: String) -> Bool {
+        request(in: question)?.prefix == true
+    }
+
     static func name(in question: String) -> String? {
+        request(in: question)?.name
+    }
+
+    static func request(in question: String) -> Request? {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        let patterns = [
-            #"(?i)contacts?\s+(?:named|name|called)\s+(.+?)(?:\s+do\s+i\b.*)?$"#,
-            #"(?i)^what(?:'s|’s|s| is)?\s+(.+?)(?:'s|’s)?\s+e-?mail(?:\s+address)?\??$"#,
-            #"(?i)^e-?mail(?:\s+address)?\s+(?:for|of)\s+(.+?)\??$"#,
-            #"(?i)^(.+?)(?:'s|’s)\s+e-?mail(?:\s+address)?\??$"#,
+        let patterns: [(pattern: String, prefix: Bool)] = [
+            (#"(?i)contacts?\s+(?:that\s+)?(?:begin|begins|beginning|start|starts|starting)\s+with\s+(\S+)"#, true),
+            (#"(?i)(?:begin|begins|beginning|start|starts|starting)\s+with\s+(\S+)"#, true),
+            (#"(?i)contacts?\s+(?:named|name|called)\s+(.+?)(?:\s+do\s+i\b.*)?$"#, false),
+            (#"(?i)^what(?:'s|’s|s| is)?\s+(.+?)(?:'s|’s)?\s+e-?mail(?:\s+address)?\??$"#, false),
+            (#"(?i)^e-?mail(?:\s+address)?\s+(?:for|of)\s+(.+?)\??$"#, false),
+            (#"(?i)^(.+?)(?:'s|’s)\s+e-?mail(?:\s+address)?\??$"#, false),
         ]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
+        for entry in patterns {
+            guard let regex = try? NSRegularExpression(pattern: entry.pattern),
                   let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
                   match.numberOfRanges > 1,
                   let range = Range(match.range(at: 1), in: trimmed) else { continue }
@@ -477,7 +494,10 @@ enum AskContactQuery {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .trimmingCharacters(in: .punctuationCharacters)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            if (2...80).contains(name.count) { return name }
+            let minimum = entry.prefix ? 1 : 2
+            if (minimum...80).contains(name.count) {
+                return Request(name: name, prefix: entry.prefix)
+            }
         }
         return nil
     }
@@ -530,19 +550,23 @@ enum AskContactLine {
         return Person(name: name, phone: phone, email: email)
     }
 
-    static func filtered(_ lines: [String], query: String) -> [String] {
+    static func filtered(_ lines: [String], query: String, prefix: Bool = false) -> [String] {
         let wanted = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !wanted.isEmpty else { return lines }
         return lines.filter { line in
             let person = person(from: line)
-            return person.isPerson && matches(name: person.name, query: wanted)
+            return person.isPerson && matches(name: person.name, query: wanted, prefix: prefix)
         }
     }
 
-    static func matches(name: String, query: String) -> Bool {
-        let wanted = AskAppleCopy.foldedTokens(query).filter { $0.count >= 2 }
+    static func matches(name: String, query: String, prefix: Bool = false) -> Bool {
+        let minimum = prefix ? 1 : 2
+        let wanted = AskAppleCopy.foldedTokens(query).filter { $0.count >= minimum }
         guard !wanted.isEmpty else { return true }
         let have = AskAppleCopy.foldedTokens(name)
+        if prefix {
+            return wanted.allSatisfy { word in have.contains { $0.hasPrefix(word) } }
+        }
         return wanted.allSatisfy { word in have.contains { close($0, word) } }
     }
 
@@ -559,10 +583,14 @@ enum AskContactLine {
             return "\(match.name)'s email is \(match.email)."
         }
         if people.isEmpty { return status(lines) ?? text }
-        guard let query = AskContactQuery.name(in: question) else { return text }
-        let counting = AskContactQuery.asksCount(question) || people.count > 1
+        guard let request = AskContactQuery.request(in: question) else { return text }
+        let counting = AskContactQuery.asksCount(question) || people.count > 1 || request.prefix
         guard counting else { return text }
-        let label = spokenName(query)
+        let label = spokenName(request.name)
+        if request.prefix {
+            if people.count == 1 { return "You have 1 contact that begins with \(label)." }
+            return "You have \(people.count) contacts that begin with \(label)."
+        }
         if people.count == 1 { return "You have 1 contact named \(label)." }
         return "You have \(people.count) contacts named \(label)."
     }
@@ -756,14 +784,22 @@ enum AskReminderCommand: Equatable {
 
 /// Look up a person, or add one contact. Parsing does not touch Contacts.
 enum AskContactCommand: Equatable {
-    case lookup(String)
+    case lookup(name: String, prefix: Bool)
     case add(name: String, phone: String, email: String)
     case needsName
 
-    static func parse(action: String?, name: String, phone: String?, email: String?) -> AskContactCommand {
+    static func parse(
+        action: String?,
+        name: String,
+        phone: String?,
+        email: String?,
+        beginsWith: Bool? = nil
+    ) -> AskContactCommand {
         let who = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
         let verb = action?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        guard verb == "add" || verb == "create" || verb == "new" else { return .lookup(who) }
+        guard verb == "add" || verb == "create" || verb == "new" else {
+            return .lookup(name: who, prefix: beginsWith == true)
+        }
         guard !who.isEmpty else { return .needsName }
         return .add(name: who, phone: clip(phone), email: clip(email))
     }
@@ -1880,14 +1916,16 @@ private struct AskRemindersTool: Tool, AskToolReadingSource {
 private struct AskContactsTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "contacts"
-    let description = "Look up a contact by name, or add one contact. For a lookup, pass action look and the name. Leave the name empty only for a short list. Each line is one person, with the phone and the email when they exist. To add a contact, pass action add, the name, and the phone or email when they were said. An added contact starts with Added. If the result is Not allowed, say you cannot see contacts. Do not invent a phone number or email. When the person asks for an email, say the email on the line. Do not say a contact was added unless the line starts with Added."
+    let description = "Look up a contact by name, or add one contact. For a lookup, pass action look and the name. For contacts that begin with letters, pass those letters and set beginsWith to true. Leave the name empty only for a short list. Each line is one person, with the phone and the email when they exist. To add a contact, pass action add, the name, and the phone or email when they were said. An added contact starts with Added. If the result is Not allowed, say you cannot see contacts. Do not invent a phone number or email. When the person asks for an email, say the email on the line. Do not say a contact was added unless the line starts with Added."
 
     @Generable
     struct Arguments {
         @Guide(description: "look or add. Use look unless the person asked to create a contact.", .anyOf(["look", "add"]))
         var action: String?
-        @Guide(description: "The person's name. Leave empty only when the question asks for a short list.")
+        @Guide(description: "The person's name, or the letters a name begins with. Leave empty only when the question asks for a short list.")
         var name: String
+        @Guide(description: "True when the person asked for names that begin with the letters in name. Otherwise false.")
+        var beginsWith: Bool?
         @Guide(description: "Phone number when adding a contact. Leave empty when looking up.")
         var phone: String?
         @Guide(description: "Email address when adding a contact. Leave empty when looking up.")
@@ -1899,16 +1937,17 @@ private struct AskContactsTool: Tool, AskToolReadingSource {
             action: arguments.action,
             name: arguments.name,
             phone: arguments.phone,
-            email: arguments.email
+            email: arguments.email,
+            beginsWith: arguments.beginsWith
         ) {
-        case .lookup(let name):
+        case .lookup(let name, let prefix):
             return try await boundedAppleCall(
                 ledger: toolLedger,
                 name: self.name,
                 arguments: name.isEmpty ? "list" : name,
-                trace: name.isEmpty ? "list" : "name"
+                trace: name.isEmpty ? "list" : (prefix ? "prefix" : "name")
             ) {
-                await AskContactsRead.lines(matching: name)
+                await AskContactsRead.lines(matching: name, prefix: prefix)
             }
         case .add(let name, let phone, let email):
             return try await boundedAppleCall(
@@ -2121,6 +2160,8 @@ struct AskAppleRepairPlan: Equatable {
     var healthSpan: String
     var place: String?
     var contactQuery: String?
+    /// True when the question asked for names that begin with `contactQuery`.
+    var contactPrefix: Bool
     var rereadContact: Bool
     var music: AskMusicQuery.Request?
     var weather: AskWeatherRequest?
@@ -2188,12 +2229,14 @@ enum AskAppleRepair {
             if !covered { place = found }
         }
         var contactQuery: String?
+        var contactPrefix = false
         var rereadContact = false
-        if toolNames.contains("contacts"), let name = AskContactQuery.name(in: question) {
+        if toolNames.contains("contacts"), let request = AskContactQuery.request(in: question) {
             let lines = readings.filter { $0.name == "contacts" }.flatMap(\.lines)
             if !lines.contains(where: AskAppleCopy.keepsWrite) {
-                contactQuery = name
-                let matched = AskContactLine.filtered(lines, query: name)
+                contactQuery = request.name
+                contactPrefix = request.prefix
+                let matched = AskContactLine.filtered(lines, query: request.name, prefix: request.prefix)
                 let hasEmail = matched.contains { AskContactLine.person(from: $0).email.contains("@") }
                 rereadContact = matched.isEmpty || (AskContactQuery.asksEmail(question) && !hasEmail)
             }
@@ -2277,6 +2320,7 @@ enum AskAppleRepair {
             healthSpan: healthSpan,
             place: place,
             contactQuery: contactQuery,
+            contactPrefix: contactPrefix,
             rereadContact: rereadContact,
             music: music,
             weather: weather,
@@ -2330,9 +2374,9 @@ enum AskAppleRepair {
         if let query = plan.contactQuery {
             var contactLines = readings.filter { $0.name == "contacts" }.flatMap(\.lines)
             if plan.rereadContact {
-                contactLines = lines(await AskContactsRead.lines(matching: query))
+                contactLines = lines(await AskContactsRead.lines(matching: query, prefix: plan.contactPrefix))
             }
-            let filtered = AskContactLine.filtered(contactLines, query: query)
+            let filtered = AskContactLine.filtered(contactLines, query: query, prefix: plan.contactPrefix)
             let kept = contactLinesKept(filtered, raw: contactLines)
             if plan.rereadContact || kept != contactLines {
                 readings.removeAll { $0.name == "contacts" }
@@ -3048,7 +3092,7 @@ private enum AskContactsRead {
         return AskAppleCopy.addedPrefix + saved
     }
 
-    static func lines(matching name: String) async -> String {
+    static func lines(matching name: String, prefix: Bool = false) async -> String {
         let store = CNContactStore()
         let granted = await allow(store)
         guard granted else { return AskAppleCopy.denied }
@@ -3058,10 +3102,12 @@ private enum AskContactsRead {
             CNContactEmailAddressesKey as CNKeyDescriptor
         ]
         let request = CNContactFetchRequest(keysToFetch: keys)
-        if !name.isEmpty {
+        // Short prefixes need a full scan. Contacts' name predicate misses many of them.
+        let scanAll = prefix && !name.isEmpty && name.count <= 2
+        if !name.isEmpty, !scanAll {
             request.predicate = CNContact.predicateForContacts(matchingName: name)
         }
-        let cap = name.isEmpty ? 5 : 40
+        let cap = name.isEmpty ? 5 : (scanAll ? 200 : 40)
         var lines: [String] = []
         do {
             try store.enumerateContacts(with: request) { contact, stop in
@@ -3071,7 +3117,7 @@ private enum AskContactsRead {
         } catch {
             return AskAppleCopy.denied
         }
-        let matched = name.isEmpty ? lines : AskContactLine.filtered(lines, query: name)
+        let matched = name.isEmpty ? lines : AskContactLine.filtered(lines, query: name, prefix: prefix)
         let kept = Array(matched.prefix(name.isEmpty ? 5 : 8))
         guard !kept.isEmpty else { return name.isEmpty ? "No contacts." : "No matching contacts." }
         return kept.joined(separator: "\n")

@@ -552,7 +552,14 @@ final class AskAppleAccessTests: XCTestCase {
             AskReminderCommand.parse(action: "add", limit: 8, title: "Buy milk", day: nil, hour: nil, minute: nil, priority: "urgent"),
             .add(title: "Buy milk", day: nil, hour: nil, minute: 0, notes: "", priority: "")
         )
-        XCTAssertEqual(AskContactCommand.parse(action: "look", name: "Ada", phone: nil, email: nil), .lookup("Ada"))
+        XCTAssertEqual(
+            AskContactCommand.parse(action: "look", name: "Ada", phone: nil, email: nil),
+            .lookup(name: "Ada", prefix: false)
+        )
+        XCTAssertEqual(
+            AskContactCommand.parse(action: "look", name: "Mo", phone: nil, email: nil, beginsWith: true),
+            .lookup(name: "Mo", prefix: true)
+        )
         XCTAssertEqual(
             AskContactCommand.parse(action: "add", name: "Ada Lovelace", phone: "555", email: "ada@example.com"),
             .add(name: "Ada Lovelace", phone: "555", email: "ada@example.com")
@@ -886,6 +893,43 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertTrue(AskContactLine.matches(name: "Aprill Davis", query: "April Davis"))
         XCTAssertFalse(AskContactLine.matches(name: "Aprill Dawson", query: "April Davis"))
         XCTAssertEqual(AskContactQuery.name(in: "How many contacts name april do I have?"), "april")
+        XCTAssertEqual(AskContactQuery.name(in: "Contacts that begin with Mo"), "Mo")
+        XCTAssertEqual(AskContactQuery.name(in: "contacts starting with m"), "m")
+        XCTAssertTrue(AskContactQuery.asksPrefix("Contacts that begin with Mo"))
+        XCTAssertFalse(AskContactQuery.asksPrefix("How many contacts name april do I have?"))
+        XCTAssertTrue(AskContactLine.matches(name: "Morgan Lee", query: "Mo", prefix: true))
+        XCTAssertTrue(AskContactLine.matches(name: "Molly", query: "Mo", prefix: true))
+        XCTAssertFalse(AskContactLine.matches(name: "Sam", query: "Mo", prefix: true))
+        XCTAssertFalse(AskContactLine.matches(name: "Morgan Lee", query: "Mo"))
+        XCTAssertEqual(
+            AskContactLine.filtered(
+                ["Morgan Lee · 555", "Molly · 444", "Sam · 333"],
+                query: "Mo",
+                prefix: true
+            ).map { AskContactLine.person(from: $0).name },
+            ["Morgan Lee", "Molly"]
+        )
+        let prefixMiss = AskAppleRepair.plan(
+            question: "Contacts that begin with Mo",
+            readings: [],
+            toolNames: ["contacts"]
+        )
+        XCTAssertEqual(prefixMiss.contactQuery, "Mo")
+        XCTAssertTrue(prefixMiss.contactPrefix)
+        XCTAssertTrue(prefixMiss.rereadContact)
+        XCTAssertEqual(
+            AskContactLine.speech(
+                "I cannot see your calendar.",
+                question: "Contacts that begin with Mo",
+                readings: [
+                    AskAppleReading(name: "contacts", lines: [
+                        "Morgan Lee · 555",
+                        "Molly · 444"
+                    ])
+                ]
+            ),
+            "You have 2 contacts that begin with Mo."
+        )
         XCTAssertEqual(
             AskContactLine.line(name: "Aprill Davis", phone: "414-955-8828", email: "april.davis@example.com"),
             "Aprill Davis · 414-955-8828 · april.davis@example.com"

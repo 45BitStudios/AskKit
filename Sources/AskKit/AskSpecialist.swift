@@ -263,6 +263,7 @@ enum AskAppleSpecialistNotes {
         case "contacts":
             extra = """
             When the person asks for an email, say the email the contacts tool returned.
+            When the person asks for contacts that begin with letters, call action look with those letters and beginsWith true.
             To add a contact, call action add with the name. Pass the phone or email when they were said.
             Say it was added only when the line starts with Added.
             """
