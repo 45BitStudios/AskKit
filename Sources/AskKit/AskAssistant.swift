@@ -473,8 +473,8 @@ public struct AskAssistant {
                 images: images
             )
             if let written = draft.text {
-                reply.spoken = written
                 reply.text = written
+                reply.spoken = AskGuide.plainSpeech(written)
                 usedModel = true
             }
             let pages = laidOutPages(
@@ -506,8 +506,8 @@ public struct AskAssistant {
                 images: images
             )
             if let written = draft.text {
-                card.spoken = written
                 card.text = written
+                card.spoken = AskGuide.plainSpeech(written)
                 usedModel = true
             }
             let pages = laidOutPages(

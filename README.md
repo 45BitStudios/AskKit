@@ -113,7 +113,7 @@ context: {
 
 The route instructions the trace shows are the resolved opening, a blank line, `CAPABILITIES` built from the domains and skills, a blank line, and the resolved `RULES`. The route prompt is `CONTEXT`, `EARLIER` when there is one, and `REQUEST`. `resolvedRouteOpening` and the other `resolved…` properties are the full text after append or replace.
 
-The reply prompt is `QUESTION`, `SKILL`, `FACTS`, then each `AskPromptSection` under its own title, then `CONVERSATION`. `FACTS` is the skill's `facts` string, or its spoken line when `facts` is omitted. The spoken rewrite keeps only the paragraph before the first blank line, so a background copy of a section such as `GARAGE` does not replace the short answer. A follow-up prompt adds `JUST ASKED`, `SKILL JUST ANSWERED`, and `ALLOWED`.
+The reply prompt is `QUESTION`, `SKILL`, `FACTS`, then each `AskPromptSection` under its own title, then `CONVERSATION`. `FACTS` is the skill's `facts` string, or its spoken line when `facts` is omitted. The spoken rewrite keeps only the paragraph before the first blank line, so a background copy of a section such as `GARAGE` does not replace the short answer. Speech bubbles render inline Markdown (`**bold**`, `*italics*`). The default reply instructions ask for that light emphasis on titles and names. `AskGuide.plainSpeech` strips those markers for the spoken line, Siri dialog, and Copy. A follow-up prompt adds `JUST ASKED`, `SKILL JUST ANSWERED`, and `ALLOWED`.
 
 `guide.routeInstructions(domains:skills:)` returns that route block, so an app can read the same text the model sees.
 

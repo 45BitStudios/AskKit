@@ -81,6 +81,12 @@ final class AskGuideTests: XCTestCase {
         XCTAssertEqual(AskGuide.spokenAnswer(dumped), "You have pasta and tomatoes.")
         XCTAssertTrue(AskGuide.acceptsReply(dumped, facts: "On hand: pasta and tomatoes."))
         XCTAssertTrue(AskGuide.defaultReplyInstructions.contains("Do not write a second paragraph."))
+        XCTAssertTrue(AskGuide.defaultReplyInstructions.contains("Markdown"))
+        XCTAssertEqual(
+            AskGuide.plainSpeech("Now playing **Slide Away** by **Oasis** from *Definitely Maybe*."),
+            "Now playing Slide Away by Oasis from Definitely Maybe."
+        )
+        XCTAssertEqual(AskGuide.plainSpeech("Plain line."), "Plain line.")
     }
 
     func testFollowUpRejectsTheSkillThatJustAnswered() {

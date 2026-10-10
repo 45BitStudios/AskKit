@@ -1252,9 +1252,18 @@ private struct AskSelectableText: View {
     let foreground: Color
 
     var body: some View {
-        Text(text)
+        Text(markdown)
             .font(.body)
             .foregroundStyle(foreground)
+    }
+
+    /// Inline Markdown for titles and emphasis. Block syntax stays plain text.
+    private var markdown: AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        if let attributed = try? AttributedString(markdown: text, options: options) {
+            return attributed
+        }
+        return AttributedString(text)
     }
 }
 
@@ -1274,7 +1283,7 @@ private struct AskBubbleMenu: ViewModifier {
     func body(content: Content) -> some View {
         content.contextMenu {
             Button("Copy", systemImage: "doc.on.doc") {
-                UIPasteboard.general.string = text
+                UIPasteboard.general.string = AskGuide.plainSpeech(text)
                 AskCue.tap()
             }
             if let answer {

@@ -108,8 +108,8 @@ enum AskIntentPresentation {
 
     static func speech(for page: AskPage) -> String {
         let bubble = page.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !bubble.isEmpty { return bubble }
-        return page.spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !bubble.isEmpty { return AskGuide.plainSpeech(bubble) }
+        return AskGuide.plainSpeech(page.spoken)
     }
 }
 

@@ -61,6 +61,7 @@ public struct AskGuide: Sendable, Equatable {
     Rewrite FACTS in plain English. Do not invent facts that are not in FACTS.
     Sections after FACTS are background. Do not copy a fact from them that FACTS do not state.
     Stop after those sentences. Do not write a second paragraph.
+    The chat bubble renders light Markdown. Use **bold** for song titles, album titles, people, places, and short status words when that helps scan the line. Use *italics* for an album title when the same sentence already bolds a song. Do not use headings, lists, links, or code.
     CONVERSATION is earlier in this chat. Use it to understand this, that, and there. Do not repeat an earlier answer.
     Do not use key=value, labels, or equals signs.
     Do not mention that the answer is generated.
@@ -202,6 +203,17 @@ public struct AskGuide: Sendable, Equatable {
         let trimmed = written.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let range = trimmed.range(of: #"\n[ \t]*\n"#, options: .regularExpression) else { return trimmed }
         return String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Words without Markdown markers, for speech, Siri, and copy.
+    ///
+    /// Bubbles keep the Markdown. This drops only the inline syntax the bubble can draw.
+    public static func plainSpeech(_ written: String) -> String {
+        let trimmed = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        guard let attributed = try? AttributedString(markdown: trimmed, options: options) else { return trimmed }
+        return String(attributed.characters)
     }
 
     /// A rewrite that echoes `key=value` when FACTS did not is discarded.
