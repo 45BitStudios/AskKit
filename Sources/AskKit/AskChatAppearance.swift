@@ -269,6 +269,21 @@ public enum AskStreamSelection: Sendable {
     }
 }
 
+/// Whether debug builds show a "Worked … · N step" pill above each answer.
+/// Tap opens that turn's trace. The key is `AskKit.workedTrace` in standard `UserDefaults`.
+/// A missing key is on.
+public enum AskWorkedTraceSelection: Sendable {
+    public static let storageKey = "AskKit.workedTrace"
+
+    public static var isOn: Bool {
+        get {
+            guard UserDefaults.standard.object(forKey: storageKey) != nil else { return true }
+            return UserDefaults.standard.bool(forKey: storageKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: storageKey) }
+    }
+}
+
 /// Shows a rewrite only while it can still be the stored line.
 /// An empty snapshot leaves the current preview in place.
 /// A second paragraph is ignored, so a background dump cannot replace a short line.

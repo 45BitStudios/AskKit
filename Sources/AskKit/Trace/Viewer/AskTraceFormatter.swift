@@ -9,6 +9,33 @@ enum AskTraceFormatter {
         return String(format: "%.2f s", seconds)
     }
 
+    /// Compact wall time for the chat pill, such as `8s` or `2m 11s`.
+    static func workedDuration(_ seconds: TimeInterval?) -> String {
+        guard let seconds else { return "—" }
+        if seconds < 1 { return "<1s" }
+        let total = Int(seconds.rounded())
+        let minutes = total / 60
+        let secs = total % 60
+        if minutes == 0 { return "\(secs)s" }
+        if secs == 0 { return "\(minutes)m" }
+        return "\(minutes)m \(secs)s"
+    }
+
+    /// Tool calls when any ran; otherwise model calls. Matches the chat pill's step count.
+    static func workedSteps(toolCalls: Int, modelCalls: Int) -> Int {
+        toolCalls > 0 ? toolCalls : modelCalls
+    }
+
+    static func workedCaption(duration: TimeInterval?, toolCalls: Int, modelCalls: Int) -> String {
+        let steps = workedSteps(toolCalls: toolCalls, modelCalls: modelCalls)
+        let stepLabel = steps == 1 ? "1 step" : "\(steps) steps"
+        return "Worked \(workedDuration(duration)) · \(stepLabel)"
+    }
+
+    static func workedSymbol(toolCalls: Int) -> String {
+        toolCalls > 0 ? kindSymbol(.tool) : "doc.text"
+    }
+
     enum ContextLevel: Equatable {
         case normal
         case high

@@ -403,6 +403,24 @@ final class AskTraceTests: XCTestCase {
         XCTAssertTrue(store.loadAll().isEmpty)
     }
 
+    func testWorkedCaptionUsesCompactDurationAndToolSteps() {
+        XCTAssertEqual(AskTraceFormatter.workedDuration(0.4), "<1s")
+        XCTAssertEqual(AskTraceFormatter.workedDuration(8), "8s")
+        XCTAssertEqual(AskTraceFormatter.workedDuration(131), "2m 11s")
+        XCTAssertEqual(AskTraceFormatter.workedSteps(toolCalls: 1, modelCalls: 2), 1)
+        XCTAssertEqual(AskTraceFormatter.workedSteps(toolCalls: 0, modelCalls: 2), 2)
+        XCTAssertEqual(
+            AskTraceFormatter.workedCaption(duration: 8, toolCalls: 1, modelCalls: 2),
+            "Worked 8s · 1 step"
+        )
+        XCTAssertEqual(
+            AskTraceFormatter.workedCaption(duration: 131, toolCalls: 0, modelCalls: 2),
+            "Worked 2m 11s · 2 steps"
+        )
+        XCTAssertEqual(AskTraceFormatter.workedSymbol(toolCalls: 1), "wrench.and.screwdriver")
+        XCTAssertEqual(AskTraceFormatter.workedSymbol(toolCalls: 0), "doc.text")
+    }
+
     private func record(_ body: () async throws -> Void) async rethrows -> AskTraceTurn? {
         try await AskTrace.$recorder.withValue(recorder) {
             try await body()
