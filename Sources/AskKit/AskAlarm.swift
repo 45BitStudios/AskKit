@@ -180,17 +180,14 @@ struct AskAlarmButtonChoice: Equatable {
 
 enum AskAlarmButtonPlan {
     /// `registered` is the action that matched the draft, when one did.
+    /// An unknown action id is ignored. Label and symbol still make an Open button.
     static func choice(
         draft: AskAlarmDraft,
         registered: (id: String, label: String, symbol: String)?
     ) -> AskAlarmButtonChoice? {
-        let requested = AskAlarmText.actionID(draft.actionID)
-        if let requested, !requested.isEmpty, registered == nil {
-            return nil
-        }
         let label = AskAlarmText.label(draft.label)
             ?? AskAlarmText.label(registered?.label)
-            ?? ((draft.symbol != nil || requested != nil) ? "Open" : nil)
+            ?? ((draft.symbol != nil || registered != nil) ? "Open" : nil)
         guard let label else { return nil }
         let symbol = AskAlarmText.symbol(draft.symbol)
             ?? AskAlarmText.symbol(registered?.symbol)
@@ -274,6 +271,7 @@ enum AskAlarmCommand: Equatable {
     /// Clock times and timers named in the question. Parsing does not open AlarmKit.
     /// An empty list means this question is not asking to set one, or it names no time.
     /// A clock alarm with no name uses the title Alarm. A timer with no name uses Timer.
+    /// A custom button label or symbol named in the question is copied onto every draft.
     static func drafts(in question: String, now: Date = Date(), calendar: Calendar = .current) -> [AskAlarmDraft] {
         guard sets(question) else { return [] }
         let folded = AskAppleCopy.folded(question)
@@ -283,10 +281,17 @@ enum AskAlarmCommand: Equatable {
         let day = AskCalendarWindow.offset(namedIn: question, now: now, calendar: calendar)
         let repeats = repeats(in: folded)
         let named = namedTitle(in: question)
+        let label = namedLabel(in: question)
+        let symbol = namedSymbol(in: question)
         var ordered: [(start: Int, draft: AskAlarmDraft)] = []
         for timer in timers {
             guard let after = timer.after else { continue }
-            ordered.append((timer.start, AskAlarmDraft(title: named ?? "Timer", afterMinutes: after)))
+            ordered.append((timer.start, AskAlarmDraft(
+                title: named ?? "Timer",
+                afterMinutes: after,
+                label: label,
+                symbol: symbol
+            )))
         }
         for clock in found {
             ordered.append((clock.start, AskAlarmDraft(
@@ -294,7 +299,9 @@ enum AskAlarmCommand: Equatable {
                 hour: clock.hour,
                 minute: clock.minute,
                 day: day,
-                repeats: repeats
+                repeats: repeats,
+                label: label,
+                symbol: symbol
             )))
         }
         ordered.sort { $0.start < $1.start }
@@ -326,11 +333,28 @@ enum AskAlarmCommand: Equatable {
 
     /// Drafts whose time the question asked to set. An empty `asked` list schedules nothing, so a count cannot create an alarm from an earlier turn.
     /// A second alarm the question did not name, such as a reminder at midnight, is left out and is not scheduled.
+    /// Button label and symbol from the question fill in when the model left them empty.
     static func matching(_ drafts: [AskAlarmDraft], asked: [AskAlarmDraft]) -> [AskAlarmDraft] {
         guard !asked.isEmpty else { return [] }
-        return drafts.filter { draft in
-            asked.contains { sameClock($0, draft) }
+        return drafts.compactMap { draft in
+            guard let asked = asked.first(where: { sameClock($0, draft) }) else { return nil }
+            return enriched(draft, from: asked)
         }
+    }
+
+    /// Copies a button label, symbol, or action from `asked` when the model draft left that field empty.
+    static func enriched(_ draft: AskAlarmDraft, from asked: AskAlarmDraft) -> AskAlarmDraft {
+        var copy = draft
+        if AskAlarmText.label(copy.label) == nil {
+            copy.label = AskAlarmText.label(asked.label)
+        }
+        if AskAlarmText.symbol(copy.symbol) == nil {
+            copy.symbol = AskAlarmText.symbol(asked.symbol)
+        }
+        if AskAlarmText.actionID(copy.actionID) == nil {
+            copy.actionID = AskAlarmText.actionID(asked.actionID)
+        }
+        return copy
     }
 
     private static func sameClock(_ asked: AskAlarmDraft, _ draft: AskAlarmDraft) -> Bool {
@@ -508,6 +532,34 @@ enum AskAlarmCommand: Equatable {
         return AskAlarmText.title(text)
     }
 
+    /// A custom button title named in the question, such as "custom button of awesome".
+    private static func namedLabel(in question: String) -> String? {
+        let patterns = [
+            #"(?i)\b(?:custom\s+)?button\s+(?:of|called|named|saying|labeled|labelled)\s+(.+?)(?:\s+(?:and|with|for|at|on)\b|[.,]|$)"#,
+            #"(?i)\bbutton\s+title\s+(.+?)(?:\s+(?:and|with|for|at|on)\b|[.,]|$)"#
+        ]
+        for pattern in patterns {
+            guard let result = matches(pattern, in: question).first,
+                  let text = capture(result, group: 1, in: question) else { continue }
+            if let label = AskAlarmText.label(text) { return label }
+        }
+        return nil
+    }
+
+    /// An SF Symbol named in the question, such as "symbol of food" or "with a food symbol".
+    private static func namedSymbol(in question: String) -> String? {
+        let patterns = [
+            #"(?i)\b(?:sf\s+)?symbol\s+(?:of|called|named|for)\s+([A-Za-z][A-Za-z0-9.]{0,63})"#,
+            #"(?i)\bwith\s+a\s+([A-Za-z][A-Za-z0-9.]{0,63})\s+symbol\b"#
+        ]
+        for pattern in patterns {
+            guard let result = matches(pattern, in: question).first,
+                  let text = capture(result, group: 1, in: question) else { continue }
+            if let symbol = AskAlarmText.symbol(text) { return symbol }
+        }
+        return nil
+    }
+
     private static func collectTimers(in text: String, into marks: inout [Mark]) {
         let pattern = #"(?<!\d)(\d{1,3})\s*(?:minutes|minute|mins|min)\b"#
         for result in matches(pattern, in: text) {
@@ -615,10 +667,33 @@ enum AskAlarmText {
 
     static func symbol(_ raw: String?) -> String? {
         guard let text = clip(raw, limit: 64) else { return nil }
+        let folded = text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        if let alias = symbolAliases[folded] { return alias }
         guard text.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." }) else { return nil }
         guard text.contains(where: \.isLetter) else { return nil }
         return text
     }
+
+    /// Everyday words the person may say instead of an SF Symbol name.
+    private static let symbolAliases: [String: String] = [
+        "food": "fork.knife",
+        "meal": "fork.knife",
+        "restaurant": "fork.knife",
+        "coffee": "cup.and.saucer.fill",
+        "car": "car.fill",
+        "drive": "car.fill",
+        "sun": "sunrise.fill",
+        "sunrise": "sunrise.fill",
+        "bed": "bed.double.fill",
+        "sleep": "bed.double.fill",
+        "gym": "figure.run",
+        "workout": "figure.run",
+        "music": "music.note",
+        "home": "house.fill",
+        "work": "briefcase.fill"
+    ]
 
     static func actionID(_ raw: String?) -> String? {
         guard let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !text.isEmpty else {
@@ -878,6 +953,16 @@ enum AskAlarmLine {
 struct AskAlarmCard: View {
     var item: AskAlarmLine.Item
 
+    private var customized: Bool {
+        if let label = item.label, !label.isEmpty { return true }
+        if let symbol = item.symbol, !symbol.isEmpty { return true }
+        return false
+    }
+
+    private var buttonSymbol: String {
+        item.symbol ?? "bell.fill"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -887,7 +972,11 @@ struct AskAlarmCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(title: "Alarm", symbol: "alarm.fill", tint: .orange)
+                AskCardBadge(
+                    title: customized ? "Custom" : "Alarm",
+                    symbol: customized ? buttonSymbol : "alarm.fill",
+                    tint: .orange
+                )
             }
             Text(item.title)
                 .font(.title3.weight(.semibold))
@@ -903,7 +992,7 @@ struct AskAlarmCard: View {
                     .foregroundStyle(.secondary)
             }
             if let label = item.label, !label.isEmpty {
-                Label(label, systemImage: item.symbol ?? "bell.fill")
+                Label(label, systemImage: buttonSymbol)
                     .font(.subheadline.weight(.semibold))
                     .labelStyle(.titleAndIcon)
                     .lineLimit(1)
@@ -912,6 +1001,16 @@ struct AskAlarmCard: View {
                     .padding(.vertical, 8)
                     .background(Color.orange.opacity(0.16), in: Capsule())
                     .accessibilityLabel("Alarm button, \(label)")
+            } else if let symbol = item.symbol, !symbol.isEmpty {
+                Label("Custom", systemImage: symbol)
+                    .font(.subheadline.weight(.semibold))
+                    .labelStyle(.titleAndIcon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.16), in: Capsule())
+                    .accessibilityLabel("Alarm button, custom symbol \(symbol)")
             }
         }
         .askCardSurface(tint: .orange)
@@ -1009,11 +1108,11 @@ struct AskAlarmToolDraft {
     var after: Int?
     @Guide(description: "never, daily, weekdays, weekends, or a weekday name such as monday. Leave empty for once.", .anyOf(AskAlarmRepeat.choices))
     var repeats: String?
-    @Guide(description: "Button title on the alarm, such as Garage. Leave empty for no custom button.")
+    @Guide(description: "Button title the person asked for, such as Awesome or Garage. Leave empty for no custom button.")
     var label: String?
-    @Guide(description: "SF Symbol for that button, such as sunrise.fill. Leave empty for no custom button.")
+    @Guide(description: "SF Symbol for that button, such as fork.knife or sunrise.fill. Everyday words such as food are fine. Leave empty for no custom button.")
     var symbol: String?
-    @Guide(description: "Action id from the tool's list, such as open. Leave empty for no custom button.")
+    @Guide(description: "Registered action id from the tool's list, such as open. Do not put the button title here. Leave empty when only the label or symbol was asked for.")
     var action: String?
 }
 
@@ -1036,9 +1135,10 @@ struct AskAlarmTool: Tool, AskToolReadingSource {
         For a clock alarm pass the title, the hour from 0 to 23, and the minute. \
         Copy a day number from this list when the person names a day: \(menu). Leave the day empty for the next time that hour comes, or for a repeating alarm. \
         For a timer pass after as the minutes from now and leave the hour empty. \
-        Pass label and symbol for a custom button. symbol is an SF Symbol name such as sunrise.fill. \
-        The action inside an alarm entry is a button id, one of: \(actions). \
-        An id that is not in the list is ignored and that alarm has no custom button. \
+        Pass label for the button title the person asked for, and symbol for its icon. \
+        symbol is an SF Symbol name such as fork.knife or sunrise.fill; everyday words such as food map to a symbol. \
+        The action inside an alarm entry is a registered button id, one of: \(actions). \
+        Do not put the button title in action. An id that is not in the list is ignored; label and symbol still make an Open button. \
         A set alarm starts with Added. A list line is the time, how it repeats, and on or paused. \
         If the result is Not allowed, say you cannot see the alarms. Do not invent an alarm.
         """
