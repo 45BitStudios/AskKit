@@ -154,6 +154,7 @@ enum AskCardSymbol {
         case "steps": "figure.walk"
         case "heart rate": "heart.fill"
         case "song", "music", "music unavailable", "nothing playing": "music.note"
+        case "now playing": "play.circle.fill"
         case "album": "square.stack.fill"
         case "daily forecast", "weather", "no forecast": "cloud.sun.fill"
         case "hourly forecast": "clock.fill"
@@ -174,7 +175,7 @@ enum AskCardSymbol {
         case "place", "location", "nearby", "coordinates": .green
         case "steps": .orange
         case "heart rate": .pink
-        case "song", "music", "music unavailable", "nothing playing": .pink
+        case "song", "music", "music unavailable", "nothing playing", "now playing": .pink
         case "album": .indigo
         case "daily forecast", "hourly forecast", "weather", "no forecast": .blue
         case "web", "page": .blue

@@ -1257,16 +1257,22 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(weekListen.historyDays, 7)
 
         let song = AskMusicLine.songLine(title: "Anti-Hero", artist: "Taylor Swift", album: "Midnights", duration: 201)
+        let playing = AskMusicLine.nowLine(title: "Anti-Hero", artist: "Taylor Swift", album: "Midnights", duration: 201)
         let record = AskMusicLine.albumLine(title: "Abbey Road", artist: "The Beatles", songs: 17, year: "1969")
         XCTAssertEqual(song, "Song: Anti-Hero · Taylor Swift · Midnights · 3:21")
+        XCTAssertEqual(playing, "Now: Anti-Hero · Taylor Swift · Midnights · 3:21")
         let recent = AskMusicLine.recentLine(title: "Anti-Hero", artist: "Taylor Swift", album: "Midnights", duration: 201)
         XCTAssertEqual(recent, "Recent: Anti-Hero · Taylor Swift · Midnights · 3:21")
         XCTAssertEqual(AskMusicLine.spoken([recent]), "Last played was Anti-Hero by Taylor Swift.")
+        XCTAssertEqual(AskMusicLine.spoken([playing]), "Playing Anti-Hero by Taylor Swift.")
         let another = AskMusicLine.recentLine(title: "Daylight", artist: "Taylor Swift", album: "Lover", duration: 293)
         XCTAssertEqual(
             AskMusicLine.spoken([recent, another, "History: 7"]),
             "2 songs played in the past week. Anti-Hero by Taylor Swift."
         )
+        let nowRequest = AskMusicQuery.request(in: "what is playing")
+        XCTAssertTrue(AskMusicQuery.needsReread(nowRequest, lines: [song]))
+        XCTAssertFalse(AskMusicQuery.needsReread(nowRequest, lines: [playing]))
         XCTAssertTrue(AskMusicQuery.needsReread(lastPlayed, lines: [song]))
         XCTAssertFalse(AskMusicQuery.needsReread(lastPlayed, lines: [recent]))
         XCTAssertTrue(AskMusicQuery.needsReread(topSongs, lines: [song]))
@@ -1286,10 +1292,24 @@ final class AskAppleAccessTests: XCTestCase {
         )
         XCTAssertEqual(musicCard.shareText, "Anti-Hero\nTaylor Swift\nMidnights\n3:21")
         XCTAssertFalse(musicCard.shareText.localizedCaseInsensitiveContains("currently"))
+        let nowCard = AskAppleCards.make(
+            AskAppleReading(name: "music", lines: [playing]),
+            spoken: "Playing Anti-Hero by Taylor Swift.",
+            playedBy: "Cobot",
+            custom: nil
+        )
+        XCTAssertEqual(nowCard.title, "Now Playing")
+        XCTAssertEqual(nowCard.shareText, "Anti-Hero\nTaylor Swift\nMidnights\n3:21")
+        XCTAssertEqual(AskMusicLine.playhead(0), "0:00")
+        XCTAssertEqual(AskMusicLine.playhead(312, remaining: true), "-5:12")
+        XCTAssertEqual(AskMusicLine.seconds(from: "5:12"), 312)
         XCTAssertEqual(record, "Album: Abbey Road · The Beatles · 17 songs · 1969")
         XCTAssertFalse(song.contains("="))
         XCTAssertFalse(record.contains("="))
         XCTAssertEqual(AskMusicLine.item(from: song)?.title, "Anti-Hero")
+        XCTAssertEqual(AskMusicLine.item(from: song)?.nowPlaying, false)
+        XCTAssertEqual(AskMusicLine.item(from: playing)?.nowPlaying, true)
+        XCTAssertEqual(AskMusicLine.item(from: playing)?.duration, 201)
         XCTAssertEqual(AskMusicLine.item(from: song)?.artwork, "")
         XCTAssertEqual(AskMusicLine.item(from: record)?.kind, .album)
         XCTAssertEqual(AskMusicLine.item(from: record)?.extra, "1969")
@@ -1552,7 +1572,7 @@ final class AskAppleAccessTests: XCTestCase {
     }
 
     func testCardGallerySamplesCoverEachCard() {
-        XCTAssertEqual(AskCardSamples.names.count, 18)
+        XCTAssertEqual(AskCardSamples.names.count, 19)
         XCTAssertEqual(AskAlarmLine.item(from: AskCardSamples.alarmLine)?.title, "Wake up")
         XCTAssertEqual(AskAlarmLine.item(from: AskCardSamples.alarmLine)?.symbol, "sunrise.fill")
         let alarmCard = AskAppleCards.make(
@@ -1564,6 +1584,8 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertFalse(alarmCard.shareText.contains("="))
         XCTAssertTrue(AskCardSamples.lines.allSatisfy { !$0.contains("=") })
         XCTAssertEqual(AskMusicLine.item(from: AskCardSamples.songLine)?.title, "Anti-Hero")
+        XCTAssertEqual(AskMusicLine.item(from: AskCardSamples.nowPlayingLine)?.nowPlaying, true)
+        XCTAssertEqual(AskMusicLine.item(from: AskCardSamples.nowPlayingLine)?.title, "Sunday Morning Call")
         XCTAssertEqual(AskMusicLine.item(from: AskCardSamples.albumLine)?.kind, .album)
         let forecast = AskWeatherLine.forecast(from: AskCardSamples.hourlyLines)
         XCTAssertEqual(forecast?.day.title, "Thu, Oct 8")

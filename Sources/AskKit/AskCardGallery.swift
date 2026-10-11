@@ -92,6 +92,7 @@ enum AskCardSamples {
         "Steps",
         "Heart rate",
         "Song",
+        "Now playing",
         "Album",
         "Daily forecast",
         "Hourly forecast",
@@ -143,6 +144,13 @@ enum AskCardSamples {
         duration: 201
     )
 
+    static let nowPlayingLine = AskMusicLine.nowLine(
+        title: "Sunday Morning Call",
+        artist: "Oasis",
+        album: "Standing on the Shoulder of Giants",
+        duration: 312
+    )
+
     static let albumLine = AskMusicLine.albumLine(
         title: "Abbey Road",
         artist: "The Beatles",
@@ -169,7 +177,7 @@ enum AskCardSamples {
 
     static var lines: [String] {
         calendarLines + reminderLines + [alarmLine, contactLine, placeLine] + nearbyLines
-            + [songLine, albumLine, dayLine] + hourlyLines
+            + [songLine, nowPlayingLine, albumLine, dayLine] + hourlyLines
             + ["Not allowed.", "Nothing is playing.", "No forecast.", "Steps: 8,420 steps", "Heart rate: 72 bpm"]
     }
 
@@ -217,7 +225,8 @@ enum AskCardSamples {
             section("Coordinates", "Shown only when the question asks for them.", coordinates),
             section("Steps", "Sample bars. Day, Week, Month, and Year stay on this card.", health(.steps, "Steps: 8,420 steps")),
             section("Heart rate", "Sample line.", health(.heart, "Heart rate: 72 bpm")),
-            section("Song", "A song search, or what is playing.", apple("music", [songLine], "Anti-Hero by Taylor Swift.")),
+            section("Song", "A song search.", apple("music", [songLine], "Anti-Hero by Taylor Swift.")),
+            section("Now playing", "What is playing, with scrubber and transport.", nowPlaying),
             section("Album", "An album search.", apple("music", [albumLine], "Abbey Road by The Beatles.")),
             section("Daily forecast", "A week stays on one card.", weather([dayLine], hours: false)),
             section("Hourly forecast", "Hours stay on that day.", weather(hourlyLines, hours: true)),
@@ -265,6 +274,16 @@ enum AskCardSamples {
             spoken: spoken,
             custom: nil
         ).view
+    }
+
+    @MainActor
+    private static var nowPlaying: some View {
+        AskNowPlayingCard(
+            item: AskMusicLine.item(from: nowPlayingLine)!,
+            playedBy: "Cobot",
+            previewElapsed: 0,
+            previewPlaying: false
+        )
     }
 
     @MainActor
