@@ -401,6 +401,77 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(pastLimit?.start, calendar.date(from: DateComponents(year: 2026, month: 9, day: 24)))
     }
 
+    func testCalendarCardKeepsColorOffTheModelLine() {
+        let work = AskCalendarItem.line(
+            day: "Thursday, Oct 8",
+            title: "Standup",
+            when: "9:00 AM",
+            colorHex: "0A84FF",
+            kind: .timed,
+            calendarName: "Work"
+        )
+        let personal = AskCalendarItem.line(
+            day: "Thursday, Oct 8",
+            title: "Dentist",
+            when: "3:00 PM",
+            detail: "Apple Park",
+            colorHex: "#FF9F0A",
+            kind: .timed,
+            calendarName: "Personal"
+        )
+        let birthday = AskCalendarItem.line(
+            day: "Sunday, Oct 11",
+            title: "Alex Rivera’s Birthday",
+            when: "all day",
+            colorHex: "8E8E93",
+            kind: .birthday,
+            calendarName: "Birthdays"
+        )
+        let added = AskCalendarItem.line(
+            day: "Wednesday, Oct 21",
+            title: "Alarm at 11:00 PM",
+            when: "all day",
+            colorHex: "FF453A",
+            kind: .allDay,
+            calendarName: "Home",
+            prefix: AskAppleCopy.addedPrefix
+        )
+        XCTAssertTrue(work.contains("\u{1F}"))
+        XCTAssertEqual(AskCalendarItem.forModel([work, personal, birthday].joined(separator: "\n")), """
+        Thursday, Oct 8 · Standup · 9:00 AM
+        Thursday, Oct 8 · Dentist · 3:00 PM · Apple Park
+        Sunday, Oct 11 · Alex Rivera’s Birthday · all day
+        """)
+        let events = AskCalendarItem.events(in: [work, personal, birthday, added, "Friday, Oct 9 · Nothing scheduled."])
+        XCTAssertEqual(events.count, 4)
+        XCTAssertEqual(events[0].colorHex, "0A84FF")
+        XCTAssertEqual(events[0].calendarName, "Work")
+        XCTAssertEqual(events[0].kind, .timed)
+        XCTAssertEqual(events[1].colorHex, "FF9F0A")
+        XCTAssertEqual(events[1].detail, "Apple Park")
+        XCTAssertEqual(events[2].kind, .birthday)
+        XCTAssertEqual(events[3].writePrefix, AskAppleCopy.addedPrefix)
+        XCTAssertEqual(events[3].title, "Added Alarm at 11:00 PM")
+        XCTAssertEqual(events[3].kind, .allDay)
+        let legacy = AskCalendarItem.parse("Added Saturday, Oct 17 · Dentist · 3:00 PM")
+        XCTAssertEqual(legacy?.day, "Saturday, Oct 17")
+        XCTAssertEqual(legacy?.title, "Added Dentist")
+        XCTAssertEqual(legacy?.when, "3:00 PM")
+        XCTAssertEqual(legacy?.kind, .timed)
+        XCTAssertNil(AskCalendarItem.parse("Friday, Oct 9 · Nothing scheduled."))
+        let card = AskAppleCards.make(
+            AskAppleReading(name: "calendar", lines: [work, personal, birthday]),
+            spoken: "Standup at 9.",
+            custom: nil
+        )
+        XCTAssertEqual(card.title, "Calendar")
+        XCTAssertEqual(card.shareText, """
+        Thursday, Oct 8 · Standup · 9:00 AM
+        Thursday, Oct 8 · Dentist · 3:00 PM · Apple Park
+        Sunday, Oct 11 · Alex Rivera’s Birthday · all day
+        """)
+    }
+
     func testLaterCallsToTheSameToolStayOnTheCard() {
         let reading = AskAppleCards.first([
             AskAppleReading(name: "calendar", lines: ["Wednesday, Oct 7 · Standup · 9:00 AM"]),

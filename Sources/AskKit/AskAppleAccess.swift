@@ -288,6 +288,16 @@ enum AskAppleCopy {
             let lines = readings.filter { $0.name == "photos" }.flatMap(\.lines)
             if let spoken = AskPhotosLine.spoken(lines) { return spoken }
         }
+        if reading.name == "calendar" {
+            let lines = readings.filter { $0.name == "calendar" }.flatMap(\.lines).map(AskCalendarItem.plain)
+            var spoken = ""
+            for line in lines where !line.isEmpty {
+                let next = spoken.isEmpty ? line : spoken + " " + line
+                if next.count > 600 { break }
+                spoken = next
+            }
+            if !spoken.isEmpty { return spoken }
+        }
         let lines = AskLocationPin.labels(in: reading.lines)
         var spoken = ""
         for line in lines {
@@ -953,6 +963,17 @@ enum AskAppleCards {
             return card
         }
         let title = title(for: reading.name)
+        let calendarEvents = AskCalendarItem.events(in: reading.lines)
+        if reading.name == "calendar", !calendarEvents.isEmpty {
+            var card = AskIntentCard(
+                title: title,
+                spoken: spoken,
+                text: spoken,
+                view: AskCalendarCard(title: title, items: calendarEvents)
+            )
+            card.shareText = calendarEvents.map(\.shareLine).joined(separator: "\n")
+            return card
+        }
         let reminders = AskReminderItem.tasks(in: reading.lines)
         if reading.name == "reminders", !reminders.isEmpty {
             var card = AskIntentCard(
@@ -1854,20 +1875,40 @@ private struct AskCalendarTool: Tool, AskToolReadingSource {
             newTitle: arguments.newTitle
         ) {
         case .read(let day):
-            return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "day \(day)") {
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: name,
+                arguments: "day \(day)",
+                present: AskCalendarItem.forModel
+            ) {
                 await AskCalendarRead.lines(day: day)
             }
         case .birthdays(let day):
-            return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "birthdays \(day)") {
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: name,
+                arguments: "birthdays \(day)",
+                present: AskCalendarItem.forModel
+            ) {
                 await AskCalendarRead.birthdays(from: day)
             }
         case .add(let title, let day, let hour, let minute, let place, let notes):
             let clock = hour.map { "\($0):\(minute)" } ?? "all day"
-            return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "add \(day) \(title) \(clock)") {
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: name,
+                arguments: "add \(day) \(title) \(clock)",
+                present: AskCalendarItem.forModel
+            ) {
                 await AskCalendarRead.add(title: title, day: day, hour: hour, minute: minute, place: place, notes: notes)
             }
         case .update(let title, let day, let hour, let minute, let place, let notes, let newTitle):
-            return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "update \(day) \(title)") {
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: name,
+                arguments: "update \(day) \(title)",
+                present: AskCalendarItem.forModel
+            ) {
                 await AskCalendarRead.update(
                     title: title,
                     day: day,
@@ -1879,7 +1920,12 @@ private struct AskCalendarTool: Tool, AskToolReadingSource {
                 )
             }
         case .delete(let title, let day):
-            return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "delete \(day) \(title)") {
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: name,
+                arguments: "delete \(day) \(title)",
+                present: AskCalendarItem.forModel
+            ) {
                 await AskCalendarRead.remove(title: title, day: day)
             }
         case .needsTitle:
@@ -2215,7 +2261,7 @@ struct AskCalendarWindow: Equatable {
         if lines.isEmpty { return AskSourceFocus.asksCalendar(question) ? offset : nil }
         let weekday = calendar.weekdaySymbols[calendar.component(.weekday, from: window.start) - 1]
         let matches = lines.contains { line in
-            let head = line.split(separator: "·").first.map(String.init) ?? line
+            let head = AskCalendarItem.plain(line).split(separator: "·").first.map(String.init) ?? AskCalendarItem.plain(line)
             return head.localizedStandardContains(weekday)
         }
         return matches ? nil : offset
@@ -2755,7 +2801,14 @@ private enum AskCalendarRead {
             let dayStart = calendar.startOfDay(for: event.startDate)
             let dayTitle = AskCalendarWindow.heading(for: dayStart, calendar: calendar)
             let name = AskAppleCopy.plain(event.title ?? "Birthday", limit: 120)
-            return "\(dayTitle) · \(name)"
+            return AskCalendarItem.line(
+                day: dayTitle,
+                title: name,
+                when: "all day",
+                colorHex: AskCalendarItem.hex(from: event.calendar.cgColor),
+                kind: .birthday,
+                calendarName: event.calendar.title
+            )
         }.joined(separator: "\n")
     }
 
@@ -2836,12 +2889,29 @@ private enum AskCalendarRead {
         } else {
             when = event.startDate.formatted(date: .abbreviated, time: .shortened)
         }
-        var parts = [dayTitle, name, when]
+        var detailParts: [String] = []
         let place = AskAppleCopy.plain(event.location ?? "", limit: 80)
-        if !place.isEmpty { parts.append(place) }
+        if !place.isEmpty { detailParts.append(place) }
         let notes = AskAppleCopy.plain(event.notes ?? "", limit: 80)
-        if !notes.isEmpty { parts.append(notes) }
-        return parts.joined(separator: " · ")
+        if !notes.isEmpty { detailParts.append(notes) }
+        let birthday = event.calendar.type == .birthday || event.birthdayContactIdentifier != nil
+        let kind: AskCalendarItem.Kind
+        if birthday {
+            kind = .birthday
+        } else if event.isAllDay {
+            kind = .allDay
+        } else {
+            kind = .timed
+        }
+        return AskCalendarItem.line(
+            day: dayTitle,
+            title: AskAppleCopy.plain(name, limit: 120),
+            when: when,
+            detail: detailParts.joined(separator: " · "),
+            colorHex: AskCalendarItem.hex(from: event.calendar.cgColor),
+            kind: kind,
+            calendarName: event.calendar.title
+        )
     }
 }
 
