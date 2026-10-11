@@ -550,6 +550,7 @@ public struct AskAssistant {
                 reading,
                 spoken: spoken,
                 showsCoordinates: showsCoordinates,
+                playedBy: configuration.assistantName,
                 custom: configuration.appleCard
             )
         }
@@ -559,6 +560,7 @@ public struct AskAssistant {
                 skillCard,
                 reading: head,
                 showsCoordinates: showsCoordinates,
+                playedBy: configuration.assistantName,
                 custom: configuration.appleCard
             )
             let bubble = AskCardTranscript.bubble(primary.text, card: primary) ?? ""
@@ -1281,6 +1283,7 @@ public struct AskAssistant {
                 reading,
                 spoken: spoken,
                 showsCoordinates: AskLocationPin.asks(item.question),
+                playedBy: configuration.assistantName,
                 custom: configuration.appleCard
             )
         }
@@ -1298,6 +1301,7 @@ public struct AskAssistant {
             card,
             reading: reading,
             showsCoordinates: AskLocationPin.asks(item.question),
+            playedBy: configuration.assistantName,
             custom: configuration.appleCard
         )
     }

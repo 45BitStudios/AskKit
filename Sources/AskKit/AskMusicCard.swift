@@ -233,7 +233,7 @@ enum AskMusicQuery {
         switch request.kind {
         case .now:
             if lines.isEmpty { return true }
-            return items.isEmpty
+            return !lines.contains { plain($0).hasPrefix("Now:") }
         case .recent:
             if request.historyDays != nil {
                 return !lines.contains { plain($0).hasPrefix("History:") }
@@ -296,6 +296,8 @@ enum AskMusicLine {
         var extra: String
         /// Cover address. Share text, the poster, and speech leave it off.
         var artwork: String = ""
+        /// True when the line is what is playing now. The player card uses this.
+        var nowPlaying: Bool = false
 
         /// Words for Copy, Share, and the trace picture. The spoken rewrite stays off this text.
         var shareText: String {
@@ -312,6 +314,12 @@ enum AskMusicLine {
             case .album: .album
             case .playlist: .playlist
             }
+        }
+
+        /// Song length from the clock field on a song line.
+        var duration: TimeInterval? {
+            guard kind == .song else { return nil }
+            return seconds(from: extra)
         }
     }
 
@@ -338,6 +346,19 @@ enum AskMusicLine {
             parts.append(length)
         }
         return finished("Song:", parts, artwork: artwork)
+    }
+
+    /// The song in the queue right now. The prefix keeps the player card distinct from a search hit.
+    static func nowLine(
+        title: String,
+        artist: String,
+        album: String?,
+        duration: TimeInterval?,
+        artwork: String = ""
+    ) -> String {
+        let song = songLine(title: title, artist: artist, album: album, duration: duration, artwork: artwork)
+        guard let rest = song.dropPrefix("Song:") else { return "Nothing is playing." }
+        return "Now: " + rest
     }
 
     /// The last song that played. The prefix keeps it distinct from the song in the queue.
@@ -399,15 +420,23 @@ enum AskMusicLine {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         let kind: Item.Kind
         let rest: String
-        if let suffix = trimmed.dropPrefix("Song:") ?? trimmed.dropPrefix("Recent:") {
+        let nowPlaying: Bool
+        if let suffix = trimmed.dropPrefix("Now:") {
             kind = .song
             rest = suffix
+            nowPlaying = true
+        } else if let suffix = trimmed.dropPrefix("Song:") ?? trimmed.dropPrefix("Recent:") {
+            kind = .song
+            rest = suffix
+            nowPlaying = false
         } else if let suffix = trimmed.dropPrefix("Album:") {
             kind = .album
             rest = suffix
+            nowPlaying = false
         } else if let suffix = trimmed.dropPrefix("Playlist:") {
             kind = .playlist
             rest = suffix
+            nowPlaying = false
         } else {
             return nil
         }
@@ -426,7 +455,8 @@ enum AskMusicLine {
             artist: parts.count > 1 ? parts[1] : "",
             detail: parts.count > 2 ? parts[2] : "",
             extra: parts.count > 3 ? parts[3] : "",
-            artwork: artwork
+            artwork: artwork,
+            nowPlaying: nowPlaying
         )
     }
 
@@ -436,10 +466,12 @@ enum AskMusicLine {
         guard let first = items.first else { return nil }
         let who = first.artist.isEmpty ? first.title : "\(first.title) by \(first.artist)"
         let recent = lines.contains { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("Recent:") }
+        let playing = lines.contains { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("Now:") }
         let window = historyWindow(in: lines)
         if items.count == 1 {
             if let window { return "Played \(window): \(who)." }
             if recent { return "Last played was \(who)." }
+            if playing { return "Playing \(who)." }
             return who.hasSuffix(".") ? who : who + "."
         }
         let noun = switch first.kind {
@@ -475,6 +507,28 @@ enum AskMusicLine {
         let minutes = total / 60
         let seconds = total % 60
         return "\(minutes):" + String(format: "%02d", seconds)
+    }
+
+    /// Elapsed or remaining stamp for the scrubber. Zero stays `0:00`.
+    static func playhead(_ interval: TimeInterval, remaining: Bool = false) -> String {
+        guard interval.isFinite else { return remaining ? "0:00" : "0:00" }
+        let total = Int(max(0, interval).rounded())
+        let stamped = "\(total / 60):" + String(format: "%02d", total % 60)
+        if remaining {
+            return total == 0 ? "0:00" : "-\(stamped)"
+        }
+        return stamped
+    }
+
+    static func seconds(from clock: String) -> TimeInterval? {
+        let parts = clock.split(separator: ":")
+        guard parts.count == 2,
+              let minutes = Int(parts[0]),
+              let seconds = Int(parts[1]),
+              minutes >= 0,
+              seconds >= 0,
+              seconds < 60 else { return nil }
+        return TimeInterval(minutes * 60 + seconds)
     }
 
     static func clean(_ text: String) -> String {
@@ -568,8 +622,12 @@ enum AskMusicRead {
             return await playlists(term: request.term)
         case .play:
             do {
-                let played = try await play(kind: .song, title: request.term, artist: "")
-                return "Playing \(played)."
+                _ = try await play(kind: .song, title: request.term, artist: "")
+                let playing = await MainActor.run { nowPlaying() }
+                if AskMusicLine.item(from: playing)?.nowPlaying == true {
+                    return playing
+                }
+                return "Playing \(request.term)."
             } catch {
                 return "Music isn't available."
             }
@@ -603,7 +661,7 @@ enum AskMusicRead {
         if let item = entry.item {
             switch item {
             case .song(let song):
-                return AskMusicLine.songLine(
+                return AskMusicLine.nowLine(
                     title: song.title,
                     artist: song.artistName,
                     album: song.albumTitle,
@@ -611,7 +669,7 @@ enum AskMusicRead {
                     artwork: cover(song.artwork)
                 )
             case .musicVideo(let video):
-                return AskMusicLine.songLine(
+                return AskMusicLine.nowLine(
                     title: video.title,
                     artist: video.artistName,
                     album: nil,
@@ -624,7 +682,7 @@ enum AskMusicRead {
         }
         let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return "Nothing is playing." }
-        return AskMusicLine.songLine(title: title, artist: entry.subtitle ?? "", album: nil, duration: nil)
+        return AskMusicLine.nowLine(title: title, artist: entry.subtitle ?? "", album: nil, duration: nil)
     }
 
     /// Play history. One song for the last track. A list keeps songs inside the asked window when the dates are present.
@@ -1012,6 +1070,265 @@ struct AskMusicPlayTap: AppIntent {
     func perform() async throws -> some IntentResult {
         _ = try await AskMusicRead.play(kind: kind, title: itemTitle, artist: artist)
         return .result()
+    }
+}
+
+/// Play, pause, previous, or next on the now-playing card.
+enum AskMusicTransportAction: String, AppEnum {
+    case toggle
+    case previous
+    case next
+
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Music Transport")
+    static let caseDisplayRepresentations: [AskMusicTransportAction: DisplayRepresentation] = [
+        .toggle: "Play or Pause",
+        .previous: "Previous",
+        .next: "Next"
+    ]
+}
+
+/// Transport on the now-playing card. Undiscoverable so a tap does not open a second shortcut window.
+struct AskMusicTransportTap: AppIntent {
+    static let title: LocalizedStringResource = "Control Music"
+    static let isDiscoverable = false
+
+    static var supportedModes: IntentModes { .background }
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
+
+    @Parameter(title: "Action")
+    var action: AskMusicTransportAction
+
+    init() {
+        self.action = .toggle
+    }
+
+    init(_ action: AskMusicTransportAction) {
+        self.action = action
+    }
+
+    func perform() async throws -> some IntentResult {
+        try await AskMusicRead.transport(action)
+        return .result()
+    }
+}
+
+extension AskMusicRead {
+    /// Play, pause, or skip from the now-playing card.
+    @MainActor
+    static func transport(_ action: AskMusicTransportAction) async throws {
+        let status = await MusicAuthorization.request()
+        guard status == .authorized else { throw AskMusicIntentError.denied }
+        let player = SystemMusicPlayer.shared
+        do {
+            switch action {
+            case .toggle:
+                if player.state.playbackStatus == .playing {
+                    player.pause()
+                } else {
+                    try await player.play()
+                }
+            case .previous:
+                try await player.skipToPreviousEntry()
+            case .next:
+                try await player.skipToNextEntry()
+            }
+        } catch let error as AskMusicIntentError {
+            throw error
+        } catch {
+            throw AskMusicIntentError.unavailable
+        }
+    }
+}
+
+/// What is playing now. Artwork, scrubber, and transport sit on one card.
+struct AskNowPlayingCard: View {
+    var item: AskMusicLine.Item
+    /// Host assistant name for "Played by …". Empty keeps a plain Now Playing label.
+    var playedBy: String = ""
+    /// Fixed elapsed seconds for the Cards gallery. Nil reads the system player.
+    var previewElapsed: TimeInterval? = nil
+    /// Fixed playing state for the Cards gallery.
+    var previewPlaying: Bool? = nil
+
+    @State private var cover: UIImage?
+    @State private var elapsed: TimeInterval = 0
+    @State private var playing = false
+    @State private var scrubbing = false
+
+    private let accent = Color.pink
+    private let artSize: CGFloat = 64
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                artwork
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(attribution)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(item.title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    if !item.artist.isEmpty {
+                        Text(item.artist)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Now Playing")
+            .accessibilityValue(spokenValue)
+
+            scrubber
+
+            HStack(spacing: 36) {
+                transportButton(
+                    symbol: "backward.fill",
+                    label: "Previous song",
+                    intent: AskMusicTransportTap(.previous)
+                )
+                transportButton(
+                    symbol: playing ? "pause.fill" : "play.fill",
+                    label: playing ? "Pause" : "Play",
+                    intent: AskMusicTransportTap(.toggle),
+                    prominent: true
+                )
+                transportButton(
+                    symbol: "forward.fill",
+                    label: "Next song",
+                    intent: AskMusicTransportTap(.next)
+                )
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .askCardSurface(tint: accent)
+        .accessibilityElement(children: .contain)
+        .task(id: item.artwork) {
+            await loadCover()
+        }
+        .task(id: previewKey) {
+            await observePlayback()
+        }
+    }
+
+    private var artwork: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [.pink, .purple],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: artSize, height: artSize)
+            if let cover {
+                Image(uiImage: cover)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: artSize, height: artSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "music.note")
+                    .font(.title2)
+                    .foregroundStyle(.white)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var scrubber: some View {
+        VStack(spacing: 6) {
+            Slider(
+                value: Binding(
+                    get: { min(max(elapsed, 0), duration) },
+                    set: { elapsed = $0 }
+                ),
+                in: 0...max(duration, 0.001),
+                onEditingChanged: { editing in
+                    if scrubbing, !editing, previewElapsed == nil {
+                        SystemMusicPlayer.shared.playbackTime = elapsed
+                    }
+                    scrubbing = editing
+                }
+            )
+            .tint(.primary)
+            .disabled(duration <= 0 && previewElapsed == nil)
+            .accessibilityLabel("Playback position")
+            .accessibilityValue(AskMusicLine.playhead(elapsed))
+
+            HStack {
+                Text(AskMusicLine.playhead(elapsed))
+                Spacer()
+                Text(AskMusicLine.playhead(max(duration - elapsed, 0), remaining: true))
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func transportButton(
+        symbol: String,
+        label: String,
+        intent: AskMusicTransportTap,
+        prominent: Bool = false
+    ) -> some View {
+        Button(intent: intent) {
+            Image(systemName: symbol)
+                .font(prominent ? .title2.weight(.semibold) : .body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private var attribution: String {
+        let name = playedBy.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Now Playing" : "Played by \(name)"
+    }
+
+    private var duration: TimeInterval {
+        item.duration ?? 0
+    }
+
+    private var spokenValue: String {
+        [item.title, item.artist].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    private var previewKey: String {
+        "\(previewElapsed ?? -1)|\(previewPlaying?.description ?? "live")|\(item.title)"
+    }
+
+    private func loadCover() async {
+        cover = nil
+        guard let data = await AskMusicLine.imageData(item.artwork) else { return }
+        guard !Task.isCancelled, let image = UIImage(data: data) else { return }
+        cover = image
+    }
+
+    @MainActor
+    private func observePlayback() async {
+        if let previewElapsed {
+            elapsed = previewElapsed
+            playing = previewPlaying ?? false
+            return
+        }
+        while !Task.isCancelled {
+            let player = SystemMusicPlayer.shared
+            playing = player.state.playbackStatus == .playing
+            if !scrubbing {
+                elapsed = player.playbackTime
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
     }
 }
 

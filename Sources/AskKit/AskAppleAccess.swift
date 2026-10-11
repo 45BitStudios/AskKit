@@ -1006,12 +1006,19 @@ enum AskAppleCards {
         _ card: AskIntentCard,
         reading: AskAppleReading?,
         showsCoordinates: Bool = false,
+        playedBy: String = "",
         custom: ((String, [String]) -> AskIntentCard?)?
     ) -> AskIntentCard {
         guard let reading else { return card }
         let lines = AskLocationPin.labels(in: reading.lines)
         guard !lines.isEmpty else { return card }
-        let fact = make(reading, spoken: card.spoken, showsCoordinates: showsCoordinates, custom: custom)
+        let fact = make(
+            reading,
+            spoken: card.spoken,
+            showsCoordinates: showsCoordinates,
+            playedBy: playedBy,
+            custom: custom
+        )
         var combined = card
         let skillView = card.view
         let factView = fact.view
@@ -1034,6 +1041,7 @@ enum AskAppleCards {
         _ reading: AskAppleReading,
         spoken: String,
         showsCoordinates: Bool = false,
+        playedBy: String = "",
         custom: ((String, [String]) -> AskIntentCard?)?
     ) -> AskIntentCard {
         let visible = AskLocationPin.labels(in: reading.lines)
@@ -1094,6 +1102,16 @@ enum AskAppleCards {
             )
         }
         if reading.name == "music", let item = AskMusicLine.item(from: visible.first ?? "") {
+            if item.nowPlaying {
+                var card = AskIntentCard(
+                    title: "Now Playing",
+                    spoken: spoken,
+                    text: spoken,
+                    view: AskNowPlayingCard(item: item, playedBy: playedBy)
+                )
+                card.shareText = item.shareText
+                return card
+            }
             var card = AskIntentCard(
                 title: item.title,
                 spoken: spoken,
@@ -2249,7 +2267,7 @@ private struct AskHealthTool: Tool, AskToolReadingSource {
 private struct AskMusicTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "music"
-    let description = "Read what is playing, the last song played, or search songs, albums, or playlists. Play, pause, skip, or go back when the person asks. Pass which now for what is playing. Pass which recent for the last song played, and for songs the person listened to, including top songs and the past week. Do not pass those words as a search title. Pass which song, album, or playlist and the title to search. Pass which play and the title to start playback. Pass which pause to pause, which next to skip, and which previous to go back. Each line is one song, album, or playlist. A line that starts with Recent is play history, not the song playing now. Say the title and the artist. The card shows the rest. Do not say a web address. If the result is Not allowed, say you cannot see the music. Do not invent a song, album, or playlist. Do not say the song changed unless the tool says so."
+    let description = "Read what is playing, the last song played, or search songs, albums, or playlists. Play, pause, skip, or go back when the person asks. Pass which now for what is playing. Pass which recent for the last song played, and for songs the person listened to, including top songs and the past week. Do not pass those words as a search title. Pass which song, album, or playlist and the title to search. Pass which play and the title to start playback. Pass which pause to pause, which next to skip, and which previous to go back. Each line is one song, album, or playlist. A line that starts with Now is what is playing. A line that starts with Recent is play history, not the song playing now. Say the title and the artist. The card shows the rest. Do not say a web address. If the result is Not allowed, say you cannot see the music. Do not invent a song, album, or playlist. Do not say the song changed unless the tool says so."
 
     @Generable
     struct Arguments {
