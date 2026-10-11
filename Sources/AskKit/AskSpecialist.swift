@@ -264,6 +264,7 @@ enum AskAppleSpecialistNotes {
             extra = """
             When the person asks for an email, say the email the contacts tool returned.
             When the person asks for contacts that begin with letters, call action look with those letters and beginsWith true.
+            When the person asks for contacts added recently, call action look with daysBack. 7 is last week. 30 is last month. Leave the name empty.
             To add a contact, call action add with the name. Pass the phone or email when they were said.
             Say it was added only when the line starts with Added.
             """

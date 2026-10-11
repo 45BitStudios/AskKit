@@ -26,6 +26,10 @@ let package = Package(
                 .product(name: "BorderBeamKit", package: "BorderBeamKit"),
                 .product(name: "PhotoQueryKit", package: "PhotoQueryKit"),
                 .product(name: "Textual", package: "textual")
+            ],
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("Contacts")
             ]
         ),
         .testTarget(name: "AskKitTests", dependencies: ["AskKit"]),

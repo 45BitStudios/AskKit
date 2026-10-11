@@ -224,7 +224,8 @@ enum AskAppleCopy {
     Say it was added only when the line starts with Added, changed when it starts with Updated, and removed when it starts with Removed. \
     To add a contact, call the contacts tool with action add and the name. Pass the phone or email when they were said. \
     To change a contact, call the contacts tool with action update and the current name. To remove one, pass action delete. \
-    For contacts that begin with letters, call the contacts tool with action look, those letters, and beginsWith true.
+    For contacts that begin with letters, call the contacts tool with action look, those letters, and beginsWith true. \
+    For contacts added recently, call the contacts tool with action look and daysBack. 7 is last week. 30 is last month. Leave the name empty.
     For a reminder list, say how many are open in one short sentence. Do not list the titles. The card lists them.
     A calendar question calls the calendar tool only. A contact question calls the contacts tool only. \
     Pass nearby to the location tool for places around the person. \
@@ -487,7 +488,47 @@ enum AskContactQuery {
         request(in: question)?.name
     }
 
+    /// Days back for contacts added recently. Nil when the question is not a recent-add list.
+    static func recentDays(in question: String) -> Int? {
+        let folded = AskAppleCopy.folded(question)
+        guard folded.localizedStandardContains("contact") else { return nil }
+        let tokens = Set(AskAppleCopy.foldedTokens(question))
+        let writing = (tokens.contains("add") || tokens.contains("create"))
+            && !tokens.contains("added")
+            && !folded.localizedStandardContains("added")
+        if writing { return nil }
+        let looksRecent =
+            tokens.contains("added")
+            || tokens.contains("recent")
+            || tokens.contains("recently")
+            || folded.localizedStandardContains("new contacts")
+            || folded.localizedStandardContains("contacts i added")
+            || folded.localizedStandardContains("contacts ive added")
+            || folded.localizedStandardContains("contacts i have added")
+        guard looksRecent else { return nil }
+        if let days = numberedDays(in: folded) { return days }
+        if folded.localizedStandardContains("last week") || folded.localizedStandardContains("past week") {
+            return 7
+        }
+        if folded.localizedStandardContains("last month") || folded.localizedStandardContains("past month") {
+            return 30
+        }
+        if tokens.contains("yesterday") { return 1 }
+        if tokens.contains("today") { return 1 }
+        return 7
+    }
+
+    static func recentWindowPhrase(_ days: Int) -> String {
+        switch days {
+        case 1: return "in the last day"
+        case 7: return "in the last week"
+        case 30: return "in the last month"
+        default: return "in the last \(days) days"
+        }
+    }
+
     static func request(in question: String) -> Request? {
+        if recentDays(in: question) != nil { return nil }
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         let patterns: [(pattern: String, prefix: Bool)] = [
             (#"(?i)contacts?\s+(?:that\s+)?(?:begin|begins|beginning|start|starts|starting)\s+with\s+(\S+)"#, true),
@@ -510,6 +551,27 @@ enum AskContactQuery {
             if (minimum...80).contains(name.count) {
                 return Request(name: name, prefix: entry.prefix)
             }
+        }
+        return nil
+    }
+
+    private static func numberedDays(in folded: String) -> Int? {
+        let patterns = [
+            #"\blast\s+(\d+)\s+days?\b"#,
+            #"\bpast\s+(\d+)\s+days?\b"#,
+            #"\bin\s+the\s+last\s+(\d+)\s+days?\b"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: folded, range: NSRange(folded.startIndex..., in: folded)),
+                  match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: folded),
+                  let value = Int(folded[range]),
+                  (1...3_650).contains(value) else { continue }
+            return value
+        }
+        if folded.localizedStandardContains("7 days") || folded.localizedStandardContains("seven days") {
+            return 7
         }
         return nil
     }
@@ -593,6 +655,17 @@ enum AskContactLine {
             guard let match else { return status(lines) ?? text }
             if match.email.isEmpty { return "\(match.name) has no email." }
             return "\(match.name)'s email is \(match.email)."
+        }
+        if let days = AskContactQuery.recentDays(in: question) {
+            let window = AskContactQuery.recentWindowPhrase(days)
+            if people.isEmpty {
+                if lines.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == AskAppleCopy.denied }) {
+                    return status(lines) ?? text
+                }
+                return "No contacts were added \(window)."
+            }
+            if people.count == 1 { return "You added 1 contact \(window)." }
+            return "You added \(people.count) contacts \(window)."
         }
         if people.isEmpty { return status(lines) ?? text }
         guard let request = AskContactQuery.request(in: question) else { return text }
@@ -801,6 +874,7 @@ enum AskReminderCommand: Equatable {
 /// Look up a person, or add, change, or remove one contact. Parsing does not touch Contacts.
 enum AskContactCommand: Equatable {
     case lookup(name: String, prefix: Bool)
+    case recent(days: Int)
     case add(name: String, phone: String, email: String)
     case update(name: String, phone: String?, email: String?, newName: String?)
     case delete(name: String)
@@ -813,7 +887,8 @@ enum AskContactCommand: Equatable {
         phone: String?,
         email: String?,
         beginsWith: Bool? = nil,
-        newName: String? = nil
+        newName: String? = nil,
+        daysBack: Int? = nil
     ) -> AskContactCommand {
         let who = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
         let verb = action?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
@@ -829,11 +904,14 @@ enum AskContactCommand: Equatable {
             guard number != nil || address != nil || renamed != nil else { return .needsChange }
             return .update(name: who, phone: number, email: address, newName: renamed)
         }
-        guard verb == "add" || verb == "create" || verb == "new" else {
-            return .lookup(name: who, prefix: beginsWith == true)
+        if verb == "add" || verb == "create" || verb == "new" {
+            guard !who.isEmpty else { return .needsName }
+            return .add(name: who, phone: clip(phone), email: clip(email))
         }
-        guard !who.isEmpty else { return .needsName }
-        return .add(name: who, phone: clip(phone), email: clip(email))
+        if let daysBack, (1...3_650).contains(daysBack), who.isEmpty {
+            return .recent(days: daysBack)
+        }
+        return .lookup(name: who, prefix: beginsWith == true)
     }
 
     private static func clip(_ text: String?) -> String {
@@ -2053,16 +2131,18 @@ private struct AskRemindersTool: Tool, AskToolReadingSource {
 private struct AskContactsTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "contacts"
-    let description = "Look up a contact by name, or add, change, or remove one contact. For a lookup, pass action look and the name. For contacts that begin with letters, pass those letters and set beginsWith to true. Leave the name empty only for a short list. Each line is one person, with the phone and the email when they exist. To add a contact, pass action add, the name, and the phone or email when they were said. To change one, pass action update, the current name, and only the fields that change. newName renames it. To remove one, pass action delete and the name. An added contact starts with Added. A changed contact starts with Updated. A removed contact starts with Removed. If the result is Not allowed, say you cannot see contacts. Do not invent a phone number or email. When the person asks for an email, say the email on the line. Do not say a contact was added, changed, or removed unless the line says so."
+    let description = "Look up a contact by name, list contacts added recently, or add, change, or remove one contact. For a lookup, pass action look and the name. For contacts that begin with letters, pass those letters and set beginsWith to true. For contacts added recently, pass action look and daysBack. 7 is last week. 30 is last month. Leave the name empty for a recent list. Leave the name empty only for a short list when daysBack is empty. Each line is one person, with the phone and the email when they exist. To add a contact, pass action add, the name, and the phone or email when they were said. To change one, pass action update, the current name, and only the fields that change. newName renames it. To remove one, pass action delete and the name. An added contact starts with Added. A changed contact starts with Updated. A removed contact starts with Removed. If the result is Not allowed, say you cannot see contacts. Do not invent a phone number or email. When the person asks for an email, say the email on the line. Do not say a contact was added, changed, or removed unless the line says so."
 
     @Generable
     struct Arguments {
         @Guide(description: "look, add, update, or delete. Use look unless the person asked to create, change, or remove a contact.", .anyOf(["look", "add", "update", "delete"]))
         var action: String?
-        @Guide(description: "The person's name, or the letters a name begins with. The current name when updating or deleting. Leave empty only when the question asks for a short list.")
+        @Guide(description: "The person's name, or the letters a name begins with. The current name when updating or deleting. Leave empty for a recent list or a short list.")
         var name: String
         @Guide(description: "True when the person asked for names that begin with the letters in name. Otherwise false.")
         var beginsWith: Bool?
+        @Guide(description: "How many days back for contacts added recently. 7 is last week. 30 is last month. Leave empty for a name lookup.", .range(1...3_650))
+        var daysBack: Int?
         @Guide(description: "Phone number when adding or updating a contact. Leave empty when looking up or when the phone is not changing.")
         var phone: String?
         @Guide(description: "Email address when adding or updating a contact. Leave empty when looking up or when the email is not changing.")
@@ -2078,7 +2158,8 @@ private struct AskContactsTool: Tool, AskToolReadingSource {
             phone: arguments.phone,
             email: arguments.email,
             beginsWith: arguments.beginsWith,
-            newName: arguments.newName
+            newName: arguments.newName,
+            daysBack: arguments.daysBack
         ) {
         case .lookup(let name, let prefix):
             return try await boundedAppleCall(
@@ -2088,6 +2169,15 @@ private struct AskContactsTool: Tool, AskToolReadingSource {
                 trace: name.isEmpty ? "list" : (prefix ? "prefix" : "name")
             ) {
                 await AskContactsRead.lines(matching: name, prefix: prefix)
+            }
+        case .recent(let days):
+            return try await boundedAppleCall(
+                ledger: toolLedger,
+                name: self.name,
+                arguments: "recent \(days)",
+                trace: "recent"
+            ) {
+                await AskContactsRead.lines(addedWithinDays: days)
             }
         case .add(let name, let phone, let email):
             return try await boundedAppleCall(
@@ -2329,6 +2419,8 @@ struct AskAppleRepairPlan: Equatable {
     var contactQuery: String?
     /// True when the question asked for names that begin with `contactQuery`.
     var contactPrefix: Bool
+    /// Days back when the question asked for contacts added recently.
+    var contactRecentDays: Int?
     var rereadContact: Bool
     var music: AskMusicQuery.Request?
     var weather: AskWeatherRequest?
@@ -2399,15 +2491,24 @@ enum AskAppleRepair {
         }
         var contactQuery: String?
         var contactPrefix = false
+        var contactRecentDays: Int?
         var rereadContact = false
-        if toolNames.contains("contacts"), let request = AskContactQuery.request(in: question) {
+        if toolNames.contains("contacts") {
             let lines = readings.filter { $0.name == "contacts" }.flatMap(\.lines)
             if !lines.contains(where: AskAppleCopy.keepsWrite) {
-                contactQuery = request.name
-                contactPrefix = request.prefix
-                let matched = AskContactLine.filtered(lines, query: request.name, prefix: request.prefix)
-                let hasEmail = matched.contains { AskContactLine.person(from: $0).email.contains("@") }
-                rereadContact = matched.isEmpty || (AskContactQuery.asksEmail(question) && !hasEmail)
+                if let days = AskContactQuery.recentDays(in: question) {
+                    contactRecentDays = days
+                    let people = lines.map { AskContactLine.person(from: $0) }.filter(\.isPerson)
+                    rereadContact = people.isEmpty && !lines.contains {
+                        $0 == AskAppleCopy.denied || $0 == "No recently added contacts."
+                    }
+                } else if let request = AskContactQuery.request(in: question) {
+                    contactQuery = request.name
+                    contactPrefix = request.prefix
+                    let matched = AskContactLine.filtered(lines, query: request.name, prefix: request.prefix)
+                    let hasEmail = matched.contains { AskContactLine.person(from: $0).email.contains("@") }
+                    rereadContact = matched.isEmpty || (AskContactQuery.asksEmail(question) && !hasEmail)
+                }
             }
         }
         var music: AskMusicQuery.Request?
@@ -2494,6 +2595,7 @@ enum AskAppleRepair {
             place: place,
             contactQuery: contactQuery,
             contactPrefix: contactPrefix,
+            contactRecentDays: contactRecentDays,
             rereadContact: rereadContact,
             music: music,
             weather: weather,
@@ -2545,7 +2647,16 @@ enum AskAppleRepair {
             let label = place == "here" || place == "nearby" ? place : String(place.prefix(80))
             AskTrace.attribute("place", label)
         }
-        if let query = plan.contactQuery {
+        if let days = plan.contactRecentDays {
+            if plan.rereadContact {
+                let contactLines = lines(await AskContactsRead.lines(addedWithinDays: days))
+                readings.removeAll { $0.name == "contacts" }
+                readings.append(AskAppleReading(name: "contacts", lines: contactLines))
+                didChange = true
+                AskTrace.decision("contact recent read")
+                AskTrace.attribute("contactRecentDays", String(days))
+            }
+        } else if let query = plan.contactQuery {
             var contactLines = readings.filter { $0.name == "contacts" }.flatMap(\.lines)
             if plan.rereadContact {
                 contactLines = lines(await AskContactsRead.lines(matching: query, prefix: plan.contactPrefix))
@@ -3304,6 +3415,7 @@ private enum AskContactsRead {
     static func add(name: String, phone: String, email: String) async -> String {
         let store = CNContactStore()
         guard await allow(store) else { return AskAppleCopy.denied }
+        AskContactsHistory.sync(store: store)
         let cleaned = AskAppleCopy.plain(name, limit: 120)
         let parts = cleaned.split(whereSeparator: \.isWhitespace).map(String.init).filter { !$0.isEmpty }
         guard let given = parts.first else { return "A name is needed." }
@@ -3327,6 +3439,7 @@ private enum AskContactsRead {
         } catch {
             return "Could not add the contact."
         }
+        AskContactsHistory.record(identifier: contact.identifier)
         let saved = AskContactLine.line(name: cleaned, phone: number, email: address)
         return AskAppleCopy.addedPrefix + saved
     }
@@ -3433,6 +3546,7 @@ private enum AskContactsRead {
         let store = CNContactStore()
         let granted = await allow(store)
         guard granted else { return AskAppleCopy.denied }
+        AskContactsHistory.sync(store: store)
         let keys: [CNKeyDescriptor] = [
             CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
             CNContactPhoneNumbersKey as CNKeyDescriptor,
@@ -3458,6 +3572,27 @@ private enum AskContactsRead {
         let kept = Array(matched.prefix(name.isEmpty ? 5 : 8))
         guard !kept.isEmpty else { return name.isEmpty ? "No contacts." : "No matching contacts." }
         return kept.joined(separator: "\n")
+    }
+
+    static func lines(addedWithinDays days: Int) async -> String {
+        let store = CNContactStore()
+        guard await allow(store) else { return AskAppleCopy.denied }
+        AskContactsHistory.sync(store: store)
+        let ids = AskContactsHistory.identifiers(addedWithinDays: days)
+        guard !ids.isEmpty else { return "No recently added contacts." }
+        let keys: [CNKeyDescriptor] = [
+            CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
+            CNContactPhoneNumbersKey as CNKeyDescriptor,
+            CNContactEmailAddressesKey as CNKeyDescriptor,
+            CNContactIdentifierKey as CNKeyDescriptor
+        ]
+        var lines: [String] = []
+        for id in ids.prefix(8) {
+            guard let contact = try? store.unifiedContact(withIdentifier: id, keysToFetch: keys) else { continue }
+            lines.append(line(contact))
+        }
+        guard !lines.isEmpty else { return "No recently added contacts." }
+        return lines.joined(separator: "\n")
     }
 
     private static func allow(_ store: CNContactStore) async -> Bool {
