@@ -53,7 +53,7 @@ enum AskTraceGuide {
         ]),
         Section(title: "Markers", items: [
             Item(symbol: .glyph("→"), title: "Result", detail: "A short summary of what the step returned, such as the domain id."),
-            Item(symbol: .system("arrow.triangle.branch", .purple), title: "Decision", detail: "Why the turn took a branch: capabilities, fast path, guardrail, domain miss, skill miss, fallback, apple tools, slots already filled, or a rejected tool count."),
+            Item(symbol: .system("arrow.triangle.branch", .purple), title: "Decision", detail: "Why the turn took a branch. Router skipped means the skill was chosen without a router model. A specialist can still call the model after that. Joined onto the previous question means a follow-up was sent with the question before it."),
             Item(symbol: .glyph("∥"), title: "Ran in parallel", detail: "This call overlapped another call under the same parent."),
             Item(symbol: .system("xmark.octagon", .red), title: "Threw an error", detail: "The call ended by throwing."),
             Item(symbol: .system("hourglass", .secondary), title: "Unfinished", detail: "Still running when the turn ended. Its end is clamped to the turn's end.")

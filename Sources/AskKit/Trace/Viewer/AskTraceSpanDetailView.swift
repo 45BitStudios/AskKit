@@ -89,7 +89,9 @@ struct AskTraceSpanDetailView: View {
         HStack(alignment: .firstTextBaseline) {
             Image(systemName: symbol).foregroundStyle(tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text(event.message).font(.footnote).textSelection(.enabled)
+                Text(event.kind == .decision ? AskTraceFormatter.decisionWords(event.message) : event.message)
+                    .font(.footnote)
+                    .textSelection(.enabled)
                 Text("+\(AskTraceFormatter.duration(event.offset))")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)

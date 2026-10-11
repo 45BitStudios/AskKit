@@ -250,7 +250,7 @@ private struct AskTraceTreeRow: View {
                         .truncationMode(.tail)
                 }
                 ForEach(Array(decisions.prefix(2).enumerated()), id: \.offset) { _, event in
-                    Label(event.message, systemImage: "arrow.triangle.branch")
+                    Label(AskTraceFormatter.decisionWords(event.message), systemImage: "arrow.triangle.branch")
                         .lineLimit(1)
                 }
                 if decisions.count > 2 {

@@ -234,7 +234,8 @@ enum AskAppleCopy {
     For the forecast, pass span hourly or span daily to the weather tool, the day number, and the city when one is named. 0 is today. \
     Leave the city empty for where the person is. Say it in one or two short sentences. The card lists each day or each hour.
     A song, album, or playlist uses the music tool. Pass song, album, or playlist and the title. Pass play and the title to start playback. Pass now for what is playing. \
-    Pass recent for the last song played. Pass pause to pause, next to skip, and previous to go back. Say the title and the artist. Do not say a song is playing unless its line starts with Song.
+    Pass recent for the last song played, and for songs the person listened to, including top songs and the past week. Do not search the catalog for those. \
+    Pass pause to pause, next to skip, and previous to go back. Say the title and the artist. Do not say a song is playing unless its line starts with Song.
     To read alarms, call the alarms tool with action read and do not add one. Say how many are on. \
     To change an alarm, call action update with its current time and the new time or repeats. Recurring is daily, weekdays, weekends, or a weekday name. \
     To remove an alarm, call action delete with its time. \
@@ -859,8 +860,8 @@ enum AskAppleCards {
     }
 
     /// One card per Apple source, in the order they ran. Later calls to the same source stay on that card.
-    /// Contacts, songs, albums, forecast days, and alarms are the exception: each one is its own card.
-    /// Hours stay on that day's card.
+    /// Contacts, songs, albums, and alarms are the exception: each one is its own card.
+    /// A forecast stays one card. Hours stay on that day's card.
     static func sources(_ readings: [AskAppleReading]) -> [AskAppleReading] {
         var order: [String] = []
         var lines: [String: [String]] = [:]
@@ -880,13 +881,6 @@ enum AskAppleCards {
                 let songs = kept.filter { AskMusicLine.item(from: $0) != nil }
                 if songs.count > 1 {
                     return songs.map { AskAppleReading(name: name, lines: [$0]) }
-                }
-            }
-            if name == "weather" {
-                let days = kept.filter { AskWeatherLine.day(from: $0) != nil }
-                let hours = kept.contains { AskWeatherLine.hour(from: $0) != nil }
-                if days.count > 1, !hours {
-                    return days.map { AskAppleReading(name: name, lines: [$0]) }
                 }
             }
             if name == "alarms" {
@@ -1027,7 +1021,7 @@ enum AskAppleCards {
         }
         if reading.name == "weather", let forecast = AskWeatherLine.forecast(from: visible) {
             var card = AskIntentCard(
-                title: forecast.day.title,
+                title: forecast.days.count > 1 ? "Weather" : forecast.day.title,
                 spoken: spoken,
                 text: spoken,
                 view: AskWeatherCard(forecast: forecast)
@@ -2119,11 +2113,11 @@ private struct AskHealthTool: Tool, AskToolReadingSource {
 private struct AskMusicTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "music"
-    let description = "Read what is playing, the last song played, or search songs, albums, or playlists. Play, pause, skip, or go back when the person asks. Pass which now for what is playing. Pass which recent for the last song played. Pass which song, album, or playlist and the title to search. Pass which play and the title to start playback. Pass which pause to pause, which next to skip, and which previous to go back. Each line is one song, album, or playlist. A line that starts with Recent is the last song played, not the song playing now. Say the title and the artist. The card shows the rest. If the result is Not allowed, say you cannot see the music. Do not invent a song, album, or playlist. Do not say the song changed unless the tool says so."
+    let description = "Read what is playing, the last song played, or search songs, albums, or playlists. Play, pause, skip, or go back when the person asks. Pass which now for what is playing. Pass which recent for the last song played, and for songs the person listened to, including top songs and the past week. Do not pass those words as a search title. Pass which song, album, or playlist and the title to search. Pass which play and the title to start playback. Pass which pause to pause, which next to skip, and which previous to go back. Each line is one song, album, or playlist. A line that starts with Recent is play history, not the song playing now. Say the title and the artist. The card shows the rest. Do not say a web address. If the result is Not allowed, say you cannot see the music. Do not invent a song, album, or playlist. Do not say the song changed unless the tool says so."
 
     @Generable
     struct Arguments {
-        @Guide(description: "now, recent, song, album, playlist, play, pause, next, or previous. Use now for what is playing. Use recent for the last song played. Use play to start a song or album. Use pause to pause, next to skip, and previous to go back.", .anyOf(["now", "recent", "song", "album", "playlist", "play", "pause", "next", "previous"]))
+        @Guide(description: "now, recent, song, album, playlist, play, pause, next, or previous. Use now for what is playing. Use recent for the last song played and for songs the person listened to. Use play to start a song or album. Use pause to pause, next to skip, and previous to go back.", .anyOf(["now", "recent", "song", "album", "playlist", "play", "pause", "next", "previous"]))
         var which: String
         @Guide(description: "The song, album, or playlist title, or the artist. Leave empty when which is now.")
         var query: String?
@@ -2132,7 +2126,12 @@ private struct AskMusicTool: Tool, AskToolReadingSource {
     func call(arguments: Arguments) async throws -> String {
         let request = AskMusicQuery.request(which: arguments.which, query: arguments.query)
         let label = request.term.isEmpty ? "\(request.kind)" : "\(request.kind) \(request.term)"
-        return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: label) {
+        return try await boundedAppleCall(
+            ledger: toolLedger,
+            name: name,
+            arguments: label,
+            present: AskMusicLine.forModel
+        ) {
             await AskMusicRead.lines(request)
         }
     }
@@ -2279,6 +2278,8 @@ struct AskAppleRepairPlan: Equatable {
     var alarmRemoval: AskAlarmRemoval?
     /// Alarms parsed from the question when that tool never scheduled one.
     var alarmDrafts: [AskAlarmDraft]
+    /// Search the photo library when that tool never ran.
+    var readPhotos: Bool
 }
 
 /// Replaces a calendar result for the wrong weekday, reads health when that tool never ran, and looks up a place on a tool-only skill.
@@ -2415,6 +2416,10 @@ enum AskAppleRepair {
         } else {
             alarmDrafts = []
         }
+        let photoLines = readings.filter { $0.name == "photos" }.flatMap(\.lines)
+        let readPhotos = toolNames.contains(AskPhotos.toolName)
+            && AskPhotos.matches(question)
+            && photoLines.isEmpty
         return AskAppleRepairPlan(
             keep: focus.isEmpty ? nil : focus,
             calendarDay: toolNames.contains("calendar") && !alarmOnly
@@ -2432,7 +2437,8 @@ enum AskAppleRepair {
             alarmList: alarmList,
             alarmChange: alarmChange,
             alarmRemoval: alarmRemoval,
-            alarmDrafts: alarmDrafts
+            alarmDrafts: alarmDrafts,
+            readPhotos: readPhotos
         )
     }
 
@@ -2514,6 +2520,13 @@ enum AskAppleRepair {
             didChange = true
             AskTrace.decision(weather.span == .hourly ? "weather hourly" : "weather daily")
         }
+        if plan.readPhotos {
+            let output = await photoReading(question)
+            readings.removeAll { $0.name == "photos" }
+            readings.append(AskAppleReading(name: "photos", lines: lines(output)))
+            didChange = true
+            AskTrace.decision(AskPhotosQuery.listsAlbums(question) ? "photo albums" : "photo read")
+        }
         if plan.readReminders {
             let output = await AskRemindersRead.lines(limit: 8)
             readings.removeAll { $0.name == "reminders" }
@@ -2582,6 +2595,13 @@ enum AskAppleRepair {
             return [AskAppleCopy.denied]
         }
         return ["No matching contacts."]
+    }
+
+    private static func photoReading(_ question: String) async -> String {
+        if AskPhotosQuery.listsAlbums(question) {
+            return await AskPhotosRead.albums()
+        }
+        return await AskPhotosRead.lines(AskPhotosQuery.fromQuestion(question))
     }
 
     private static func lines(_ output: String) -> [String] {

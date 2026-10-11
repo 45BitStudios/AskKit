@@ -283,7 +283,8 @@ enum AskAppleSpecialistNotes {
         case "music":
             extra = """
             A song, album, or playlist uses the music tool. Pass song, album, or playlist and the title. Pass play and the title to start playback. Pass now for what is playing.
-            Pass recent for the last song played. Pass pause to pause, next to skip, and previous to go back.
+            Pass recent for the last song played, and for songs the person listened to, including top songs and the past week. Do not search the catalog for those.
+            Pass pause to pause, next to skip, and previous to go back.
             Say the title and the artist. Do not say a song is playing unless its line starts with Song.
             Do not say the song changed unless the tool says so.
             """

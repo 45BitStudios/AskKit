@@ -1241,7 +1241,20 @@ final class AskAppleAccessTests: XCTestCase {
         let lastPlayed = AskMusicQuery.request(in: "What's my last played song?")
         XCTAssertEqual(lastPlayed.kind, .recent)
         XCTAssertEqual(lastPlayed.term, "")
+        XCTAssertEqual(lastPlayed.historyLimit, 1)
+        XCTAssertNil(lastPlayed.historyDays)
         XCTAssertEqual(AskMusicQuery.request(which: "recent", query: nil).kind, .recent)
+        let topSongs = AskMusicQuery.request(in: "What What's the top songs I've listened to in the past week")
+        XCTAssertEqual(topSongs.kind, .recent)
+        XCTAssertEqual(topSongs.term, "")
+        XCTAssertEqual(topSongs.historyLimit, AskMusicQuery.limit)
+        XCTAssertEqual(topSongs.historyDays, 7)
+        let namedTop = AskMusicQuery.request(in: "top songs by Taylor Swift")
+        XCTAssertEqual(namedTop.kind, .song)
+        XCTAssertEqual(namedTop.term, "top taylor swift")
+        let weekListen = AskMusicQuery.request(in: "What music channels listen to in the last week")
+        XCTAssertEqual(weekListen.kind, .recent)
+        XCTAssertEqual(weekListen.historyDays, 7)
 
         let song = AskMusicLine.songLine(title: "Anti-Hero", artist: "Taylor Swift", album: "Midnights", duration: 201)
         let record = AskMusicLine.albumLine(title: "Abbey Road", artist: "The Beatles", songs: 17, year: "1969")
@@ -1249,8 +1262,23 @@ final class AskAppleAccessTests: XCTestCase {
         let recent = AskMusicLine.recentLine(title: "Anti-Hero", artist: "Taylor Swift", album: "Midnights", duration: 201)
         XCTAssertEqual(recent, "Recent: Anti-Hero · Taylor Swift · Midnights · 3:21")
         XCTAssertEqual(AskMusicLine.spoken([recent]), "Last played was Anti-Hero by Taylor Swift.")
+        let another = AskMusicLine.recentLine(title: "Daylight", artist: "Taylor Swift", album: "Lover", duration: 293)
+        XCTAssertEqual(
+            AskMusicLine.spoken([recent, another, "History: 7"]),
+            "2 songs played in the past week. Anti-Hero by Taylor Swift."
+        )
         XCTAssertTrue(AskMusicQuery.needsReread(lastPlayed, lines: [song]))
         XCTAssertFalse(AskMusicQuery.needsReread(lastPlayed, lines: [recent]))
+        XCTAssertTrue(AskMusicQuery.needsReread(topSongs, lines: [song]))
+        XCTAssertTrue(AskMusicQuery.needsReread(topSongs, lines: [recent]))
+        XCTAssertFalse(AskMusicQuery.needsReread(topSongs, lines: [recent, another, "History: 7"]))
+        XCTAssertFalse(AskMusicQuery.needsReread(topSongs, lines: ["Nothing was played in the past week."]))
+        let playedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let recentDate = playedAt.addingTimeInterval(-2 * 24 * 60 * 60)
+        let oldDate = playedAt.addingTimeInterval(-10 * 24 * 60 * 60)
+        XCTAssertNil(AskMusicQuery.recentIndexes(dates: [nil, nil], days: 7, now: playedAt))
+        XCTAssertEqual(AskMusicQuery.recentIndexes(dates: [recentDate, oldDate, nil], days: 7, now: playedAt), [0])
+        XCTAssertEqual(AskMusicQuery.recentIndexes(dates: [oldDate], days: 7, now: playedAt), [])
         let musicCard = AskAppleCards.make(
             AskAppleReading(name: "music", lines: [song]),
             spoken: "You are currently listening to Anti-Hero by Taylor Swift.",
@@ -1262,8 +1290,50 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertFalse(song.contains("="))
         XCTAssertFalse(record.contains("="))
         XCTAssertEqual(AskMusicLine.item(from: song)?.title, "Anti-Hero")
+        XCTAssertEqual(AskMusicLine.item(from: song)?.artwork, "")
         XCTAssertEqual(AskMusicLine.item(from: record)?.kind, .album)
         XCTAssertEqual(AskMusicLine.item(from: record)?.extra, "1969")
+        let address = "https://is1-ssl.mzstatic.com/image/thumb/Music/source/300x300bb.jpg?x=1"
+        let withArt = AskMusicLine.songLine(
+            title: "Anti-Hero",
+            artist: "Taylor Swift",
+            album: "Midnights",
+            duration: 201,
+            artwork: address
+        )
+        XCTAssertFalse(withArt.contains("="))
+        XCTAssertEqual(AskMusicLine.forModel(withArt), song)
+        let parsedArt = AskMusicLine.item(from: withArt)
+        XCTAssertEqual(parsedArt?.extra, "3:21")
+        XCTAssertEqual(parsedArt?.artwork, address)
+        XCTAssertEqual(parsedArt?.shareText, "Anti-Hero\nTaylor Swift\nMidnights\n3:21")
+        XCTAssertFalse(parsedArt?.subtitle.contains("http") ?? true)
+        let albumArt = AskMusicLine.albumLine(
+            title: "Abbey Road",
+            artist: "The Beatles",
+            songs: 17,
+            year: "1969",
+            artwork: address
+        )
+        XCTAssertFalse(albumArt.contains("="))
+        XCTAssertEqual(AskMusicLine.item(from: albumArt)?.extra, "1969")
+        XCTAssertEqual(AskMusicLine.item(from: albumArt)?.artwork, address)
+        XCTAssertEqual(AskMusicLine.forModel(albumArt), record)
+        let recentArt = AskMusicLine.recentLine(
+            title: "Anti-Hero",
+            artist: "Taylor Swift",
+            album: "Midnights",
+            duration: 201,
+            artwork: address
+        )
+        XCTAssertEqual(AskMusicLine.item(from: recentArt)?.artwork, address)
+        XCTAssertEqual(AskMusicLine.forModel(recentArt + "\nHistory: 7"), recent + "\nHistory: 7")
+        XCTAssertEqual(
+            AskMusicLine.songLine(title: "Anti-Hero", artist: "Taylor Swift", album: "Midnights", duration: 201, artwork: "http://is1-ssl.mzstatic.com/a.jpg"),
+            song
+        )
+        XCTAssertNotNil(AskMusicLine.coverURL(address))
+        XCTAssertNil(AskMusicLine.coverURL("https://example.com/cover.jpg"))
         XCTAssertNil(AskMusicLine.item(from: "Not allowed."))
         XCTAssertNil(AskMusicLine.item(from: "Nothing is playing."))
         let musicCards = AskAppleCards.sources([
@@ -1338,7 +1408,19 @@ final class AskAppleAccessTests: XCTestCase {
                 rain: "0 percent"
             )
         }
-        XCTAssertEqual(AskAppleCards.sources([AskAppleReading(name: "weather", lines: days)]).count, 3)
+        XCTAssertEqual(AskAppleCards.sources([AskAppleReading(name: "weather", lines: days)]).count, 1)
+        let weekForecast = AskWeatherLine.forecast(from: ["Place: austin"] + days)
+        XCTAssertEqual(weekForecast?.days.count, 3)
+        XCTAssertEqual(weekForecast?.place, "austin")
+        XCTAssertEqual(AskWeatherLine.displayPlace("austin"), "Austin")
+        let weekCard = AskAppleCards.make(
+            AskAppleReading(name: "weather", lines: ["Place: austin"] + days),
+            spoken: "A week in Austin.",
+            custom: nil
+        )
+        XCTAssertEqual(weekCard.title, "Weather")
+        XCTAssertTrue(weekCard.shareText.contains("Austin"))
+        XCTAssertTrue(weekCard.shareText.contains("Day 3"))
         XCTAssertEqual(AskAppleCards.sources([AskAppleReading(name: "weather", lines: [day, hour])]).count, 1)
         let weatherCard = AskAppleCards.make(
             AskAppleReading(name: "weather", lines: [day, hour]),

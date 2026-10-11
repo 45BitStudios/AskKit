@@ -120,6 +120,29 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertEqual(AskPhotosLine.spoken([AskPhotosLine.denied]), AskPhotosLine.denied)
     }
 
+    func testAMissedPhotoQuestionPlansALibraryRead() {
+        let question = "What photos did I take today"
+        let missed = AskAppleRepair.plan(question: question, readings: [], toolNames: ["photos"])
+        XCTAssertTrue(missed.readPhotos)
+        let kept = AskAppleRepair.plan(
+            question: question,
+            readings: [AskAppleReading(name: "photos", lines: ["Found 1 photo."])],
+            toolNames: ["photos"]
+        )
+        XCTAssertFalse(kept.readPhotos)
+        let otherTool = AskAppleRepair.plan(question: question, readings: [], toolNames: ["music"])
+        XCTAssertFalse(otherTool.readPhotos)
+        let playing = AskAppleRepair.plan(question: "What's playing", readings: [], toolNames: ["photos"])
+        XCTAssertFalse(playing.readPhotos)
+        let request = AskPhotosQuery.fromQuestion(question)
+        let window = AskPhotosQuery.takenDay(in: question)
+        XCTAssertEqual(request.mediaType, .image)
+        XCTAssertEqual(request.startDate, window?.start)
+        XCTAssertEqual(request.endDate, window?.end.addingTimeInterval(-1))
+        XCTAssertTrue(AskPhotosQuery.listsAlbums("What are my albums"))
+        XCTAssertFalse(AskPhotosQuery.listsAlbums(question))
+    }
+
     func testEnrichUsesYesterdayAsThatCalendarDay() {
         let question = "What photos did I take yesterday?"
         let now = Date()

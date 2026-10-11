@@ -246,6 +246,118 @@ final class AskTraceTests: XCTestCase {
         let snippet = story.first { $0.title == "Snippet" }
         XCTAssertEqual(snippet?.text, "No snippet card.")
         XCTAssertEqual(snippet?.cards, [])
+        XCTAssertEqual(story.first { $0.title == "Model calls" }?.text, "No model call.")
+    }
+
+    func testStoryNamesTheModelWhenTheRouterWasSkipped() {
+        let root = UUID()
+        let follow = UUID()
+        let model = UUID()
+        let prompt = """
+        QUESTION
+        What's been my heart rate for the past week
+        What about my calories burned
+
+        SKILL
+        answer
+        """
+        let turn = AskTraceTurn(
+            id: UUID(),
+            question: "What about my calories burned",
+            entry: .composer,
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            duration: 4,
+            spans: [
+                AskTraceSpan(
+                    id: root,
+                    parentID: nil,
+                    name: "Ask turn",
+                    kind: .turn,
+                    function: "test",
+                    fileID: "test",
+                    line: 1,
+                    start: 0,
+                    end: 4,
+                    status: .ok,
+                    attributes: [
+                        .init(key: "routedVia", value: "fastPath"),
+                        .init(key: "skill", value: "answer")
+                    ],
+                    result: nil,
+                    events: [.init(offset: 0, kind: .decision, message: "fast path")],
+                    model: nil
+                ),
+                AskTraceSpan(
+                    id: follow,
+                    parentID: root,
+                    name: "followUp",
+                    kind: .function,
+                    function: "test",
+                    fileID: "test",
+                    line: 1,
+                    start: 0,
+                    end: 0.1,
+                    status: .ok,
+                    attributes: [],
+                    result: nil,
+                    events: [.init(offset: 0, kind: .decision, message: "joined to the previous question")],
+                    model: nil
+                ),
+                AskTraceSpan(
+                    id: model,
+                    parentID: root,
+                    name: "specialist health",
+                    kind: .model,
+                    function: "test",
+                    fileID: "test",
+                    line: 1,
+                    start: 0.1,
+                    end: 4,
+                    status: .ok,
+                    attributes: [],
+                    result: nil,
+                    events: [],
+                    model: AskTraceModelCall(
+                        label: "specialist health",
+                        prewarmed: nil,
+                        items: [.init(kind: .prompt, toolName: nil, text: prompt)],
+                        output: nil,
+                        errorKind: nil,
+                        errorDescription: nil,
+                        context: nil
+                    )
+                )
+            ]
+        )
+        let story = AskTraceFormatter.story(for: turn)
+        XCTAssertEqual(
+            story.first { $0.title == "Routed via" }?.text,
+            "Router skipped. The skill was chosen without a router model."
+        )
+        XCTAssertEqual(story.first { $0.title == "Model calls" }?.text, "specialist health")
+        XCTAssertEqual(
+            story.first { $0.title == "Sent to the model" }?.text,
+            "What's been my heart rate for the past week\nWhat about my calories burned"
+        )
+        XCTAssertEqual(story.first { $0.title == "Why this path" }?.text, "Joined onto the previous question")
+        XCTAssertFalse(story.contains { $0.text == "fast path" })
+        XCTAssertEqual(AskTraceFormatter.routeWords("fastPath"), "Router skipped")
+        XCTAssertEqual(AskTraceFormatter.decisionWords("fast path"), "Router skipped")
+    }
+
+    func testStoryUsesTheRecordedPromptQuestion() {
+        let same = posterTurn(question: "Steps today", attributes: [
+            .init(key: "promptQuestion", value: "Steps today")
+        ])
+        XCTAssertNil(AskTraceFormatter.story(for: same).first { $0.title == "Sent to the model" })
+
+        let joined = posterTurn(question: "What about my calories burned", attributes: [
+            .init(key: "promptQuestion", value: "Heart rate this week\nWhat about my calories burned")
+        ])
+        XCTAssertEqual(
+            AskTraceFormatter.story(for: joined).first { $0.title == "Sent to the model" }?.text,
+            "Heart rate this week\nWhat about my calories burned"
+        )
     }
 
     func testPosterUsesTheRecordedAnswerAndCardWords() {

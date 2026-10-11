@@ -14,7 +14,7 @@ enum AskWeatherQuery {
         case daily
     }
 
-    /// The next twelve-to-twenty-four hours stay on one day card. A daily ask is one card per day, up to seven.
+    /// Hours stay on that day's card. A daily forecast, including a week, is one card.
     static func request(in question: String, now: Date = Date(), calendar: Calendar = .current) -> AskWeatherRequest {
         let span: AskWeatherQuery.Span = isHourly(question) ? .hourly : .daily
         let named = AskCalendarWindow.offset(namedIn: question, now: now, calendar: calendar)
@@ -166,9 +166,22 @@ enum AskWeatherLine {
     struct Forecast: Equatable, Sendable {
         var day: Day
         var hours: [Hour]
+        /// Every day on this forecast. A week stays on one card.
+        var days: [Day]
+        var place: String
+
+        init(day: Day, hours: [Hour] = [], days: [Day] = [], place: String = "") {
+            let listed = days.isEmpty ? [day] : days
+            self.day = listed[0]
+            self.hours = hours
+            self.days = listed
+            self.place = place
+        }
 
         var shareText: String {
-            var lines = [day.shareText]
+            var lines = days.map(\.shareText)
+            let name = AskWeatherLine.displayPlace(place)
+            if !name.isEmpty { lines.insert(name, at: 0) }
             lines.append(contentsOf: hours.map { "\($0.time) \($0.temperature)".trimmingCharacters(in: .whitespaces) })
             return lines.filter { !$0.isEmpty }.joined(separator: "\n")
         }
@@ -221,9 +234,26 @@ enum AskWeatherLine {
     }
 
     static func forecast(from lines: [String]) -> Forecast? {
-        guard let day = lines.compactMap(day(from:)).first else { return nil }
-        let hours = lines.compactMap(hour(from:))
-        return Forecast(day: day, hours: hours)
+        let days = lines.compactMap(day(from:))
+        guard let day = days.first else { return nil }
+        return Forecast(day: day, hours: lines.compactMap(hour(from:)), days: days, place: place(from: lines))
+    }
+
+    static func place(from lines: [String]) -> String {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.lowercased().hasPrefix("place:") else { continue }
+            return String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ""
+    }
+
+    static func displayPlace(_ place: String) -> String {
+        place.split(separator: " ").map { word in
+            let text = String(word)
+            guard let first = text.first else { return text }
+            return first.uppercased() + text.dropFirst()
+        }.joined(separator: " ")
     }
 
     /// One or two sentences. The cards keep each day and each hour.
@@ -457,22 +487,31 @@ enum AskWeatherRead {
     }
 }
 
-/// One day. Hours sit on that same card. Apple Weather attribution stays on the card.
+/// One forecast. A week lists each day here. Hours stay on a single day's card.
+/// The Apple Weather mark links to the legal page. The data-source list stays on that page.
 struct AskWeatherCard: View {
     var forecast: AskWeatherLine.Forecast
     /// Sample cards keep the Apple Weather credit and do not call WeatherKit.
     var loadsCredit: Bool = true
 
     @Environment(\.colorScheme) private var scheme
-    @State private var credit = "Apple Weather"
     @State private var mark: URL?
     @State private var legal: URL?
 
+    private var showsWeek: Bool { forecast.days.count > 1 }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            AskWeatherDayHeader(day: forecast.day)
-            if !forecast.hours.isEmpty {
-                AskWeatherHourGrid(hours: forecast.hours)
+            if showsWeek {
+                weekHeader
+                ForEach(Array(forecast.days.enumerated()), id: \.offset) { _, day in
+                    AskWeatherDayRow(day: day)
+                }
+            } else {
+                AskWeatherDayHeader(day: forecast.day)
+                if !forecast.hours.isEmpty {
+                    AskWeatherHourGrid(hours: forecast.hours)
+                }
             }
             attribution
         }
@@ -481,6 +520,22 @@ struct AskWeatherCard: View {
             guard loadsCredit else { return }
             await loadAttribution()
         }
+    }
+
+    private var weekHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(weekTitle)
+                .font(.title3.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            AskCardBadge(title: "Forecast", symbol: "cloud.sun.fill", tint: .blue)
+        }
+    }
+
+    private var weekTitle: String {
+        let place = AskWeatherLine.displayPlace(forecast.place)
+        return place.isEmpty ? "Forecast" : place
     }
 
     @ViewBuilder
@@ -507,7 +562,7 @@ struct AskWeatherCard: View {
                 .frame(width: 24, height: 16)
                 .accessibilityHidden(true)
             }
-            Text(credit)
+            Text("Apple Weather")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -515,10 +570,6 @@ struct AskWeatherCard: View {
 
     private func loadAttribution() async {
         guard let attribution = try? await WeatherService.shared.attribution else { return }
-        let legalText = attribution.legalAttributionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !legalText.isEmpty, !legalText.contains("=") {
-            credit = legalText
-        }
         mark = scheme == .dark ? attribution.combinedMarkDarkURL : attribution.combinedMarkLightURL
         legal = attribution.legalPageURL
     }
@@ -585,6 +636,47 @@ private struct AskWeatherDayHeader: View {
 
     private var rainLine: String {
         day.rain == "0 percent" ? "No rain" : "\(day.rain) rain"
+    }
+}
+
+private struct AskWeatherDayRow: View {
+    var day: AskWeatherLine.Day
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            AskWeatherSymbol(name: day.symbol, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(day.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if !day.condition.isEmpty, day.condition != "Unknown" {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .trailing, spacing: 2) {
+                if !day.high.isEmpty {
+                    Text(day.high)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+                if !day.low.isEmpty {
+                    Text(day.low)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var detail: String {
+        guard !day.rain.isEmpty, day.rain != "0 percent" else { return day.condition }
+        return "\(day.condition) · \(day.rain) rain"
     }
 }
 

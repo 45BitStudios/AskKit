@@ -90,6 +90,7 @@ public struct AskAssistant {
                 let resolved = AskQuestionJoin.resolve(trimmed, priorUserQuestions: priors)
                 if resolved != trimmed {
                     AskTrace.decision("joined to the previous question")
+                    AskTrace.attribute("promptQuestion", resolved)
                 }
                 return resolved
             }

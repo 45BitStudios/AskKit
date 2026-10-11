@@ -146,7 +146,8 @@ enum AskTraceFormatter {
                     lines.append("\(indent)    \(attribute.key)=\(attribute.value)")
                 }
                 for event in span.events {
-                    lines.append("\(indent)    \(event.kind == .decision ? "◆" : "·") \(event.message)")
+                    let message = event.kind == .decision ? decisionWords(event.message) : event.message
+                    lines.append("\(indent)    \(event.kind == .decision ? "◆" : "·") \(message)")
                 }
                 if let model = span.model {
                     for item in model.items {
@@ -209,7 +210,11 @@ enum AskTraceFormatter {
             lines.append(StoryLine(title: "Skill", text: skill))
         }
         if let via = lastAttribute("routedVia", in: turn) {
-            lines.append(StoryLine(title: "Routed via", text: routeWords(via)))
+            lines.append(StoryLine(title: "Routed via", text: routeSentence(via)))
+        }
+        lines.append(StoryLine(title: "Model calls", text: modelCallLine(in: turn)))
+        if let sent = sentQuestion(in: turn), sent != turn.question.trimmingCharacters(in: .whitespacesAndNewlines) {
+            lines.append(StoryLine(title: "Sent to the model", text: sent))
         }
         lines.append(StoryLine(
             title: "They heard",
@@ -221,7 +226,7 @@ enum AskTraceFormatter {
             text: cards.isEmpty ? "No snippet card." : "",
             cards: cards
         ))
-        for decision in decisionMessages(in: turn) {
+        for decision in storyDecisions(in: turn) {
             lines.append(StoryLine(title: "Why this path", text: decision))
         }
         lines.append(StoryLine(title: "How long", text: howLong(for: turn)))
@@ -246,12 +251,40 @@ enum AskTraceFormatter {
     static func routeWords(_ raw: String) -> String {
         switch raw {
         case "chip": return "Suggestion chip"
-        case "fastPath": return "Fast path"
+        case "fastPath": return "Router skipped"
         case "model": return "On-device model"
         case "fallback": return "Fallback"
         case "capabilities": return "Capabilities"
         case "guardrail": return "Guardrail"
         default: return raw
+        }
+    }
+
+    /// Story wording. A fast path still leaves room for a specialist model call.
+    static func routeSentence(_ raw: String) -> String {
+        switch raw {
+        case "fastPath":
+            return "Router skipped. The skill was chosen without a router model."
+        case "model":
+            return "A router model chose the skill."
+        case "chip":
+            return "A suggestion chip chose the skill."
+        case "fallback":
+            return "Routing failed, so the fallback skill was used."
+        case "capabilities":
+            return "The question asked what the assistant can do."
+        case "guardrail":
+            return "The router was blocked, so the capabilities reply was used."
+        default:
+            return raw
+        }
+    }
+
+    static func decisionWords(_ message: String) -> String {
+        switch message {
+        case "fast path": return "Router skipped"
+        case "joined to the previous question": return "Joined onto the previous question"
+        default: return message
         }
     }
 
@@ -277,6 +310,45 @@ enum AskTraceFormatter {
         turn.spans.flatMap { span in
             span.events.filter { $0.kind == .decision }.map(\.message)
         }
+    }
+
+    /// The route line already says the router was skipped, so that decision is not repeated.
+    private static func storyDecisions(in turn: AskTraceTurn) -> [String] {
+        decisionMessages(in: turn).compactMap { message in
+            guard message != "fast path" else { return nil }
+            return decisionWords(message)
+        }
+    }
+
+    private static func modelCallLine(in turn: AskTraceTurn) -> String {
+        let names = turn.spans.filter { $0.kind == .model }.map(\.name)
+        return names.isEmpty ? "No model call." : names.joined(separator: "\n")
+    }
+
+    /// The question the specialist received. A follow-up keeps the previous question in front.
+    private static func sentQuestion(in turn: AskTraceTurn) -> String? {
+        if let recorded = firstAttribute("promptQuestion", in: turn) {
+            return recorded
+        }
+        for span in turn.spans {
+            guard let items = span.model?.items else { continue }
+            for item in items where item.kind == .prompt {
+                if let question = questionBlock(in: item.text) {
+                    return question
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func questionBlock(in prompt: String) -> String? {
+        let marker = "QUESTION\n"
+        guard let start = prompt.range(of: marker) else { return nil }
+        let rest = prompt[start.upperBound...]
+        let end = rest.range(of: "\n\n")
+        let block = end.map { String(rest[..<$0.lowerBound]) } ?? String(rest)
+        let text = block.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     private static func howLong(for turn: AskTraceTurn) -> String {

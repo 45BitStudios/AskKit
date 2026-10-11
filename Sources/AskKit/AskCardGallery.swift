@@ -219,7 +219,7 @@ enum AskCardSamples {
             section("Heart rate", "Sample line.", health(.heart, "Heart rate: 72 bpm")),
             section("Song", "A song search, or what is playing.", apple("music", [songLine], "Anti-Hero by Taylor Swift.")),
             section("Album", "An album search.", apple("music", [albumLine], "Abbey Road by The Beatles.")),
-            section("Daily forecast", "One card per day.", weather([dayLine], hours: false)),
+            section("Daily forecast", "A week stays on one card.", weather([dayLine], hours: false)),
             section("Hourly forecast", "Hours stay on that day.", weather(hourlyLines, hours: true)),
             section("Music unavailable", "The fact card when Music is off.", apple("music", ["Not allowed."], "Not allowed.")),
             section("Nothing playing", "", apple("music", ["Nothing is playing."], "Nothing is playing.")),

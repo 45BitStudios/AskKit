@@ -2,6 +2,7 @@ import AppIntents
 import Foundation
 import MusicKit
 import SwiftUI
+import UIKit
 
 /// What a music question is asking for. Tests use this so they do not open MusicKit.
 enum AskMusicQuery {
@@ -22,16 +23,21 @@ enum AskMusicQuery {
     struct Request: Equatable, Sendable {
         var kind: Kind
         var term: String
+        /// How many recently played songs to show. The last song stays 1. A listening list uses ``limit``.
+        var historyLimit: Int = 1
+        /// Days back for a listening list. Nil keeps the most recent songs and does not claim a week.
+        var historyDays: Int? = nil
     }
 
     /// A title stays a search. "What is playing" stays on the current song. "Last played" is the recent song.
+    /// Songs the person listened to, including top songs and the past week, stay on play history.
     static func request(in question: String) -> Request {
         let tokens = AskAppleCopy.foldedTokens(question)
         let folded = AskAppleCopy.folded(question)
         let album = tokens.contains("album") || tokens.contains("albums")
         let playlist = tokens.contains("playlist") || tokens.contains("playlists")
-        if isRecent(folded), !album, !playlist {
-            return Request(kind: .recent, term: "")
+        if !album, !playlist, let history = listeningRequest(in: folded) {
+            return history
         }
         if isPause(folded, tokens: tokens) {
             return Request(kind: .pause, term: "")
@@ -113,6 +119,88 @@ enum AskMusicQuery {
             || folded.localizedStandardContains("play history")
     }
 
+    /// Play history for songs the person listened to. A named title stays a catalog search.
+    private static func listeningRequest(in folded: String) -> Request? {
+        let recent = isRecent(folded)
+        guard recent || isOwnListening(folded) else { return nil }
+        if !recent, namesACatalogTitle(folded) { return nil }
+        let tokens = AskAppleCopy.foldedTokens(folded)
+        let plural = tokens.contains("songs") || tokens.contains("tracks")
+        let days = historyDays(in: folded)
+        let list = plural || (!recent && (days != nil || folded.localizedStandardContains("most played") || folded.localizedStandardContains("top song")))
+        return Request(
+            kind: .recent,
+            term: "",
+            historyLimit: list ? limit : 1,
+            historyDays: list ? days : nil
+        )
+    }
+
+    /// The person is asking about their own listening, not a catalog title.
+    private static func isOwnListening(_ folded: String) -> Bool {
+        if isRecent(folded) { return true }
+        if namesACatalogTitle(folded) { return false }
+        if personalListening(folded) { return true }
+        return historyDays(in: folded) != nil && mentionsMusic(folded)
+    }
+
+    private static func personalListening(_ folded: String) -> Bool {
+        let phrases = [
+            "listened to", "i listened", "i've listened", "i’ve listened", "ive listened",
+            "been listening", "was listening", "listening history", "most played",
+            "my top song", "my top songs", "top songs i", "top song i",
+            "what i played", "what i play"
+        ]
+        return phrases.contains { folded.localizedStandardContains($0) }
+    }
+
+    private static func mentionsMusic(_ folded: String) -> Bool {
+        let tokens = AskAppleCopy.foldedTokens(folded)
+        return tokens.contains("song") || tokens.contains("songs")
+            || tokens.contains("music") || tokens.contains("track") || tokens.contains("tracks")
+    }
+
+    /// A week, month, today, or yesterday named in the question. "Last played" has no window.
+    static func historyDays(in folded: String) -> Int? {
+        if folded.localizedStandardContains("past week")
+            || folded.localizedStandardContains("last week")
+            || folded.localizedStandardContains("this week") {
+            return 7
+        }
+        if folded.localizedStandardContains("past month")
+            || folded.localizedStandardContains("last month")
+            || folded.localizedStandardContains("this month") {
+            return 30
+        }
+        if folded.localizedStandardContains("yesterday") { return 2 }
+        if folded.localizedStandardContains("today") { return 1 }
+        return nil
+    }
+
+    /// Indexes inside the window. Nil when every date is missing, so the caller keeps recency and does not claim the window.
+    static func recentIndexes(dates: [Date?], days: Int, now: Date) -> [Int]? {
+        guard dates.contains(where: { $0 != nil }) else { return nil }
+        let cutoff = now.addingTimeInterval(-Double(days) * 24 * 60 * 60)
+        return dates.indices.filter { index in
+            guard let played = dates[index] else { return false }
+            return played >= cutoff
+        }
+    }
+
+    /// True when a catalog title remains after the listening words are removed.
+    private static func namesACatalogTitle(_ folded: String) -> Bool {
+        let title = AskAppleCopy.foldedTokens(folded).filter { token in
+            token.count > 1 && !skip.contains(token) && !historyWords.contains(token)
+        }
+        return !title.isEmpty
+    }
+
+    private static let historyWords: Set<String> = [
+        "top", "tops", "past", "week", "weeks", "month", "months", "today", "yesterday",
+        "most", "listen", "listening", "during", "over", "these", "those", "ve", "ive",
+        "im", "been", "time", "times", "channel", "channels", "heavy", "rotation", "in"
+    ]
+
     /// Pause, or stop while music is playing. A bare stop stays a search.
     private static func isPause(_ folded: String, tokens: [String]) -> Bool {
         if tokens.contains("pause") { return true }
@@ -147,7 +235,12 @@ enum AskMusicQuery {
             if lines.isEmpty { return true }
             return items.isEmpty
         case .recent:
-            return !lines.contains { plain($0).hasPrefix("Recent:") }
+            if request.historyDays != nil {
+                return !lines.contains { plain($0).hasPrefix("History:") }
+            }
+            let recentCount = lines.filter { plain($0).hasPrefix("Recent:") }.count
+            if request.historyLimit > 1 { return recentCount < request.historyLimit }
+            return recentCount == 0
         case .song:
             return !items.contains { $0.kind == .song }
         case .album:
@@ -167,6 +260,11 @@ enum AskMusicQuery {
         AskAppleCopy.denied,
         "Nothing is playing.",
         "Nothing was played recently.",
+        "Nothing was played in the past week.",
+        "Nothing was played in the past month.",
+        "Nothing was played today.",
+        "Nothing was played yesterday.",
+        "Nothing was played in that time.",
         "No matching songs.",
         "No matching albums.",
         "No matching playlists.",
@@ -196,6 +294,8 @@ enum AskMusicLine {
         var artist: String
         var detail: String
         var extra: String
+        /// Cover address. Share text, the poster, and speech leave it off.
+        var artwork: String = ""
 
         /// Words for Copy, Share, and the trace picture. The spoken rewrite stays off this text.
         var shareText: String {
@@ -215,7 +315,13 @@ enum AskMusicLine {
         }
     }
 
-    static func songLine(title: String, artist: String, album: String?, duration: TimeInterval?) -> String {
+    static func songLine(
+        title: String,
+        artist: String,
+        album: String?,
+        duration: TimeInterval?,
+        artwork: String = ""
+    ) -> String {
         let name = clean(title)
         guard !name.isEmpty else { return "Nothing is playing." }
         var parts = [name]
@@ -231,17 +337,23 @@ enum AskMusicLine {
         if !length.isEmpty {
             parts.append(length)
         }
-        return "Song: " + parts.joined(separator: " · ")
+        return finished("Song:", parts, artwork: artwork)
     }
 
     /// The last song that played. The prefix keeps it distinct from the song in the queue.
-    static func recentLine(title: String, artist: String, album: String?, duration: TimeInterval?) -> String {
-        let song = songLine(title: title, artist: artist, album: album, duration: duration)
+    static func recentLine(
+        title: String,
+        artist: String,
+        album: String?,
+        duration: TimeInterval?,
+        artwork: String = ""
+    ) -> String {
+        let song = songLine(title: title, artist: artist, album: album, duration: duration, artwork: artwork)
         guard let rest = song.dropPrefix("Song:") else { return "Nothing was played recently." }
         return "Recent: " + rest
     }
 
-    static func albumLine(title: String, artist: String, songs: Int, year: String) -> String {
+    static func albumLine(title: String, artist: String, songs: Int, year: String, artwork: String = "") -> String {
         let name = clean(title)
         guard !name.isEmpty else { return "No matching albums." }
         var parts = [name]
@@ -257,10 +369,10 @@ enum AskMusicLine {
         if !released.isEmpty {
             parts.append(released)
         }
-        return "Album: " + parts.joined(separator: " · ")
+        return finished("Album:", parts, artwork: artwork)
     }
 
-    static func playlistLine(title: String, curator: String, songs: Int) -> String {
+    static func playlistLine(title: String, curator: String, songs: Int, artwork: String = "") -> String {
         let name = clean(title)
         guard !name.isEmpty else { return "No matching playlists." }
         var parts = [name]
@@ -272,7 +384,15 @@ enum AskMusicLine {
         if songs > 0 {
             parts.append(count)
         }
-        return "Playlist: " + parts.joined(separator: " · ")
+        return finished("Playlist:", parts, artwork: artwork)
+    }
+
+    /// What the model may say. The cover address stays on the stored line for the card.
+    static func forModel(_ output: String) -> String {
+        output
+            .split(whereSeparator: \.isNewline)
+            .map { withoutArtwork(String($0)) }
+            .joined(separator: "\n")
     }
 
     static func item(from line: String) -> Item? {
@@ -291,16 +411,22 @@ enum AskMusicLine {
         } else {
             return nil
         }
-        let parts = rest.split(separator: "·").map {
+        var parts = rest.split(separator: "·").map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }.filter { !$0.isEmpty }
         guard let title = parts.first, !title.isEmpty else { return nil }
+        var artwork = ""
+        if parts.count > 1, let last = parts.last, isCoverAddress(last) {
+            artwork = last.replacingOccurrences(of: "%3D", with: "=")
+            parts.removeLast()
+        }
         return Item(
             kind: kind,
             title: title,
             artist: parts.count > 1 ? parts[1] : "",
             detail: parts.count > 2 ? parts[2] : "",
-            extra: parts.count > 3 ? parts[3] : ""
+            extra: parts.count > 3 ? parts[3] : "",
+            artwork: artwork
         )
     }
 
@@ -310,7 +436,9 @@ enum AskMusicLine {
         guard let first = items.first else { return nil }
         let who = first.artist.isEmpty ? first.title : "\(first.title) by \(first.artist)"
         let recent = lines.contains { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("Recent:") }
+        let window = historyWindow(in: lines)
         if items.count == 1 {
+            if let window { return "Played \(window): \(who)." }
             if recent { return "Last played was \(who)." }
             return who.hasSuffix(".") ? who : who + "."
         }
@@ -319,7 +447,26 @@ enum AskMusicLine {
         case .playlist: "playlists"
         case .song: "songs"
         }
+        if recent {
+            return "\(items.count) \(noun) played \(window ?? "recently"). \(who)."
+        }
         return "\(items.count) \(noun). \(who)."
+    }
+
+    /// The window marker written beside recent lines. Cards ignore it.
+    private static func historyWindow(in lines: [String]) -> String? {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let suffix = trimmed.dropPrefix("History:") else { continue }
+            switch suffix.trimmingCharacters(in: .whitespacesAndNewlines) {
+            case "7": return "in the past week"
+            case "30": return "in the past month"
+            case "1": return "today"
+            case "2": return "yesterday"
+            default: return "recently"
+            }
+        }
+        return nil
     }
 
     static func clock(_ interval: TimeInterval) -> String? {
@@ -337,6 +484,70 @@ enum AskMusicLine {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// `=` is stored as `%3D`. The reply check rejects a raw equals sign, and clean() would turn it into a space.
+    static func storedArtwork(_ address: String) -> String {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("https://"),
+              trimmed.count <= 800,
+              !trimmed.contains(where: { $0.isWhitespace || $0.isNewline || $0 == "·" }) else { return "" }
+        return trimmed.replacingOccurrences(of: "=", with: "%3D")
+    }
+
+    /// An Apple cover address. Other hosts stay off the card.
+    static func coverURL(_ stored: String) -> URL? {
+        let restored = stored.replacingOccurrences(of: "%3D", with: "=")
+        guard !restored.contains(where: { $0.isWhitespace || $0.isNewline }),
+              let url = URL(string: restored),
+              url.scheme?.lowercased() == "https",
+              url.user == nil,
+              let host = url.host?.lowercased(),
+              isArtworkHost(host) else { return nil }
+        return url
+    }
+
+    /// Image bytes for a cover address. Nil when the response is not a small https image.
+    static func imageData(_ stored: String) async -> Data? {
+        guard let url = coverURL(stored) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.setValue("AskKit", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            guard let final = response.url, coverURL(final.absoluteString) != nil else { return nil }
+            guard data.count > 32, data.count <= 3_000_000 else { return nil }
+            return data
+        } catch {
+            return nil
+        }
+    }
+
+    private static func finished(_ label: String, _ parts: [String], artwork: String) -> String {
+        var parts = parts
+        let address = storedArtwork(artwork)
+        if !address.isEmpty {
+            parts.append(address)
+        }
+        return label + " " + parts.joined(separator: " · ")
+    }
+
+    private static func withoutArtwork(_ line: String) -> String {
+        let parts = line.split(separator: "·", omittingEmptySubsequences: false)
+        guard parts.count > 1,
+              let last = parts.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isCoverAddress(last) else { return line }
+        return parts.dropLast().map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " · ")
+    }
+
+    private static func isCoverAddress(_ text: some StringProtocol) -> Bool {
+        text.hasPrefix("https://") || text.hasPrefix("http://")
+    }
+
+    private static func isArtworkHost(_ host: String) -> Bool {
+        host == "mzstatic.com" || host.hasSuffix(".mzstatic.com")
+            || host == "apple.com" || host.hasSuffix(".apple.com")
+    }
 }
 
 /// Song and album search, plus the song that is playing. A denial stays "Not allowed."
@@ -348,7 +559,7 @@ enum AskMusicRead {
         case .now:
             return await MainActor.run { nowPlaying() }
         case .recent:
-            return await recentlyPlayed()
+            return await recentlyPlayed(limit: request.historyLimit, days: request.historyDays)
         case .song:
             return await catalog(term: request.term, album: false)
         case .album:
@@ -396,14 +607,16 @@ enum AskMusicRead {
                     title: song.title,
                     artist: song.artistName,
                     album: song.albumTitle,
-                    duration: song.duration
+                    duration: song.duration,
+                    artwork: cover(song.artwork)
                 )
             case .musicVideo(let video):
                 return AskMusicLine.songLine(
                     title: video.title,
                     artist: video.artistName,
                     album: nil,
-                    duration: video.duration
+                    duration: video.duration,
+                    artwork: cover(video.artwork)
                 )
             @unknown default:
                 break
@@ -414,21 +627,49 @@ enum AskMusicRead {
         return AskMusicLine.songLine(title: title, artist: entry.subtitle ?? "", album: nil, duration: nil)
     }
 
-    /// The most recent song in the person's play history. The queue's current entry is not a substitute.
-    private static func recentlyPlayed() async -> String {
+    /// Play history. One song for the last track. A list keeps songs inside the asked window when the dates are present.
+    private static func recentlyPlayed(limit: Int, days: Int?) async -> String {
         do {
             var request = MusicRecentlyPlayedRequest<Song>()
-            request.limit = 1
+            let capped = min(max(limit, 1), AskMusicQuery.limit)
+            request.limit = days == nil ? capped : historyFetchLimit
             let response = try await request.response()
-            guard let song = response.items.first else { return "Nothing was played recently." }
-            return AskMusicLine.recentLine(
-                title: song.title,
-                artist: song.artistName,
-                album: song.albumTitle,
-                duration: song.duration
-            )
+            var songs = Array(response.items.prefix(request.limit ?? historyFetchLimit))
+            if songs.isEmpty { return "Nothing was played recently." }
+            var window: Int?
+            if let days, let indexes = AskMusicQuery.recentIndexes(dates: songs.map(\.lastPlayedDate), days: days, now: Date()) {
+                if indexes.isEmpty { return emptyHistory(days: days) }
+                songs = indexes.map { songs[$0] }
+                window = days
+            }
+            let lines = songs.prefix(capped).map { song in
+                AskMusicLine.recentLine(
+                    title: song.title,
+                    artist: song.artistName,
+                    album: song.albumTitle,
+                    duration: song.duration,
+                    artwork: cover(song.artwork)
+                )
+            }
+            var text = lines.joined(separator: "\n")
+            if let window {
+                text += "\nHistory: \(window)"
+            }
+            return text
         } catch {
             return "Music isn't available."
+        }
+    }
+
+    private static let historyFetchLimit = 30
+
+    private static func emptyHistory(days: Int) -> String {
+        switch days {
+        case 7: "Nothing was played in the past week."
+        case 30: "Nothing was played in the past month."
+        case 1: "Nothing was played today."
+        case 2: "Nothing was played yesterday."
+        default: "Nothing was played in that time."
         }
     }
 
@@ -448,7 +689,8 @@ enum AskMusicRead {
                         title: item.title,
                         artist: item.artistName,
                         songs: item.trackCount,
-                        year: year(item.releaseDate)
+                        year: year(item.releaseDate),
+                        artwork: cover(item.artwork)
                     ))
                 }
                 return lines.isEmpty ? "No matching albums." : lines.joined(separator: "\n")
@@ -460,7 +702,8 @@ enum AskMusicRead {
                     title: item.title,
                     artist: item.artistName,
                     album: item.albumTitle,
-                    duration: item.duration
+                    duration: item.duration,
+                    artwork: cover(item.artwork)
                 ))
             }
             return lines.isEmpty ? "No matching songs." : lines.joined(separator: "\n")
@@ -482,7 +725,8 @@ enum AskMusicRead {
                 lines.append(AskMusicLine.playlistLine(
                     title: item.name,
                     curator: item.curatorName ?? "",
-                    songs: 0
+                    songs: 0,
+                    artwork: cover(item.artwork)
                 ))
             }
             return lines.isEmpty ? "No matching playlists." : lines.joined(separator: "\n")
@@ -494,6 +738,10 @@ enum AskMusicRead {
     private static func year(_ date: Date?) -> String {
         guard let date else { return "" }
         return String(Calendar.current.component(.year, from: date))
+    }
+
+    private static func cover(_ artwork: Artwork?) -> String {
+        artwork?.url(width: 300, height: 300)?.absoluteString ?? ""
     }
 
     /// Plays one catalog song, album, or playlist. The card calls this. Tests do not.
@@ -771,6 +1019,8 @@ struct AskMusicPlayTap: AppIntent {
 struct AskMusicCard: View {
     var item: AskMusicLine.Item
 
+    @State private var cover: UIImage?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
@@ -778,10 +1028,19 @@ struct AskMusicCard: View {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(plate)
                         .frame(width: 76, height: 76)
-                    Image(systemName: badgeSymbol)
-                        .font(.title)
-                        .foregroundStyle(.white)
-                        .accessibilityHidden(true)
+                    if let cover {
+                        Image(uiImage: cover)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 76, height: 76)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .accessibilityHidden(true)
+                    } else {
+                        Image(systemName: badgeSymbol)
+                            .font(.title)
+                            .foregroundStyle(.white)
+                            .accessibilityHidden(true)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
@@ -820,6 +1079,16 @@ struct AskMusicCard: View {
         }
         .askCardSurface(tint: accent)
         .accessibilityElement(children: .contain)
+        .task(id: item.artwork) {
+            await loadCover()
+        }
+    }
+
+    private func loadCover() async {
+        cover = nil
+        guard let data = await AskMusicLine.imageData(item.artwork) else { return }
+        guard !Task.isCancelled, let image = UIImage(data: data) else { return }
+        cover = image
     }
 
     private var badgeTitle: String {

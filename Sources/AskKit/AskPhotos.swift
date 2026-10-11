@@ -30,7 +30,8 @@ public enum AskPhotos {
     and similarTo for photos visually like another local photo id. \
     Say how many matches it found and name a few. \
     If a line says photos were indexed first, you may mention that briefly. \
-    If it says Not allowed, say you cannot see the photo library. Do not invent photos.
+    If it says Not allowed, say you cannot see the photo library. Do not invent photos. \
+    Answer this question only. Do not repeat a song, an album, or anything from earlier in the chat.
     """
 
     /// A library-search question. Attached-photo questions such as "where was this photo taken" stay off.
@@ -395,6 +396,21 @@ enum AskPhotosQuery {
         request.limit = capped
         request.sortDescending = newestFirst ?? true
         return request
+    }
+
+    /// A library search built only from the question. Used when the model never called the tool.
+    static func fromQuestion(_ question: String) -> PhotoQueryRequest {
+        enrich(PhotoQueryRequest(), question: question)
+    }
+
+    /// List album titles. A photo search that names an album stays a search.
+    static func listsAlbums(_ question: String) -> Bool {
+        let tokens = Set(AskAppleCopy.foldedTokens(question))
+        if tokens.contains("music") { return false }
+        if tokens.contains(where: { ["photo", "photos", "picture", "pictures", "image", "images"].contains($0) }) {
+            return false
+        }
+        return tokens.contains("album") || tokens.contains("albums")
     }
 
     /// Fills gaps the model left empty from the question text.

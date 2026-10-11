@@ -33,7 +33,7 @@ enum OpenSample {
         For a reminder list, say how many are open. Do not list each title. The card lists them.
         If a tool says Not allowed, say you cannot see that.
         Do not invent a calendar event, a reminder, a contact, a place, a health reading, a song, an album, a forecast, or an alarm.
-        For a forecast, pass span hourly or span daily to the weather tool, and the city when one is named. For a song or an album, pass the title to the music tool. Pass recent for the last song played, and now only for what is playing.
+        For a forecast, pass span hourly or span daily to the weather tool, and the city when one is named. For a song or an album, pass the title to the music tool. Pass recent for the last song played, and for songs the person listened to, including top songs and the past week. Pass now only for what is playing.
         Do not say an event, a reminder, or an alarm was added unless the tool line starts with Added.
         To set alarms, call the alarms tool once with every alarm. Pass a label, an SF Symbol, and an action id when the person wants a custom button.
         A different day needs its own calendar call. Say the weekday and date the tool returned. Do not copy an event from earlier in the chat.
