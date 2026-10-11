@@ -229,7 +229,7 @@ struct AskCalendarCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 AskCardBadge(title: "Calendar", symbol: "calendar", tint: .red)
             }
-            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+            ForEach(groups, id: \.day) { group in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(group.day)
                         .font(.subheadline.weight(.semibold))
