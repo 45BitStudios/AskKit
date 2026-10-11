@@ -647,7 +647,7 @@ enum AskMusicRead {
 }
 
 /// Song or album. Raw values stay stable for a saved shortcut.
-public enum AskMusicKind: String, AppEnum, Sendable {
+public enum AskMusicKind: String, AppEnum, Sendable, Equatable {
     case song = "song"
     case album = "album"
     case playlist = "playlist"

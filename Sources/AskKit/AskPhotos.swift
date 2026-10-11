@@ -272,7 +272,8 @@ final class AskPhotosIndexState: @unchecked Sendable {
 enum AskPhotosFocus {
     static func matches(_ question: String) -> Bool {
         let folded = AskAppleCopy.folded(question)
-        let tokens = Set(AskAppleCopy.foldedTokens(question))
+        let tokenList = AskAppleCopy.foldedTokens(question)
+        let tokens = Set(tokenList)
         if phrases.contains(where: { folded.localizedStandardContains($0) }) { return true }
         if tokens.contains(where: { libraryWords.contains($0) }) { return true }
         if tokens.contains("screenshots") || tokens.contains("screenshot") { return true }
@@ -283,10 +284,27 @@ enum AskPhotosFocus {
         // "photos of dogs", "pictures from June", "photos near 37.3, -122.0"
         if tokens.contains(where: { pictureWords.contains($0) }) {
             if AskPhotosQuery.coordinates(in: folded) != nil { return true }
-            return tokens.contains("of") || tokens.contains("from") || tokens.contains("in")
+            if tokens.contains("of") || tokens.contains("from") || tokens.contains("in")
                 || tokens.contains("near") || tokens.contains("around")
                 || tokens.contains("wider") || tokens.contains("taller")
-                || tokens.contains("album") || tokens.contains("library")
+                || tokens.contains("album") || tokens.contains("library") {
+                return true
+            }
+            // "What photos did I take yesterday?" is the library. "Where was this photo taken?" is an attachment.
+            if !pointsAtAttachment(tokenList) {
+                if tokens.contains(where: { captureWords.contains($0) }) { return true }
+                if tokens.contains(where: { AskAppleCopy.dayWords.contains($0) }) { return true }
+            }
+        }
+        return false
+    }
+
+    /// "this photo" points at an attachment. "this morning" does not.
+    private static func pointsAtAttachment(_ tokens: [String]) -> Bool {
+        for index in tokens.indices.dropLast() {
+            if demonstratives.contains(tokens[index]), pictureWords.contains(tokens[index + 1]) {
+                return true
+            }
         }
         return false
     }
@@ -309,6 +327,14 @@ enum AskPhotosFocus {
 
     private static let pictureWords: Set<String> = [
         "photo", "photos", "picture", "pictures", "image", "images"
+    ]
+
+    private static let captureWords: Set<String> = [
+        "take", "took", "taken", "taking"
+    ]
+
+    private static let demonstratives: Set<String> = [
+        "this", "that", "these", "those"
     ]
 }
 
@@ -431,6 +457,11 @@ enum AskPhotosQuery {
             }
         }
 
+        if let window = takenDay(in: question) {
+            next.startDate = window.start
+            next.endDate = window.end.addingTimeInterval(-1)
+        }
+
         if next.minWidth == nil, let px = pixelSize(in: folded) {
             if folded.contains("wider") || folded.contains("width") {
                 next.minWidth = px
@@ -466,6 +497,17 @@ enum AskPhotosQuery {
             next.limit = defaultLimit
         }
         return next
+    }
+
+    /// Yesterday, today, tonight, or tomorrow as one calendar day. Nil for any other wording.
+    static func takenDay(in question: String, now: Date = Date(), calendar: Calendar = .current) -> AskCalendarWindow? {
+        let tokens = Set(AskAppleCopy.foldedTokens(question))
+        guard tokens.contains(where: { ["yesterday", "today", "tonight", "tomorrow"].contains($0) }),
+              let offset = AskCalendarWindow.offset(namedIn: question, now: now, calendar: calendar),
+              (-1...1).contains(offset) else {
+            return nil
+        }
+        return AskCalendarWindow.day(offset: offset, now: now, calendar: calendar)
     }
 
     /// Latitude and longitude from text such as `37.3349, -122.0090` or `lat 37.33 lon -122.01`.
@@ -794,7 +836,15 @@ enum AskPhotosRead {
 
 struct AskPhotosTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
+    /// The question for this turn. Empty until the session stamps it.
+    var question = ""
     let name = AskPhotos.toolName
+
+    static func stamped(_ tool: any Tool, question: String) -> any Tool {
+        guard var photos = tool as? AskPhotosTool else { return tool }
+        photos.question = question
+        return photos
+    }
     let description = """
     Search the photo library, or list albums. Pass action search or albums. \
     For search, pass mediaType image, video, livePhoto, or any. \
@@ -825,7 +875,7 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         var minHeight: Int?
         @Guide(description: "Maximum pixel height. Leave empty when unused.", .range(1...20_000))
         var maxHeight: Int?
-        @Guide(description: "How many days back to start. 7 is last week. 30 is last month. Leave empty for any time.", .range(0...3_650))
+        @Guide(description: "How many days back to start. 7 is last week. 30 is last month. Leave empty for any time. Yesterday, today, and tomorrow are filled from the question.", .range(0...3_650))
         var daysAgo: Int?
         @Guide(description: "How many days back the range ends. Leave empty for now.", .range(0...3_650))
         var throughDaysAgo: Int?
@@ -864,7 +914,7 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
                 await AskPhotosRead.albums()
             }
         }
-        let request = AskPhotosQuery.request(
+        let built = AskPhotosQuery.request(
             mediaType: arguments.mediaType,
             minWidth: arguments.minWidth,
             maxWidth: arguments.maxWidth,
@@ -886,6 +936,7 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
             similarTo: arguments.similarTo,
             limit: arguments.limit
         )
+        let request = question.isEmpty ? built : AskPhotosQuery.enrich(built, question: question)
         let label = summary(request)
         return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: label) {
             await AskPhotosRead.lines(request)

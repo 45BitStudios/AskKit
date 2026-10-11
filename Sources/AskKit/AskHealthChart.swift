@@ -385,6 +385,8 @@ struct AskHealthChartCard: View {
     @State private var opened = Date()
     @State private var cardID = UUID()
     @State private var pinned: AskHealthRange?
+    /// The range this card is showing after a tap. Local so the chart moves even when another card holds the shared claim.
+    @State private var picked: AskHealthRange?
     @State private var snapshot: AskHealthSeriesSnapshot?
     @State private var loadedRange: AskHealthRange?
     /// Held so Day/Week/Month/Year taps invalidate this card when the shared store changes.
@@ -397,7 +399,7 @@ struct AskHealthChartCard: View {
         let active = ranges.activeID(for: metric.key) == cardID
         let choice = ranges.choices[metric.key]
         let live = AskHealthChartModel.follows(choice: choice, opened: opened, active: active)
-        let range = prepared?.range ?? live ?? (active ? initial : (pinned ?? initial))
+        let range = prepared?.range ?? picked ?? live ?? (active ? initial : (pinned ?? initial))
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 AskHealthFigure(text: headline(for: range), color: AskHealthColor.color(for: metric))
@@ -408,7 +410,10 @@ struct AskHealthChartCard: View {
                     tint: AskHealthColor.color(for: metric)
                 )
             }
-            AskHealthRangeControl(metric: metric, selected: range)
+            AskHealthRangeControl(metric: metric, selected: range) { item in
+                picked = item
+                ranges.select(metric: metric.key, range: item)
+            }
             AskHealthChartPlot(
                 metric: metric,
                 range: prepared?.range ?? loadedRange ?? range,
@@ -476,6 +481,7 @@ struct AskHealthChartCard: View {
 private struct AskHealthRangeControl: View {
     var metric: AskHealthCatalog.Metric
     var selected: AskHealthRange
+    var onSelect: (AskHealthRange) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var selection
@@ -487,7 +493,8 @@ private struct AskHealthRangeControl: View {
                     metric: metric,
                     range: item,
                     selected: item == selected,
-                    selection: selection
+                    selection: selection,
+                    onSelect: onSelect
                 )
             }
         }
@@ -503,26 +510,49 @@ private struct AskHealthRangeButton: View {
     var range: AskHealthRange
     var selected: Bool
     var selection: Namespace.ID
+    var onSelect: (AskHealthRange) -> Void
+
+    @Environment(\.askSnippet) private var snippet
 
     var body: some View {
-        Button(intent: AskHealthRangeTap(measurement: metric.measurement, range: range)) {
-            Text(range.controlTitle)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background {
-                    if selected {
-                        Capsule()
-                            .fill(.background)
-                            .matchedGeometryEffect(id: "health-range", in: selection)
-                    }
-                }
-                .contentShape(.rect)
+        control
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private var control: some View {
+        if snippet.isSnippet {
+            Button(intent: AskHealthRangeTap(measurement: metric.measurement, range: range)) {
+                label
+            }
+        } else {
+            Button {
+                AskCue.tap()
+                onSelect(range)
+            } label: {
+                label
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var label: some View {
+        Text(range.controlTitle)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background {
+                if selected {
+                    Capsule()
+                        .fill(.background)
+                        // The pill is drawn over the row. Leaving it hittable swallows Week, Month, and Year.
+                        .allowsHitTesting(false)
+                        .matchedGeometryEffect(id: "health-range", in: selection)
+                }
+            }
+            .contentShape(.rect)
     }
 }
 

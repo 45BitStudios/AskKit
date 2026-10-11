@@ -42,6 +42,11 @@ public struct AskPlaceEntity: AppEntity, Sendable, Equatable {
     init(place: AskLocationPin.Place) {
         self.init(id: place.id, name: place.shortName.isEmpty ? place.label : place.shortName, latitude: place.latitude, longitude: place.longitude)
     }
+
+    /// `@Property` stores an `EntityProperty`, which is a class and is not `Equatable`.
+    public static func == (lhs: AskPlaceEntity, rhs: AskPlaceEntity) -> Bool {
+        lhs.id == rhs.id && lhs.name == rhs.name && lhs.latitude == rhs.latitude && lhs.longitude == rhs.longitude
+    }
 }
 
 extension AskPlaceEntity: Transferable {
@@ -91,6 +96,11 @@ public struct AskContactEntity: AppEntity, Sendable, Equatable {
 
     init(person: AskContactLine.Person) {
         self.init(name: person.name, phone: person.phone, email: person.email)
+    }
+
+    /// `@Property` stores an `EntityProperty`, which is a class and is not `Equatable`.
+    public static func == (lhs: AskContactEntity, rhs: AskContactEntity) -> Bool {
+        lhs.id == rhs.id && lhs.name == rhs.name && lhs.phone == rhs.phone && lhs.email == rhs.email
     }
 }
 
@@ -143,6 +153,11 @@ public struct AskMusicItemEntity: AppEntity, Sendable, Equatable {
 
     init(item: AskMusicLine.Item) {
         self.init(kind: item.musicKind, title: item.title, artist: item.artist)
+    }
+
+    /// `@Property` stores an `EntityProperty`, which is a class and is not `Equatable`.
+    public static func == (lhs: AskMusicItemEntity, rhs: AskMusicItemEntity) -> Bool {
+        lhs.id == rhs.id && lhs.kind == rhs.kind && lhs.itemTitle == rhs.itemTitle && lhs.artist == rhs.artist
     }
 }
 

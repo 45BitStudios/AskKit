@@ -102,7 +102,7 @@ enum AskComputeRuntime {
     }
 
     /// The model the next session should call. Records the resolved choice on the open trace span.
-    static func resolve() -> Resolved {
+    static func resolve() async -> Resolved {
         let onDevice = SystemLanguageModel.default
         let cloud = PrivateCloudComputeLanguageModel()
         let online = AskNetwork.isOnline
@@ -121,11 +121,18 @@ enum AskComputeRuntime {
         } else if case .unavailable(let reason) = cloud.availability {
             AskTrace.attribute("privateCloud", AskModelAvailability.cloud(reason))
         }
+        let contextSize: Int
+        switch choice {
+        case .onDevice:
+            contextSize = onDevice.contextSize
+        case .privateCloud:
+            contextSize = await AskReplyBudget.rememberPrivateCloudContextSize(cloud)
+        }
         let maxTokens = AskReplyBudget.generationTokenLimit()
         if let maxTokens {
             AskTrace.attribute("maxTokens", String(maxTokens))
         }
-        AskTrace.attribute("contextSize", String(choice == .onDevice ? onDevice.contextSize : cloud.contextSize))
+        AskTrace.attribute("contextSize", String(contextSize))
         switch choice {
         case .onDevice:
             return Resolved(model: onDevice, cloud: nil, maximumResponseTokens: maxTokens)
@@ -286,8 +293,8 @@ enum AskFoundationSessions {
     /// Each route, reply, and follow-up starts empty. Earlier turns stay in the
     /// CONVERSATION prompt. Replaying them as transcript entries would carry tool
     /// calls and reasoning signatures from one specialist into the next.
-    private static func routingSession(instructions: String, activity: AskProfileActivity) -> LanguageModelSession {
-        let resolved = AskComputeRuntime.resolve()
+    private static func routingSession(instructions: String, activity: AskProfileActivity) async -> LanguageModelSession {
+        let resolved = await AskComputeRuntime.resolve()
         return LanguageModelSession(
             profile: AskRoutingProfile(
                 instructions: instructions,
@@ -300,7 +307,7 @@ enum AskFoundationSessions {
     }
 
     static func routeDomain(_ request: AskModelRequest) async throws -> String {
-        let session = routingSession(instructions: request.instructions, activity: .choosing)
+        let session = await routingSession(instructions: request.instructions, activity: .choosing)
         let response = try await AskTrace.respond(session, label: "routeDomain", to: request.prompt, generating: AskDomainChoice.self)
         return response.content.domain
     }
@@ -323,7 +330,7 @@ enum AskFoundationSessions {
         }
         if tools.isEmpty {
             let writer = request.profileID == "writer"
-            let session = routingSession(instructions: request.instructions, activity: writer ? .writing : .quiet)
+            let session = await routingSession(instructions: request.instructions, activity: writer ? .writing : .quiet)
             let text = try await AskTrace.respondStream(
                 session,
                 label: writer ? "writer" : "writeReply",
@@ -334,7 +341,7 @@ enum AskFoundationSessions {
             )
             return AskWrittenReply(text: text, readings: AskToolTranscript.readings(in: session.transcript))
         }
-        let resolved = AskComputeRuntime.resolve()
+        let resolved = await AskComputeRuntime.resolve()
         let profileID = request.profileID.isEmpty ? "reply" : request.profileID
         let session = LanguageModelSession(
             profile: AskSkillProfile(
@@ -373,7 +380,7 @@ enum AskFoundationSessions {
     }
 
     static func offerFollowUp(_ request: AskModelRequest) async throws -> AskFollowUp {
-        let session = routingSession(instructions: request.instructions, activity: .quiet)
+        let session = await routingSession(instructions: request.instructions, activity: .quiet)
         let response = try await AskTrace.respond(
             session,
             label: "offerFollowUp",
@@ -384,14 +391,14 @@ enum AskFoundationSessions {
     }
 
     private static func skillChoice(_ request: AskModelRequest, label: String) async throws -> AskModelSkillChoice {
-        let session = routingSession(instructions: request.instructions, activity: .choosing)
+        let session = await routingSession(instructions: request.instructions, activity: .choosing)
         let response = try await AskTrace.respond(session, label: label, to: request.prompt, generating: AskSkillChoice.self)
         let slots = Dictionary(response.content.slots.map { ($0.key, $0.value) }, uniquingKeysWith: { _, latest in latest })
         return AskModelSkillChoice(skillID: response.content.skill, slots: slots, confidence: response.content.confidence)
     }
 
     static func fillSlots(_ request: AskModelRequest, tools: [any Tool]) async throws -> [String: String] {
-        let resolved = AskComputeRuntime.resolve()
+        let resolved = await AskComputeRuntime.resolve()
         let session = LanguageModelSession(
             profile: AskSkillProfile(
                 instructions: request.instructions,

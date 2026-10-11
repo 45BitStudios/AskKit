@@ -17,6 +17,10 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertTrue(AskPhotos.matches("Oldest photos first"))
         XCTAssertTrue(AskPhotos.matches("Find similar photos"))
         XCTAssertTrue(AskPhotos.matches("Show burst photos"))
+        XCTAssertTrue(AskPhotos.matches("What photos did I take yesterday?"))
+        XCTAssertTrue(AskPhotos.matches("Pictures I took today"))
+        XCTAssertTrue(AskPhotos.matches("yesterday's photos"))
+        XCTAssertTrue(AskPhotos.matches("What photos did I take this morning?"))
     }
 
     func testAttachedPhotoQuestionsStayOff() {
@@ -116,6 +120,34 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertEqual(AskPhotosLine.spoken([AskPhotosLine.denied]), AskPhotosLine.denied)
     }
 
+    func testEnrichUsesYesterdayAsThatCalendarDay() {
+        let question = "What photos did I take yesterday?"
+        let now = Date()
+        let calendar = Calendar.current
+        let request = AskPhotosQuery.enrich(blankRequest(daysAgo: 1), question: question)
+        let window = AskPhotosQuery.takenDay(in: question, now: now, calendar: calendar)
+        XCTAssertEqual(AskCalendarWindow.offset(namedIn: question, now: now, calendar: calendar), -1)
+        XCTAssertEqual(request.startDate, window?.start)
+        XCTAssertEqual(request.endDate, window?.end.addingTimeInterval(-1))
+        XCTAssertNil(AskPhotosQuery.takenDay(in: "Show photos of dogs", now: now, calendar: calendar))
+    }
+
+    func testYesterdayPhotosNameTheLibraryAndNotCalendar() {
+        XCTAssertEqual(
+            AskSourceFocus.named(in: "What photos did I take yesterday?"),
+            Set(["photos"])
+        )
+        XCTAssertEqual(
+            AskSourceFocus.named(in: "What photos did I take yesterday and what's on my calendar?"),
+            Set(["calendar", "photos"])
+        )
+        let choices = AskTurnSpecialists.appleChoices(
+            question: "What photos did I take yesterday?",
+            access: .calendar
+        )
+        XCTAssertTrue(choices.isEmpty)
+    }
+
     func testSpecialistIdentity() {
         let specialist = AskPhotos.specialist(id: "open.photos")
         XCTAssertEqual(specialist.id, "open.photos")
@@ -132,7 +164,8 @@ final class AskPhotosTests: XCTestCase {
                 "Found 2 screenshots.",
                 "IMG_0001.PNG · Oct 1, 2026 · 1170×2532"
             ]),
-            spoken: "Found 2 screenshots."
+            spoken: "Found 2 screenshots.",
+            custom: nil
         )
         XCTAssertEqual(card.title, "Photos")
         XCTAssertTrue(card.shareText.contains("Found 2 screenshots."))
@@ -194,6 +227,9 @@ final class AskPhotosTests: XCTestCase {
         longitude: Double? = nil,
         radiusMeters: Double? = nil,
         newestFirst: Bool? = nil,
+        burstIdentifier: String? = nil,
+        sourceType: String? = nil,
+        similarTo: String? = nil,
         limit: Int? = nil
     ) -> PhotoQueryRequest {
         AskPhotosQuery.request(
@@ -213,6 +249,9 @@ final class AskPhotosTests: XCTestCase {
             longitude: longitude,
             radiusMeters: radiusMeters,
             newestFirst: newestFirst,
+            burstIdentifier: burstIdentifier,
+            sourceType: sourceType,
+            similarTo: similarTo,
             limit: limit
         )
     }

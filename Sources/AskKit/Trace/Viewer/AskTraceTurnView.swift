@@ -157,7 +157,24 @@ struct AskTraceTurnView: View {
 private struct AskTraceSnippetCard: View {
     var card: AskTracePosterCard
 
+    private var lines: [String] {
+        card.body
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     var body: some View {
+        if card.title.caseInsensitiveCompare("Web") == .orderedSame,
+           AskWebMetadata.pageAddress(in: lines) != nil {
+            AskWebCard(lines: lines)
+        } else {
+            recorded
+        }
+    }
+
+    /// Title and text kept for a turn whose card has no page image.
+    private var recorded: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(card.title)
                 .font(.headline)

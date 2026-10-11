@@ -19,6 +19,11 @@ public struct AskReminderEntity: AppEntity, Sendable, Equatable {
         self.id = id
         self.title = title
     }
+
+    /// `@Property` stores an `EntityProperty`, which is a class and is not `Equatable`.
+    public static func == (lhs: AskReminderEntity, rhs: AskReminderEntity) -> Bool {
+        lhs.id == rhs.id && lhs.title == rhs.title
+    }
 }
 
 public struct AskReminderQuery: EntityQuery, EntityStringQuery {

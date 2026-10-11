@@ -1,6 +1,8 @@
 import Foundation
 import FoundationModels
 import LinkPresentation
+import SwiftUI
+import UIKit
 
 /// The title and summary of one web page. A question that contains an https address can use it.
 enum AskWebMetadata {
@@ -64,10 +66,44 @@ enum AskWebMetadata {
         guard let url = URL(string: trimmed), allowed(url) else { return missingAddress }
         let html = await pageHTML(url)
         var (title, summary) = text(in: html)
+        // The Page line is the card's lookup key. Image addresses stay out of the tool text.
+        let shown = clip(plain(url.absoluteString), 200)
+        await AskWebPictures.remember(pictures(in: html, page: url), for: shown)
         if title.isEmpty {
             title = await linkTitle(url) ?? ""
         }
         return lines(title: title, page: url.absoluteString, summary: summary)
+    }
+
+    /// The address line the card shows, without the "Page:" label.
+    static func pageAddress(in lines: [String]) -> String? {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.lowercased().hasPrefix("page:") else { continue }
+            let rest = trimmed.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rest.isEmpty else { continue }
+            return rest
+        }
+        return nil
+    }
+
+    /// Preview image and site icon named in the page head. Relative links use the page address.
+    static func pictures(in html: String, page: URL) -> AskWebPictures {
+        let image = absolute(
+            metaContent(html, names: ["og:image", "og:image:secure_url"])
+                ?? metaContent(html, names: ["twitter:image"]),
+            page: page
+        )
+        let icon = absolute(iconHref(in: html), page: page)
+            ?? absolute("/favicon.ico", page: page)
+        return AskWebPictures(page: page, image: image, icon: icon)
+    }
+
+    static func absolute(_ raw: String?, page: URL) -> URL? {
+        guard var text = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        text = text.replacingOccurrences(of: "&amp;", with: "&", options: .caseInsensitive)
+        guard let url = URL(string: text, relativeTo: page)?.absoluteURL, allowed(url) else { return nil }
+        return url
     }
 
     private static func pageHTML(_ url: URL) async -> String {
@@ -143,6 +179,59 @@ enum AskWebMetadata {
         return nil
     }
 
+    /// A meta content value whose property or name is exactly one of `names`.
+    private static func metaContent(_ html: String, names: [String]) -> String? {
+        let wanted = Set(names.map { $0.lowercased() })
+        let folded = html.lowercased()
+        var search = folded.startIndex
+        while let meta = folded.range(of: "<meta", range: search..<folded.endIndex) {
+            guard let end = folded.range(of: ">", range: meta.upperBound..<folded.endIndex) else { return nil }
+            let tag = String(html[meta.lowerBound..<end.upperBound])
+            let property = quoted("property", in: tag).lowercased()
+            let name = quoted("name", in: tag).lowercased()
+            if wanted.contains(property) || wanted.contains(name), let value = content(in: tag) {
+                return value
+            }
+            search = end.upperBound
+        }
+        return nil
+    }
+
+    /// Site icon from the head. A touch icon is preferred over a tiny favicon.
+    private static func iconHref(in html: String) -> String? {
+        let folded = html.lowercased()
+        var search = folded.startIndex
+        var touch: String?
+        var icon: String?
+        while let link = folded.range(of: "<link", range: search..<folded.endIndex) {
+            guard let end = folded.range(of: ">", range: link.upperBound..<folded.endIndex) else { return touch ?? icon }
+            let tag = String(html[link.lowerBound..<end.upperBound])
+            let rel = quoted("rel", in: tag).lowercased()
+            let href = quoted("href", in: tag)
+            if !href.isEmpty {
+                if rel.contains("apple-touch-icon"), touch == nil {
+                    touch = href
+                } else if rel == "icon" || rel.contains("shortcut icon"), icon == nil {
+                    icon = href
+                }
+            }
+            search = end.upperBound
+        }
+        return touch ?? icon
+    }
+
+    private static func quoted(_ name: String, in tag: String) -> String {
+        let folded = tag.lowercased()
+        guard let key = folded.range(of: name) else { return "" }
+        let rest = tag[key.upperBound...]
+        guard let equals = rest.firstIndex(of: "=") else { return "" }
+        let after = rest[rest.index(after: equals)...].drop(while: \.isWhitespace)
+        guard let quote = after.first, quote == "\"" || quote == "'" else { return "" }
+        let start = after.index(after: after.startIndex)
+        guard let end = after[start...].firstIndex(of: quote) else { return "" }
+        return String(after[start..<end])
+    }
+
     private static func content(in tag: String) -> String? {
         let folded = tag.lowercased()
         guard let key = folded.range(of: "content") else { return nil }
@@ -188,5 +277,179 @@ struct AskWebMetadataTool: Tool, AskToolReadingSource {
         try await boundedAppleCall(ledger: toolLedger, name: name, arguments: "page") {
             await AskWebMetadata.read(urlString: arguments.url)
         }
+    }
+}
+
+/// Preview image and site icon for one page. The tool text never carries these addresses.
+struct AskWebPictures: Sendable, Equatable {
+    var page: URL
+    var image: URL?
+    var icon: URL?
+
+    /// Keeps the addresses for this process, under the Page line the card shows.
+    static func remember(_ pictures: AskWebPictures, for address: String) async {
+        let key = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        await AskWebPictureIndex.shared.remember(pictures, for: key)
+    }
+
+    static func pictures(for address: String) async -> AskWebPictures? {
+        let key = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return nil }
+        return await AskWebPictureIndex.shared.pictures(for: key)
+    }
+
+    /// Image bytes from a page address. Nil when the response is not a small http image.
+    static func imageData(at url: URL) async -> Data? {
+        guard AskWebMetadata.allowed(url) else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.setValue("AskKit", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            guard let final = response.url, AskWebMetadata.allowed(final) else { return nil }
+            guard data.count > 32, data.count <= 3_000_000 else { return nil }
+            return data
+        } catch {
+            return nil
+        }
+    }
+
+    /// Link Presentation image and icon. Used when the page named nothing, or the download failed.
+    static func presentation(for url: URL) async -> (image: Data?, icon: Data?) {
+        guard AskWebMetadata.allowed(url) else { return (nil, nil) }
+        let provider = LPMetadataProvider()
+        provider.timeout = 5
+        guard let metadata = try? await provider.startFetchingMetadata(for: url) else {
+            return (nil, nil)
+        }
+        let image = await file(from: metadata.imageProvider)
+        let icon = await file(from: metadata.iconProvider)
+        withExtendedLifetime(provider) {}
+        return (image, icon)
+    }
+
+    private static func file(from provider: NSItemProvider?) async -> Data? {
+        guard let provider else { return nil }
+        let data: Data? = await withCheckedContinuation { continuation in
+            provider.loadObject(ofClass: UIImage.self) { object, _ in
+                let bytes = (object as? UIImage)?.pngData()
+                continuation.resume(returning: bytes)
+            }
+        }
+        guard let data, data.count > 32, data.count <= 3_000_000 else { return nil }
+        return data
+    }
+}
+
+/// Process-lifetime lookup from the shown Page line to the image addresses.
+private actor AskWebPictureIndex {
+    static let shared = AskWebPictureIndex()
+
+    private var items: [String: AskWebPictures] = [:]
+    private var order: [String] = []
+
+    func remember(_ pictures: AskWebPictures, for address: String) {
+        if items[address] == nil {
+            order.append(address)
+        }
+        items[address] = pictures
+        while order.count > 24, let oldest = order.first {
+            order.removeFirst()
+            if oldest != address {
+                items[oldest] = nil
+            }
+        }
+    }
+
+    func pictures(for address: String) -> AskWebPictures? {
+        items[address]
+    }
+}
+
+/// Page title, address, and summary, with the preview image and the site icon when they can be loaded.
+struct AskWebCard: View {
+    var lines: [String]
+
+    @State private var hero: UIImage?
+    @State private var icon: UIImage?
+
+    private var title: String {
+        lines.first ?? "Web"
+    }
+
+    private var detail: String {
+        lines.dropFirst().joined(separator: "\n")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let hero {
+                Image(uiImage: hero)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 168)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .accessibilityHidden(true)
+            }
+            HStack(alignment: .top, spacing: 8) {
+                if let icon {
+                    Image(uiImage: icon)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 28, height: 28)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                AskCardBadge(title: "Web", symbol: "globe", tint: .blue)
+            }
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(6)
+            }
+        }
+        .askCardSurface(tint: .blue)
+        .task(id: AskWebMetadata.pageAddress(in: lines) ?? "") {
+            await load()
+        }
+    }
+
+    private func load() async {
+        let address = AskWebMetadata.pageAddress(in: lines) ?? ""
+        let cached = await AskWebPictures.pictures(for: address)
+        if let url = cached?.image {
+            hero = Self.image(await AskWebPictures.imageData(at: url))
+        }
+        if let url = cached?.icon {
+            icon = Self.image(await AskWebPictures.imageData(at: url))
+        }
+        guard hero == nil || icon == nil, !Task.isCancelled else { return }
+        let page = cached?.page ?? Self.pageURL(address)
+        guard let page else { return }
+        let fetched = await AskWebPictures.presentation(for: page)
+        if hero == nil {
+            hero = Self.image(fetched.image)
+        }
+        if icon == nil {
+            icon = Self.image(fetched.icon)
+        }
+    }
+
+    private static func image(_ data: Data?) -> UIImage? {
+        guard let data, data.count > 32, data.count <= 3_000_000 else { return nil }
+        return UIImage(data: data)
+    }
+
+    private static func pageURL(_ address: String) -> URL? {
+        guard let url = URL(string: address), AskWebMetadata.allowed(url) else { return nil }
+        return url
     }
 }

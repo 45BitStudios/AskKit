@@ -939,7 +939,9 @@ public struct AskAssistant {
             if choice.id == AskWebMetadata.specialistID {
                 return [AskWebMetadataTool(toolLedger: AskToolLedger())]
             }
-            return configuration.specialists.first { $0.id == choice.id }?.tools() ?? []
+            return configuration.specialists.first { $0.id == choice.id }?.tools().map { tool in
+                AskPhotosTool.stamped(tool, question: question)
+            } ?? []
         case .domain:
             return domainTools
         case .apple:

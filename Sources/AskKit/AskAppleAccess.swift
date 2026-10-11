@@ -313,7 +313,7 @@ enum AskAppleCopy {
         "umbrella", "humidity", "precipitation", "sunny", "cloudy", "windy", "storm", "storms",
         "alarm", "alarms", "timer", "timers"
     ]
-    private static let dayWords: Set<String> = [
+    static let dayWords: Set<String> = [
         "today", "tomorrow", "tonight", "yesterday", "morning", "afternoon", "evening", "weekend",
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
     ]
@@ -383,6 +383,8 @@ enum AskSourceFocus {
         }
         if asksAlarms(question) { found.insert("alarms") }
         if AskWebMetadata.url(in: question) != nil { found.insert("web") }
+        // A host specialist. Naming it keeps a photo-library question off the calendar day fallback.
+        if AskPhotos.matches(question) { found.insert("photos") }
         return found
     }
 
@@ -1033,6 +1035,16 @@ enum AskAppleCards {
             card.shareText = forecast.shareText
             return card
         }
+        if reading.name == "web" {
+            var card = AskIntentCard(
+                title: title,
+                spoken: spoken,
+                text: spoken,
+                view: AskWebCard(lines: visible)
+            )
+            card.shareText = visible.joined(separator: "\n")
+            return card
+        }
         let value = visible.first ?? "Nothing to show."
         let detail = visible.dropFirst().joined(separator: "\n")
         var card = AskIntentCard(
@@ -1100,7 +1112,7 @@ struct AskContactCard: View {
                         title: person.phone,
                         symbol: "phone.fill",
                         intent: AskCallTap(phone: person.phone),
-                        accessibilityLabel: "Call \(person.name)",
+                        accessibilityLabel: Text("Call \(person.name)"),
                         secondary: false
                     )
                 }
@@ -1109,7 +1121,7 @@ struct AskContactCard: View {
                         title: person.email,
                         symbol: "envelope.fill",
                         intent: AskEmailTap(email: person.email),
-                        accessibilityLabel: "Email \(person.name)",
+                        accessibilityLabel: Text("Email \(person.name)"),
                         secondary: true
                     )
                 }
@@ -3608,11 +3620,10 @@ private actor AskHealthAuthorization {
                 types.insert(type)
             }
         }
+        // A read request for the blood pressure correlation throws.
+        // Systolic is already in the catalog; diastolic is the other half of the pair.
         if let diastolic = HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic) {
             types.insert(diastolic)
-        }
-        if let correlation = HKCorrelationType.correlationType(forIdentifier: .bloodPressure) {
-            types.insert(correlation)
         }
         types.insert(HKWorkoutType.workoutType())
         if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {

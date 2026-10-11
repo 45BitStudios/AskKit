@@ -2064,7 +2064,7 @@ final class AskAppleAccessTests: XCTestCase {
         )
     }
 
-    func testAPageAddressBecomesAWebReading() {
+    func testAPageAddressBecomesAWebReading() async {
         XCTAssertEqual(
             AskWebMetadata.url(in: "See https://example.com/docs.")?.absoluteString,
             "https://example.com/docs"
@@ -2136,6 +2136,48 @@ final class AskAppleAccessTests: XCTestCase {
         )
         XCTAssertTrue(chip.usesWriter)
         XCTAssertTrue(chip.choices.isEmpty)
+
+        let sample = URL(string: "https://example.com/brands/water")!
+        let head = """
+        <html><head>
+        <meta property="og:image:width" content="https://cdn.example.com/wrong.jpg">
+        <meta property="og:image" content="https://cdn.example.com/hero.jpg?a=1&amp;b=2">
+        <meta name="twitter:image" content="https://cdn.example.com/twitter.jpg">
+        <link rel="icon" href="/favicon.png">
+        <link rel="apple-touch-icon" href="/touch.png">
+        </head></html>
+        """
+        let pictures = AskWebMetadata.pictures(in: head, page: sample)
+        XCTAssertEqual(pictures.page, sample)
+        XCTAssertEqual(pictures.image?.absoluteString, "https://cdn.example.com/hero.jpg?a=1&b=2")
+        XCTAssertEqual(pictures.icon?.absoluteString, "https://example.com/touch.png")
+
+        let shortcut = "<link rel=\"shortcut icon\" href=\"mark.ico\">"
+        let mark = AskWebMetadata.pictures(in: shortcut, page: sample)
+        XCTAssertNil(mark.image)
+        XCTAssertEqual(mark.icon?.absoluteString, "https://example.com/brands/mark.ico")
+
+        let empty = AskWebMetadata.pictures(in: "<html></html>", page: sample)
+        XCTAssertNil(empty.image)
+        XCTAssertEqual(empty.icon?.absoluteString, "https://example.com/favicon.ico")
+
+        let script = """
+        <meta property="og:image" content="javascript:alert(1)">
+        <link rel="icon" href="javascript:alert(1)">
+        """
+        let blocked = AskWebMetadata.pictures(in: script, page: sample)
+        XCTAssertNil(blocked.image)
+        XCTAssertEqual(blocked.icon?.absoluteString, "https://example.com/favicon.ico")
+
+        let output = AskWebMetadata.lines(title: "Guide", page: "https://example.com/a=b", summary: "About")
+        let address = AskWebMetadata.pageAddress(in: output.components(separatedBy: "\n"))
+        XCTAssertEqual(address, "https://example.com/a b")
+        XCTAssertNil(AskWebMetadata.pageAddress(in: ["No page here"]))
+        await AskWebPictures.remember(pictures, for: address ?? "")
+        let stored = await AskWebPictures.pictures(for: address ?? "")
+        let missing = await AskWebPictures.pictures(for: "")
+        XCTAssertEqual(stored, pictures)
+        XCTAssertNil(missing)
     }
 
     func testAPageQuestionLoadsTheWebToolWhenTheFlagIsOn() async throws {
@@ -2379,6 +2421,12 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(model.toolNames, [["photos"]])
         XCTAssertEqual(result.pages.first?.card?.title, "Photos")
         XCTAssertEqual(AskPhotosLine.spoken(["Found 2 screenshots."]), "Found 2 screenshots.")
+
+        model.replyText = "Found 3 photos."
+        model.readings = [AskAppleReading(name: "photos", lines: ["Found 3 photos."])]
+        let yesterday = await assistant.handle(utterance: "What photos did I take yesterday?")
+        XCTAssertEqual(model.toolNames.last, ["photos"])
+        XCTAssertEqual(yesterday.pages.first?.card?.title, "Photos")
     }
 
     private func assistant(

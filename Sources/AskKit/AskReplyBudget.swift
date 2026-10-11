@@ -1,11 +1,15 @@
 import Foundation
 import FoundationModels
+import os
 
 /// How long a kept reply may be, based on Markdown mode and the active model's context window.
 ///
 /// Plain answers stay short for speech. Rich Markdown scales with the model: on-device uses a
 /// slice of the smaller window; Private Cloud Compute uses a larger slice, or the person's
 /// Private Cloud response-length cap when that is set.
+///
+/// Private Cloud Compute's `contextSize` is async and can throw, so a session reads it once
+/// and reply checks reuse that window. Until a read succeeds, the window is 32,768 tokens.
 enum AskReplyBudget {
     /// English-biased estimate when the model tokenizer is not consulted.
     static let charactersPerToken = 4
@@ -102,11 +106,24 @@ enum AskReplyBudget {
         }
     }
 
+    /// Reads the Private Cloud window and keeps it for the sync budget checks.
+    /// A failed read leaves the previous window in place.
+    static func rememberPrivateCloudContextSize(_ cloud: PrivateCloudComputeLanguageModel) async -> Int {
+        if let read = try? await cloud.contextSize, read > 0 {
+            privateCloudContextSize.withLock { $0 = read }
+            return read
+        }
+        return privateCloudContextSize.withLock { $0 }
+    }
+
     private struct LiveWindow {
         var compute: AskCompute
         var contextSize: Int
         var cloudMaximumResponseTokens: Int?
     }
+
+    /// Usual Private Cloud Compute window, used until a session reads `contextSize`.
+    private static let privateCloudContextSize = OSAllocatedUnfairLock(initialState: 32_768)
 
     private static func liveWindow() -> LiveWindow {
         let onDevice = SystemLanguageModel.default
@@ -127,7 +144,7 @@ enum AskReplyBudget {
         case .privateCloud:
             return LiveWindow(
                 compute: .privateCloud,
-                contextSize: cloud.contextSize,
+                contextSize: privateCloudContextSize.withLock { $0 },
                 cloudMaximumResponseTokens: AskCloudSettings.current.length.maximumResponseTokens
             )
         }
