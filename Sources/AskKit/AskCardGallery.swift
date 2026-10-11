@@ -103,8 +103,31 @@ enum AskCardSamples {
     ]
 
     static let calendarLines = [
-        "Thursday, Oct 8 · Dentist · 3:00 PM",
-        "Thursday, Oct 8 · Standup · 9:00 AM"
+        AskCalendarItem.line(
+            day: "Thursday, Oct 8",
+            title: "Standup",
+            when: "9:00 AM",
+            colorHex: "0A84FF",
+            kind: .timed,
+            calendarName: "Work"
+        ),
+        AskCalendarItem.line(
+            day: "Thursday, Oct 8",
+            title: "Dentist",
+            when: "3:00 PM",
+            detail: "Apple Park",
+            colorHex: "FF9F0A",
+            kind: .timed,
+            calendarName: "Personal"
+        ),
+        AskCalendarItem.line(
+            day: "Thursday, Oct 8",
+            title: "Alex Rivera’s Birthday",
+            when: "all day",
+            colorHex: "8E8E93",
+            kind: .birthday,
+            calendarName: "Birthdays"
+        )
     ]
 
     static let alarmLine = AskAlarmLine.line(AskAlarmDraft(
@@ -208,7 +231,7 @@ enum AskCardSamples {
     @MainActor
     static func sections() -> [AskCardGallerySection] {
         [
-            section("Calendar", "One day of events.", apple("calendar", calendarLines, "Dentist at 3.")),
+            section("Calendar", "Each event uses its calendar color.", apple("calendar", calendarLines, "Standup at 9, dentist at 3.")),
             section("Reminders", "One sample is already complete. These are not in Reminders.", reminders),
             section("Alarm", "A custom button label and symbol. Several alarms in one answer are one card each.", apple("alarms", [alarmLine], "Wake up at 7:00 AM.")),
             section("Contact", "Phone and email stay on one line and open a call or message.", apple("contacts", [contactLine], "April Chen.")),
