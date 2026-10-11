@@ -639,6 +639,14 @@ final class AskAppleAccessTests: XCTestCase {
             .lookup(name: "Mo", prefix: true)
         )
         XCTAssertEqual(
+            AskContactCommand.parse(action: "look", name: "", phone: nil, email: nil, daysBack: 7),
+            .recent(days: 7)
+        )
+        XCTAssertEqual(
+            AskContactCommand.parse(action: "look", name: "Ada", phone: nil, email: nil, daysBack: 7),
+            .lookup(name: "Ada", prefix: false)
+        )
+        XCTAssertEqual(
             AskContactCommand.parse(action: "add", name: "Ada Lovelace", phone: "555", email: "ada@example.com"),
             .add(name: "Ada Lovelace", phone: "555", email: "ada@example.com")
         )
@@ -959,6 +967,97 @@ final class AskAppleAccessTests: XCTestCase {
         XCTAssertEqual(result.pages.first?.card?.title, "Calendar")
         XCTAssertEqual(result.pages.first?.text, line)
         XCTAssertFalse(result.pages.first?.text.contains("reminder") == true)
+    }
+
+    func testRecentlyAddedContactsQueryAndHistory() {
+        XCTAssertEqual(
+            AskContactQuery.recentDays(in: "Give me the contacts that I've added in the last week"),
+            7
+        )
+        XCTAssertEqual(AskContactQuery.recentDays(in: "contacts added last month"), 30)
+        XCTAssertEqual(AskContactQuery.recentDays(in: "new contacts in the last 3 days"), 3)
+        XCTAssertEqual(AskContactQuery.recentDays(in: "recently added contacts"), 7)
+        XCTAssertNil(AskContactQuery.recentDays(in: "Add a contact named Ada"))
+        XCTAssertNil(AskContactQuery.recentDays(in: "Contacts that begin with Mo"))
+        XCTAssertNil(AskContactQuery.request(in: "contacts I added last week"))
+
+        let suite = "AskContactsHistoryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer {
+            AskContactsHistory.resetForTesting(defaults: defaults)
+            defaults.removePersistentDomain(forName: suite)
+        }
+
+        let now = Date()
+        AskContactsHistory.ingestForTesting(
+            added: ["old-id", "new-id"],
+            baseline: true,
+            now: now,
+            defaults: defaults
+        )
+        XCTAssertEqual(AskContactsHistory.identifiers(addedWithinDays: 7, now: now, defaults: defaults), [])
+
+        AskContactsHistory.ingestForTesting(
+            added: ["old-id", "new-id"],
+            baseline: false,
+            now: now,
+            defaults: defaults
+        )
+        XCTAssertEqual(
+            Set(AskContactsHistory.identifiers(addedWithinDays: 7, now: now, defaults: defaults)),
+            ["old-id", "new-id"]
+        )
+
+        let eightDaysAgo = Calendar.current.date(byAdding: .day, value: -8, to: now)!
+        AskContactsHistory.record(identifier: "stale-id", at: eightDaysAgo, defaults: defaults)
+        AskContactsHistory.record(identifier: "fresh-id", at: now, defaults: defaults)
+        XCTAssertEqual(
+            Set(AskContactsHistory.identifiers(addedWithinDays: 7, now: now, defaults: defaults)),
+            ["fresh-id", "old-id", "new-id"]
+        )
+
+        AskContactsHistory.ingestForTesting(
+            added: [],
+            deleted: ["old-id"],
+            baseline: false,
+            now: now,
+            defaults: defaults
+        )
+        XCTAssertFalse(
+            AskContactsHistory.identifiers(addedWithinDays: 7, now: now, defaults: defaults).contains("old-id")
+        )
+
+        XCTAssertEqual(
+            AskContactLine.speech(
+                "Here they are.",
+                question: "contacts I added last week",
+                readings: [
+                    AskAppleReading(name: "contacts", lines: [
+                        "Ada Lovelace · 555",
+                        "Grace Hopper · 556"
+                    ])
+                ]
+            ),
+            "You added 2 contacts in the last week."
+        )
+        XCTAssertEqual(
+            AskContactLine.speech(
+                "Nothing here.",
+                question: "contacts I added last week",
+                readings: [AskAppleReading(name: "contacts", lines: ["No recently added contacts."])]
+            ),
+            "No contacts were added in the last week."
+        )
+
+        let repair = AskAppleRepair.plan(
+            question: "Give me the contacts I've added in the last week",
+            readings: [],
+            toolNames: ["contacts"]
+        )
+        XCTAssertEqual(repair.contactRecentDays, 7)
+        XCTAssertTrue(repair.rereadContact)
+        XCTAssertNil(repair.contactQuery)
     }
 
     func testEachMatchingContactIsItsOwnCard() async throws {
