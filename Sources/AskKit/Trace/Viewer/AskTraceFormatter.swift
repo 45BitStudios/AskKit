@@ -111,6 +111,22 @@ enum AskTraceFormatter {
         }
     }
 
+    /// Glyph for a span that recorded its own symbol. Kind glyphs stay when the attribute is missing.
+    static func rowSymbol(_ span: AskTraceSpan) -> String {
+        recordedSymbol(span) ?? kindSymbol(span.kind)
+    }
+
+    /// Mark beside a folded model call. A specialist records its symbol. The writer and older traces keep the brain.
+    static func inlinedSymbol(span: AskTraceSpan, model: AskTraceSpan?) -> String {
+        recordedSymbol(span) ?? model.flatMap(recordedSymbol) ?? kindSymbol(.model)
+    }
+
+    static func recordedSymbol(_ span: AskTraceSpan) -> String? {
+        guard let value = span.attributes.first(where: { $0.key == "symbol" })?.value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     static func statusText(_ status: AskTraceSpan.Status) -> String? {
         switch status {
         case .ok: return nil

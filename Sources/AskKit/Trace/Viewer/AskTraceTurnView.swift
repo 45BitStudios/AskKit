@@ -218,7 +218,7 @@ private struct AskTraceTreeRow: View {
                     .font(.subheadline)
                     .lineLimit(1)
                 if row.inlinedModel != nil {
-                    Image(systemName: AskTraceFormatter.kindSymbol(.model))
+                    Image(systemName: AskTraceFormatter.inlinedSymbol(span: row.span, model: row.inlinedModel))
                         .font(.caption2)
                         .foregroundStyle(AskTraceStyle.color(.model))
                         .accessibilityLabel("Includes model call")

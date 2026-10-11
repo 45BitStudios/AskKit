@@ -1,4 +1,5 @@
 import PhotoQueryKit
+import Photos
 import XCTest
 @testable import AskKit
 
@@ -11,6 +12,7 @@ final class AskPhotosTests: XCTestCase {
         XCTAssertTrue(AskPhotos.matches("Live Photos from this year"))
         XCTAssertTrue(AskPhotos.matches("Pictures from the Vacation album"))
         XCTAssertTrue(AskPhotos.matches("Find photos near 37.3349, -122.0090"))
+        XCTAssertTrue(AskPhotos.matches("Do I have any pictures near Austin tx"))
         XCTAssertTrue(AskPhotos.matches("Photos within 500 meters of lat 37.33 lon -122.01"))
         XCTAssertTrue(AskPhotos.matches("List my photo albums"))
         XCTAssertTrue(AskPhotos.matches("Show hidden photos"))
@@ -88,6 +90,51 @@ final class AskPhotosTests: XCTestCase {
         let labeled = AskPhotosQuery.coordinates(in: "lat 37.33 lon -122.01")
         XCTAssertEqual(labeled?.latitude ?? 0, 37.33, accuracy: 0.001)
         XCTAssertEqual(labeled?.longitude ?? 0, -122.01, accuracy: 0.001)
+    }
+
+    func testANamedPlaceUsesACityRadius() {
+        XCTAssertEqual(AskPhotosQuery.place(in: "Do I have any pictures near Austin tx"), "austin tx")
+        XCTAssertEqual(AskPhotosQuery.place(in: "Find photos near 37.3349, -122.0090"), "")
+        XCTAssertEqual(AskPhotosQuery.place(in: "photos within 2 km of Austin"), "austin")
+        XCTAssertEqual(AskPhotosQuery.place(in: "Show photos of dogs"), "")
+
+        let widened = AskPhotosQuery.enrich(
+            blankRequest(latitude: 30.267, longitude: -97.743, radiusMeters: 1_000),
+            question: "Do I have any pictures near Austin tx"
+        )
+        XCTAssertEqual(widened.locationLatitude ?? 0, 30.267, accuracy: 0.0001)
+        XCTAssertEqual(widened.locationLongitude ?? 0, -97.743, accuracy: 0.0001)
+        XCTAssertEqual(widened.locationRadiusMeters ?? 0, AskPhotosQuery.placeRadiusMeters, accuracy: 0.1)
+        XCTAssertNil(widened.textSearch)
+
+        let measured = AskPhotosQuery.enrich(blankRequest(), question: "photos within 2 km of Austin")
+        XCTAssertNil(measured.locationLatitude)
+        XCTAssertEqual(measured.locationRadiusMeters ?? 0, 2_000, accuracy: 0.1)
+        XCTAssertNil(measured.textSearch)
+
+        let dogs = AskPhotosQuery.enrich(blankRequest(), question: "Show photos of dogs")
+        XCTAssertEqual(dogs.textSearch, "dogs")
+        XCTAssertNil(dogs.locationRadiusMeters)
+    }
+
+    func testALocationSearchScansPastTheNewestPage() {
+        var located = PhotoQueryRequest()
+        located.locationLatitude = 30.267
+        located.locationLongitude = -97.743
+        located.locationRadiusMeters = AskPhotosQuery.placeRadiusMeters
+        located.limit = 12
+        XCTAssertTrue(PhotoLibraryService.needsLocatedAssets(located))
+        XCTAssertEqual(PhotoLibraryService.candidateFetchLimit(for: located), 0)
+
+        var recent = PhotoQueryRequest()
+        recent.limit = 12
+        XCTAssertFalse(PhotoLibraryService.needsLocatedAssets(recent))
+        XCTAssertEqual(PhotoLibraryService.candidateFetchLimit(for: recent), 12)
+
+        var library = PhotoQueryRequest()
+        library.sourceType = "userLibrary"
+        library.limit = 12
+        XCTAssertEqual(PhotoLibraryService.candidateFetchLimit(for: library), 0)
     }
 
     func testEnrichParsesHiddenOldestAndHDR() {
@@ -175,6 +222,7 @@ final class AskPhotosTests: XCTestCase {
         let specialist = AskPhotos.specialist(id: "open.photos")
         XCTAssertEqual(specialist.id, "open.photos")
         XCTAssertEqual(specialist.title, "Photos")
+        XCTAssertEqual(specialist.symbolName, "photo.on.rectangle")
         XCTAssertEqual(specialist.workingTitle, "Searching photos")
         XCTAssertTrue(specialist.matches("Find my screenshots"))
         XCTAssertFalse(specialist.matches("What time is it?"))
@@ -222,6 +270,97 @@ final class AskPhotosTests: XCTestCase {
             AskPhotosIndexCopy.indexedFact(count: 1),
             "Indexed 1 recent photo for content search."
         )
+    }
+
+    func testPhotoRowsKeepEveryAssetAndHideItFromTheModel() {
+        let results = (1...10).map { index in
+            PhotoResult(
+                id: String(format: "AAAAAAAA-BBBB-CCCC-DDDD-%012d/L0/001", index),
+                pixelWidth: 100,
+                pixelHeight: 80,
+                mediaType: .image,
+                isFavorite: false,
+                filename: "IMG_\(index).jpg"
+            )
+        }
+        let stored = AskPhotosLine.format(results, request: PhotoQueryRequest())
+        XCTAssertFalse(stored.contains("="))
+        XCTAssertEqual(stored.components(separatedBy: "asset:").count - 1, 10)
+        XCTAssertFalse(stored.contains("And "))
+        let model = AskPhotosLine.forModel(stored)
+        XCTAssertFalse(model.contains("asset:"))
+        XCTAssertFalse(model.contains("AAAAAAAA"))
+        XCTAssertTrue(model.contains("Found 10 photos."))
+        XCTAssertTrue(model.contains("And 2 more."))
+        XCTAssertEqual(model.components(separatedBy: "IMG_").count - 1, 8)
+        let grid = AskPhotosLine.grid(from: stored.split(separator: "\n").map(String.init))
+        XCTAssertEqual(grid?.photos.count, 10)
+        XCTAssertEqual(grid?.photos.first?.caption, "IMG_1.jpg")
+        XCTAssertEqual(grid?.photos.first?.id, results[0].id)
+        XCTAssertEqual(AskPhotosLine.overflow(count: 12), 8)
+        XCTAssertEqual(AskPhotosLine.overflow(count: 4), 0)
+        XCTAssertEqual(AskPhotosLine.overflow(count: 1), 0)
+        let ids = results.map(\.id)
+        XCTAssertEqual(
+            AskPhotosLine.zoomSource(prefix: "card", photoID: ids[1], ids: ids),
+            "card|\(ids[1])"
+        )
+        XCTAssertEqual(
+            AskPhotosLine.zoomSource(prefix: "card", photoID: ids[8], ids: ids),
+            "card|\(ids[3])"
+        )
+        XCTAssertEqual(
+            AskPhotosLine.selectedID(startID: ids[2], choiceStart: nil, choiceID: nil, ids: ids),
+            ids[2]
+        )
+        XCTAssertEqual(
+            AskPhotosLine.selectedID(startID: ids[2], choiceStart: ids[0], choiceID: ids[1], ids: ids),
+            ids[2]
+        )
+        XCTAssertEqual(
+            AskPhotosLine.selectedID(startID: ids[2], choiceStart: ids[2], choiceID: ids[5], ids: ids),
+            ids[5]
+        )
+        XCTAssertEqual(
+            AskPhotosLine.selectedID(startID: "missing", choiceStart: nil, choiceID: nil, ids: ids),
+            ids[0]
+        )
+    }
+
+    func testAnEqualsSignInAnAssetIdIsStoredEncoded() {
+        let result = PhotoResult(
+            id: "abc=def/L0/001",
+            pixelWidth: 10,
+            pixelHeight: 10,
+            mediaType: .image,
+            isFavorite: false,
+            filename: "A.jpg"
+        )
+        let line = AskPhotosLine.row(result)
+        XCTAssertFalse(line.contains("="))
+        XCTAssertTrue(line.contains("asset:abc%3Ddef/L0/001"))
+        XCTAssertEqual(AskPhotosLine.photo(from: line)?.id, "abc=def/L0/001")
+        XCTAssertEqual(AskPhotosLine.photo(from: line)?.caption, "A.jpg")
+        XCTAssertNil(AskPhotosLine.grid(from: ["Found 2 albums.", "Vacation"]))
+    }
+
+    @MainActor
+    func testPhotoCardSharesTheCountWithoutAssetIds() {
+        let id = "AAAAAAAA-BBBB-CCCC-DDDD-000000000001/L0/001"
+        let card = AskAppleCards.make(
+            AskAppleReading(name: "photos", lines: [
+                "Found 1 photo.",
+                "Beach.jpg · Oct 1, 2026 · 100×80 · asset:\(id)"
+            ]),
+            spoken: "Found 1 photo.",
+            custom: nil
+        )
+        XCTAssertEqual(card.title, "Photos")
+        XCTAssertTrue(card.shareText.contains("Found 1 photo."))
+        XCTAssertTrue(card.shareText.contains("Beach.jpg"))
+        XCTAssertFalse(card.shareText.contains("asset:"))
+        XCTAssertFalse(card.shareText.contains(id))
+        XCTAssertEqual(card.coveredPhrases, ["Beach.jpg"])
     }
 
     func testSpokenPrefersFoundAfterIndexFact() {

@@ -121,6 +121,8 @@ private struct AskChatScreen: View {
     @State private var openPhoto: AskPhotoSet?
     @State private var photoZoomID = UUID()
     @Namespace private var photoZoom
+    @State private var library = AskLibraryGallery()
+    @Namespace private var libraryZoom
     @State private var votes: [UUID: Bool]
     #if DEBUG
     @State private var showsCards = false
@@ -158,6 +160,14 @@ private struct AskChatScreen: View {
         Binding(get: { openPhoto != nil }, set: { if !$0 { openPhoto = nil } })
     }
 
+    private var libraryPresented: Binding<Bool> {
+        Binding(get: { library.presented }, set: { if !$0 { library.presented = false } })
+    }
+
+    private var libraryZoomBinding: Binding<String> {
+        Binding(get: { library.zoomID }, set: { library.zoomID = $0 })
+    }
+
     var body: some View {
         transcript
             .overlay {
@@ -185,6 +195,17 @@ private struct AskChatScreen: View {
                     }
                 }
             }
+            .navigationDestination(isPresented: libraryPresented) {
+                AskPhotosGallery(
+                    photos: library.photos,
+                    startID: library.startID ?? "",
+                    sourcePrefix: library.sourcePrefix,
+                    zoomID: libraryZoomBinding
+                )
+                .navigationTransition(.zoom(sourceID: library.zoomID, in: libraryZoom))
+            }
+            .environment(\.libraryGallery, library)
+            .environment(\.libraryZoomNamespace, libraryZoom)
             .task { chips = await assistant.chips() }
             #if DEBUG
             .sheet(isPresented: $showsCards) {
@@ -225,7 +246,7 @@ private struct AskChatScreen: View {
                                     .id("streaming")
                             }
                         }
-                        .offset(x: contentShift)
+                        .modifier(AskTimeRevealShift(distance: contentShift))
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -234,6 +255,8 @@ private struct AskChatScreen: View {
                 .padding(.bottom, 28)
                 .background(AskChatScrollKeyboardDismiss())
             }
+            // The library-photo zoom grows past the transcript. A clip here falls back to a push.
+            .scrollClipDisabled()
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
             .simultaneousGesture(timeRevealDrag)
@@ -404,7 +427,7 @@ private struct AskChatScreen: View {
                 )
             }
         }
-        .offset(x: contentShift)
+        .modifier(AskTimeRevealShift(distance: contentShift))
         .overlayPreferenceValue(AskTimeAnchorKey.self) { mark in
             if let mark {
                 GeometryReader { proxy in
@@ -899,7 +922,14 @@ private struct AskCardBlock: View {
                                 }
                         }
                     }
-                    .modifier(AskCardActions(text: card.shareText, width: cardWidth, view: card.view))
+                    .modifier(
+                        AskCardActions(
+                            enabled: !card.zoomTransition,
+                            text: card.shareText,
+                            width: cardWidth,
+                            view: card.view
+                        )
+                    )
                     .padding(.trailing, reservesTrailingSpace ? 48 : 0)
                 if let action = card.action {
                     AskActionButton(action: action, tint: appearance.tint, onAction: onAction)
@@ -912,10 +942,24 @@ private struct AskCardBlock: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(AskCardEntrance(
-            plays: animatesArrival && !hasSettled && page.card != nil,
+            plays: animatesArrival && !hasSettled && page.card != nil && page.card?.zoomTransition != true,
             delay: entrance,
             onSettled: onSettled
         ))
+    }
+}
+
+/// Slides a transcript row aside to reveal its time. At rest the offset is not applied.
+/// An offset ancestor, including a zero offset, makes a photo zoom fall back to a push.
+private struct AskTimeRevealShift: ViewModifier {
+    var distance: CGFloat
+
+    func body(content: Content) -> some View {
+        if distance == 0 {
+            content
+        } else {
+            content.offset(x: distance)
+        }
     }
 }
 
@@ -937,12 +981,27 @@ private struct AskCardEntrance: ViewModifier {
         return !plays || reduceMotion
     }
 
+    /// A settled card has no scale, offset, or opacity. Those effects block a zoom from a photo inside it.
+    @State private var settled = false
+
+    private var lifting: Bool {
+        if settled { return false }
+        if held { return true }
+        return plays && !reduceMotion && revealed == nil
+    }
+
     func body(content: Content) -> some View {
-        content
-            .opacity(shown ? 1 : 0)
-            .scaleEffect(shown ? 1 : 0.96, anchor: .top)
-            .offset(y: shown ? 0 : 16)
-            .onAppear(perform: arrive)
+        Group {
+            if lifting {
+                content
+                    .opacity(shown ? 1 : 0)
+                    .scaleEffect(shown ? 1 : 0.96, anchor: .top)
+                    .offset(y: shown ? 0 : 16)
+            } else {
+                content
+            }
+        }
+        .onAppear(perform: arrive)
     }
 
     private func arrive() {
@@ -955,12 +1014,15 @@ private struct AskCardEntrance: ViewModifier {
         onSettled()
         withAnimation(.spring(duration: 0.42, bounce: 0.18).delay(delay)) {
             revealed = true
+        } completion: {
+            settled = true
         }
     }
 }
 
 /// Long-press a card to share a picture of it, save that picture, or copy its words.
-private struct AskCardActions: ViewModifier {
+struct AskCardActions: ViewModifier {
+    var enabled = true
     var text: String
     var width: CGFloat
     var view: AnyView
@@ -972,6 +1034,14 @@ private struct AskCardActions: ViewModifier {
     @State private var showsSaveNote = false
 
     func body(content: Content) -> some View {
+        if !enabled {
+            content
+        } else {
+            menu(content)
+        }
+    }
+
+    private func menu(_ content: Content) -> some View {
         content
             .contextMenu {
                 Button("Share", systemImage: "square.and.arrow.up") {
@@ -1074,12 +1144,12 @@ private struct AskCardActions: ViewModifier {
     }
 }
 
-private struct AskCardExport: Identifiable {
+struct AskCardExport: Identifiable {
     let id = UUID()
     var items: [Any]
 }
 
-private struct AskCardActivityView: UIViewControllerRepresentable {
+struct AskCardActivityView: UIViewControllerRepresentable {
     let items: [Any]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
@@ -1729,7 +1799,7 @@ private struct AskImagePageView: View {
     }
 }
 
-private enum AskImageActions {
+enum AskImageActions {
     static func copy(_ picture: UIImage) {
         guard let data = picture.pngData() else { return }
         UIPasteboard.general.setData(data, forPasteboardType: UTType.png.identifier)

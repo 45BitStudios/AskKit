@@ -62,7 +62,7 @@ struct AskTraceSpanDetailView: View {
     private func overview(_ span: AskTraceSpan) -> some View {
         Section {
             LabeledContent("Kind") {
-                Label(span.kind.rawValue, systemImage: AskTraceFormatter.kindSymbol(span.kind))
+                Label(span.kind.rawValue, systemImage: AskTraceFormatter.rowSymbol(span))
             }
             LabeledContent("Started", value: "+\(AskTraceFormatter.duration(span.start))")
             LabeledContent("Duration", value: AskTraceFormatter.duration(span.duration))

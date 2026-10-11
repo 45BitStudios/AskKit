@@ -63,8 +63,8 @@ private struct AskTraceTimelineRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
-                Image(systemName: AskTraceFormatter.kindSymbol(bar.span.kind))
-                    .foregroundStyle(AskTraceStyle.color(bar.span.kind))
+                Image(systemName: AskTraceFormatter.rowSymbol(bar.span))
+                    .foregroundStyle(AskTraceStyle.color(AskTraceFormatter.recordedSymbol(bar.span) == nil ? bar.span.kind : .model))
                 Text(bar.span.name).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
                 Text(AskTraceFormatter.duration(bar.span.duration)).foregroundStyle(.secondary)

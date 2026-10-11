@@ -57,6 +57,31 @@ final class PhotoQueryTests: XCTestCase {
         XCTAssertTrue(loaded.entries.isEmpty)
     }
 
+    func testALocationSearchDoesNotStopAtTheResultLimit() {
+        var located = PhotoQueryRequest()
+        located.locationLatitude = 30.267
+        located.locationLongitude = -97.743
+        located.locationRadiusMeters = 40_000
+        located.limit = 12
+        XCTAssertTrue(PhotoLibraryService.needsLocatedAssets(located))
+        XCTAssertEqual(PhotoLibraryService.candidateFetchLimit(for: located), 0)
+
+        var similar = PhotoQueryRequest()
+        similar.similarToLocalIdentifier = "asset-1"
+        similar.limit = 12
+        XCTAssertEqual(PhotoLibraryService.candidateFetchLimit(for: similar), 0)
+
+        var recent = PhotoQueryRequest()
+        recent.limit = 12
+        XCTAssertFalse(PhotoLibraryService.needsLocatedAssets(recent))
+        XCTAssertEqual(PhotoLibraryService.candidateFetchLimit(for: recent), 12)
+
+        var library = PhotoQueryRequest()
+        library.sourceType = "userLibrary"
+        library.limit = 12
+        XCTAssertEqual(PhotoLibraryService.candidateFetchLimit(for: library), 0)
+    }
+
     func testSubtypeNames() {
         let names = PhotoLibraryService.subtypeNames([.photoScreenshot, .photoLive, .photoHDR])
         XCTAssertEqual(names, ["screenshot", "live", "hdr"])

@@ -76,10 +76,6 @@ public final class PhotoLibraryService: Sendable {
             predicates.append(NSPredicate(format: "burstIdentifier == %@", burst))
         }
 
-        if let source = filter.sourceType {
-            predicates.append(NSPredicate(format: "(sourceType & %d) != 0", source.rawValue))
-        }
-
         if !predicates.isEmpty {
             options.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         }
@@ -141,12 +137,8 @@ public final class PhotoLibraryService: Sendable {
         }
 
         filter.sortDescending = request.sortDescending ?? true
-        // Similarity searches need a broader candidate pool before ranking.
-        if request.similarToLocalIdentifier != nil {
-            filter.fetchLimit = 0
-        } else {
-            filter.fetchLimit = request.limit ?? 0
-        }
+        // Photos rejects location and sourceType predicates. Scan, then keep the matches.
+        filter.fetchLimit = Self.candidateFetchLimit(for: request)
 
         if let title = request.albumTitle {
             filter.album = findAlbum(title: title)
@@ -159,6 +151,20 @@ public final class PhotoLibraryService: Sendable {
         filter.sourceType = Self.sourceType(named: request.sourceType)
 
         return filter
+    }
+
+    /// A location, source-type, or similarity search must see past the newest page. Other searches keep `limit`.
+    public static func candidateFetchLimit(for request: PhotoQueryRequest) -> Int {
+        if request.similarToLocalIdentifier != nil { return 0 }
+        if needsLocatedAssets(request) { return 0 }
+        if sourceType(named: request.sourceType) != nil { return 0 }
+        return request.limit ?? 0
+    }
+
+    public static func needsLocatedAssets(_ request: PhotoQueryRequest) -> Bool {
+        request.locationLatitude != nil
+            && request.locationLongitude != nil
+            && request.locationRadiusMeters != nil
     }
 
     private func findAlbum(title: String) -> PHAssetCollection? {
@@ -180,6 +186,10 @@ public final class PhotoLibraryService: Sendable {
                 guard let loc = asset.location else { return false }
                 return loc.distance(from: center) <= radius
             }
+        }
+
+        if let source = Self.sourceType(named: request.sourceType) {
+            result = result.filter { $0.sourceType.contains(source) }
         }
 
         // Text search (filename)

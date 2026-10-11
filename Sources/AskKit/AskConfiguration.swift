@@ -57,6 +57,8 @@ public struct AskIntentCard {
     public var replacesBubble: Bool
     /// Button under the card. The view itself does not own the button.
     public var action: AskAction?
+    /// The card holds a zoom source. The long-press menu stays off this view so the zoom can match.
+    var zoomTransition = false
     /// Plain text for the card's Copy and Share actions. The title and spoken line, unless a card replaces it.
     var shareText: String
     public var view: AnyView
@@ -259,6 +261,8 @@ public struct AskModelRequest: Sendable, Equatable {
     public var profileTitle: String
     /// Status line while the specialist is active, before its tool runs.
     public var workingTitle: String
+    /// SF Symbol for this specialist. Empty for the writer and for older callers.
+    public var symbolName: String
 
     public init(
         instructions: String,
@@ -268,7 +272,8 @@ public struct AskModelRequest: Sendable, Equatable {
         imageURLs: [URL] = [],
         profileID: String = "",
         profileTitle: String = "",
-        workingTitle: String = ""
+        workingTitle: String = "",
+        symbolName: String = ""
     ) {
         self.instructions = instructions
         self.prompt = prompt
@@ -278,6 +283,7 @@ public struct AskModelRequest: Sendable, Equatable {
         self.profileID = profileID
         self.profileTitle = profileTitle
         self.workingTitle = workingTitle
+        self.symbolName = symbolName
     }
 }
 

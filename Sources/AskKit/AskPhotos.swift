@@ -24,11 +24,11 @@ public enum AskPhotos {
     public static let note = """
     Call the photos tool once with the filters the question named. \
     Pass action albums to list album titles. \
-    For a place search by coordinates, pass latitude, longitude, and radiusMeters. \
+    For a named place, pass latitude and longitude when you know them. Leave radiusMeters empty unless the person named a distance. \
     Pass isHidden for hidden items and newestFirst false for oldest first. \
     Pass burstIdentifier for a burst group, sourceType for userLibrary, cloudShared, or iTunesSynced, \
     and similarTo for photos visually like another local photo id. \
-    Say how many matches it found and name a few. \
+    Say how many matches it found. The card shows the photos. Do not list file names or photo ids. \
     If a line says photos were indexed first, you may mention that briefly. \
     If it says Not allowed, say you cannot see the photo library. Do not invent photos. \
     Answer this question only. Do not repeat a song, an album, or anything from earlier in the chat.
@@ -345,6 +345,8 @@ enum AskPhotosQuery {
     static let defaultLimit = 12
     /// Used when latitude and longitude are set but no radius is passed.
     static let defaultRadiusMeters = 1_000.0
+    /// A named place with no stated distance, such as "near Austin". A coordinate pair stays at the point default.
+    static let placeRadiusMeters = 40_000.0
     static let maximumRadiusMeters = 50_000.0
 
     static func request(
@@ -500,10 +502,19 @@ enum AskPhotosQuery {
             next.locationRadiusMeters = radius(in: folded) ?? defaultRadiusMeters
         }
 
+        let namedPlace = place(in: folded)
+        if !namedPlace.isEmpty {
+            if let explicit = radius(in: folded) {
+                next.locationRadiusMeters = min(max(explicit, 1), maximumRadiusMeters)
+            } else if coordinates(in: folded) == nil {
+                next.locationRadiusMeters = placeRadiusMeters
+            }
+        }
+
         if next.textSearch == nil || next.textSearch?.isEmpty == true {
             if let of = contentAfter(folded, marker: " of ") {
-                // Skip coordinate fragments mistaken for content words.
-                if coordinates(in: of) == nil {
+                // A place or a coordinate pair is not a filename.
+                if coordinates(in: of) == nil, namedPlace != of {
                     next.textSearch = of
                 }
             }
@@ -524,6 +535,36 @@ enum AskPhotosQuery {
             return nil
         }
         return AskCalendarWindow.day(offset: offset, now: now, calendar: calendar)
+    }
+
+    /// The place after "near", "around", or "close to". A coordinate pair is not a place.
+    /// "within 2 km of Austin" uses the words after "of". Tests do not geocode this string.
+    static func place(in question: String) -> String {
+        let folded = AskAppleCopy.folded(question)
+        if let named = phrase(after: [" near ", " around ", " close to "], in: folded),
+           coordinates(in: named) == nil {
+            return named
+        }
+        if radius(in: folded) != nil,
+           let named = phrase(after: [" of "], in: folded),
+           coordinates(in: named) == nil {
+            return named
+        }
+        return ""
+    }
+
+    /// Fills coordinates for a named place. A coordinate pair already in the question is left as parsed.
+    static func resolvePlace(_ request: PhotoQueryRequest, question: String) async -> PhotoQueryRequest {
+        var next = request
+        let named = place(in: question)
+        guard !named.isEmpty, coordinates(in: question) == nil else { return next }
+        guard let found = await AskLocationRead.coordinate(forPlace: named) else { return next }
+        next.locationLatitude = found.coordinate.latitude
+        next.locationLongitude = found.coordinate.longitude
+        if next.locationRadiusMeters == nil {
+            next.locationRadiusMeters = radius(in: question) ?? placeRadiusMeters
+        }
+        return next
     }
 
     /// Latitude and longitude from text such as `37.3349, -122.0090` or `lat 37.33 lon -122.01`.
@@ -559,6 +600,26 @@ enum AskPhotosQuery {
             return min(max(miles * 1_609.344, 1), maximumRadiusMeters)
         }
         return nil
+    }
+
+    private static func phrase(after markers: [String], in folded: String) -> String? {
+        guard let marker = markers.compactMap({ folded.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound }) else {
+            return nil
+        }
+        var words = String(folded[marker.upperBound...])
+            .split(separator: " ")
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty }
+        let trailing: Set<String> = [
+            "please", "today", "yesterday", "tonight", "tomorrow", "now"
+        ]
+        while let last = words.last, trailing.contains(last) {
+            words.removeLast()
+        }
+        let tail = words.joined(separator: " ")
+        let blocked: Set<String> = ["", "me", "here", "us", "you", "home", "there", "my", "the"]
+        if blocked.contains(tail) || tail.count < 2 { return nil }
+        return String(tail.prefix(80))
     }
 
     private static func media(_ raw: String?) -> PhotoQueryRequest.MediaType? {
@@ -695,13 +756,120 @@ enum AskPhotosLine {
         let count = results.count
         let kind = label(for: request)
         rows.append("Found \(count) \(kind).")
-        for result in results.prefix(maximumListed) {
+        // Every match stays on the stored line so the card can open it. forModel trims the model copy.
+        for result in results {
             rows.append(row(result))
         }
-        if results.count > maximumListed {
-            rows.append("And \(results.count - maximumListed) more.")
-        }
         return rows.joined(separator: "\n")
+    }
+
+    /// What the model may say. Asset ids stay on the stored line for the card.
+    static func forModel(_ output: String) -> String {
+        var kept: [String] = []
+        var listed = 0
+        var hidden = 0
+        for line in output.split(whereSeparator: \.isNewline) {
+            let text = String(line)
+            if photo(from: text) != nil {
+                if listed < maximumListed {
+                    kept.append(withoutAsset(text))
+                    listed += 1
+                } else {
+                    hidden += 1
+                }
+            } else if isMoreLine(text) {
+                continue
+            } else {
+                kept.append(text)
+            }
+        }
+        if hidden > 0 {
+            kept.append("And \(hidden) more.")
+        }
+        return kept.joined(separator: "\n")
+    }
+
+    /// Photos the card can show. Lines without an asset id, including albums, stay out.
+    static func grid(from lines: [String]) -> Grid? {
+        var seen = Set<String>()
+        var photos: [Photo] = []
+        for line in lines {
+            guard let photo = photo(from: line), seen.insert(photo.id).inserted else { continue }
+            photos.append(photo)
+        }
+        guard !photos.isEmpty else { return nil }
+        let title = lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { $0.hasPrefix("Found ") } ?? "Photos"
+        return Grid(title: title, photos: photos)
+    }
+
+    /// How many photos sit past the four shown on the card. Twelve photos leave eight.
+    static func overflow(count: Int) -> Int {
+        max(count - gridCount, 0)
+    }
+
+    /// Zoom source for a page. A photo with no cell returns to the bottom-trailing cell.
+    static func zoomSource(prefix: String, photoID: String, ids: [String]) -> String {
+        let visible = ids.prefix(gridCount)
+        let target = visible.contains(photoID) ? photoID : (visible.last ?? photoID)
+        guard !prefix.isEmpty else { return target }
+        return "\(prefix)|\(target)"
+    }
+
+    /// Gallery page. A swipe counts only for the open that started it. A choice from an earlier open stays off this one.
+    static func selectedID(
+        startID: String,
+        choiceStart: String?,
+        choiceID: String?,
+        ids: [String]
+    ) -> String {
+        if choiceStart == startID, let choiceID, ids.contains(choiceID) {
+            return choiceID
+        }
+        if ids.contains(startID) { return startID }
+        return ids.first ?? ""
+    }
+
+    static let gridCount = 4
+
+    struct Photo: Identifiable, Equatable, Sendable {
+        var id: String
+        var caption: String
+    }
+
+    struct Grid: Equatable, Sendable {
+        var title: String
+        var photos: [Photo]
+
+        var shareText: String {
+            ([title] + photos.map(\.caption)).joined(separator: "\n")
+        }
+
+        /// File names the bubble should not repeat. Generic placeholders stay out.
+        var coveredPhrases: [String] {
+            let generic: Set<String> = ["photo", "video", "audio", "item"]
+            return photos.map(\.caption).filter { caption in
+                guard caption.count >= 3 else { return false }
+                let folded = caption.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    locale: Locale(identifier: "en_US_POSIX")
+                )
+                return !generic.contains(folded)
+            }
+        }
+    }
+
+    static func photo(from line: String) -> Photo? {
+        let parts = line.split(separator: "·").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        guard let last = parts.last, last.hasPrefix(assetPrefix) else { return nil }
+        let stored = String(last.dropFirst(assetPrefix.count))
+        let id = stored.replacingOccurrences(of: "%3D", with: "=")
+        guard isAssetID(id) else { return nil }
+        let caption = parts.count > 1 ? parts[0] : "Photo"
+        return Photo(id: id, caption: caption)
     }
 
     static func row(_ result: PhotoResult) -> String {
@@ -749,6 +917,10 @@ enum AskPhotosLine {
         if let ocr = result.ocrText?.trimmingCharacters(in: .whitespacesAndNewlines), !ocr.isEmpty {
             parts.append("OCR " + AskAppleCopy.plain(ocr, limit: 48))
         }
+        let asset = storedAsset(result.id)
+        if !asset.isEmpty {
+            parts.append(assetPrefix + asset)
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -763,6 +935,39 @@ enum AskPhotosLine {
             rows.append("And \(kept.count - 40) more.")
         }
         return rows.joined(separator: "\n")
+    }
+
+    private static let assetPrefix = "asset:"
+
+    /// `=` is stored as `%3D` so the reply check keeps the line. The card restores it.
+    private static func storedAsset(_ id: String) -> String {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isAssetID(trimmed.replacingOccurrences(of: "=", with: "")) else { return "" }
+        return trimmed.replacingOccurrences(of: "=", with: "%3D")
+    }
+
+    private static func isAssetID(_ id: String) -> Bool {
+        !id.isEmpty
+            && id.count <= 180
+            && !id.contains("·")
+            && !id.contains(where: { $0.isWhitespace || $0.isNewline })
+    }
+
+    private static func withoutAsset(_ line: String) -> String {
+        let parts = line.split(separator: "·", omittingEmptySubsequences: false)
+        guard parts.count > 1,
+              parts.last?.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(assetPrefix) == true else {
+            return line
+        }
+        return parts.dropLast()
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: " · ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func isMoreLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("And ") && trimmed.hasSuffix(" more.")
     }
 
     private static func label(for request: PhotoQueryRequest) -> String {
@@ -868,13 +1073,13 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
     Pass daysAgo for how far back to look, such as 7 or 30. \
     Pass isFavorite true for favorites. Pass isHidden true for hidden items. \
     Pass albumTitle for an album. Pass textSearch for a filename or content word such as dog. \
-    Pass latitude and longitude to find photos near those coordinates. \
-    Pass radiusMeters for the search radius; 1000 when omitted. \
+    Pass latitude and longitude when you know the coordinates of a place named in the question. \
+    Leave radiusMeters empty unless the person named a distance. A place with no distance searches the surrounding area. \
     Pass burstIdentifier for photos in one burst. \
     Pass sourceType userLibrary, cloudShared, or iTunesSynced. \
     Pass similarTo with a photo local id to find visually similar photos. \
     Pass newestFirst false for oldest first. Pass minWidth for a pixel width floor. \
-    Pass limit up to 25. Call once.
+    Pass limit up to 25. Call once. Do not say a photo id or a file name.
     """
 
     @Generable
@@ -909,7 +1114,7 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         var latitude: Double?
         @Guide(description: "Longitude from -180 to 180 for a nearby photo search. Leave empty when unused.", .range(-180...180))
         var longitude: Double?
-        @Guide(description: "Search radius in meters around latitude and longitude. Use 1000 when omitted. Max 50000.", .range(1...50_000))
+        @Guide(description: "Search radius in meters when the person named a distance. Leave empty otherwise. Max 50000.", .range(1...50_000))
         var radiusMeters: Double?
         @Guide(description: "True for newest first. False for oldest first. True when omitted.")
         var newestFirst: Bool?
@@ -952,9 +1157,15 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
             similarTo: arguments.similarTo,
             limit: arguments.limit
         )
-        let request = question.isEmpty ? built : AskPhotosQuery.enrich(built, question: question)
+        let enriched = question.isEmpty ? built : AskPhotosQuery.enrich(built, question: question)
+        let request = await AskPhotosQuery.resolvePlace(enriched, question: question)
         let label = summary(request)
-        return try await boundedAppleCall(ledger: toolLedger, name: name, arguments: label) {
+        return try await boundedAppleCall(
+            ledger: toolLedger,
+            name: name,
+            arguments: label,
+            present: AskPhotosLine.forModel
+        ) {
             await AskPhotosRead.lines(request)
         }
     }

@@ -40,7 +40,23 @@ struct AskSpecialistChoice: Equatable, Sendable {
     var id: String
     var title: String
     var workingTitle: String
+    /// SF Symbol recorded on the specialist span. Empty keeps the brain.
+    var symbolName: String
     var origin: Origin
+
+    init(
+        id: String,
+        title: String,
+        workingTitle: String,
+        symbolName: String = "",
+        origin: Origin
+    ) {
+        self.id = id
+        self.title = title
+        self.workingTitle = workingTitle
+        self.symbolName = symbolName
+        self.origin = origin
+    }
 
     enum Origin: String, Equatable, Sendable {
         case host
@@ -189,6 +205,7 @@ enum AskTurnSpecialists {
                 id: source.name,
                 title: source.title,
                 workingTitle: workingTitle(source.name),
+                symbolName: source.symbol,
                 origin: .apple
             )
         }

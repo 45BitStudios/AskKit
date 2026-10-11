@@ -360,15 +360,20 @@ enum AskFoundationSessions {
             )
         )
         do {
+            var attributes = [
+                "profile": profileID,
+                "tools": tools.map(\.name).joined(separator: ", ")
+            ]
+            let symbol = request.symbolName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !symbol.isEmpty {
+                attributes["symbol"] = symbol
+            }
             let text = try await AskTrace.respondStream(
                 session,
                 label: "specialist \(profileID)",
                 to: request.prompt,
                 images: request.imageURLs,
-                attributes: [
-                    "profile": profileID,
-                    "tools": tools.map(\.name).joined(separator: ", ")
-                ],
+                attributes: attributes,
                 onSnapshot: onSnapshot
             )
             return AskWrittenReply(text: text, readings: AskToolTranscript.readings(in: session.transcript))

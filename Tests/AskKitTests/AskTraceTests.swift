@@ -533,6 +533,47 @@ final class AskTraceTests: XCTestCase {
         XCTAssertEqual(AskTraceFormatter.workedSymbol(toolCalls: 0), "doc.text")
     }
 
+    func testASpecialistSymbolReplacesTheModelBrain() {
+        let photos = AskTraceSpan.Attribute(key: "symbol", value: "photo.on.rectangle")
+        let blank = AskTraceSpan.Attribute(key: "symbol", value: "  ")
+        let specialist = sampleSpan(
+            id: UUID(),
+            parent: nil,
+            name: "specialist open.photos",
+            kind: .function,
+            start: 0,
+            end: 1,
+            attributes: [photos]
+        )
+        let model = sampleSpan(
+            id: UUID(),
+            parent: specialist.id,
+            name: "specialist open.photos",
+            kind: .model,
+            start: 0,
+            end: 1,
+            attributes: [photos]
+        )
+        let writer = sampleSpan(id: UUID(), parent: nil, name: "writer", kind: .function, start: 0, end: 1)
+        let writerModel = sampleSpan(id: UUID(), parent: writer.id, name: "writer", kind: .model, start: 0, end: 1)
+        let empty = sampleSpan(
+            id: UUID(),
+            parent: nil,
+            name: "specialist app.recipes",
+            kind: .function,
+            start: 0,
+            end: 1,
+            attributes: [blank]
+        )
+        XCTAssertEqual(AskTraceFormatter.inlinedSymbol(span: specialist, model: model), "photo.on.rectangle")
+        XCTAssertEqual(AskTraceFormatter.rowSymbol(specialist), "photo.on.rectangle")
+        XCTAssertEqual(AskTraceFormatter.inlinedSymbol(span: writer, model: writerModel), "brain")
+        XCTAssertEqual(AskTraceFormatter.rowSymbol(writer), "function")
+        XCTAssertEqual(AskTraceFormatter.inlinedSymbol(span: empty, model: model), "photo.on.rectangle")
+        XCTAssertEqual(AskTraceFormatter.rowSymbol(empty), "function")
+        XCTAssertEqual(AskTraceFormatter.kindSymbol(.model), "brain")
+    }
+
     func testVisibleRowsCollapseSameNameFunctionAndModel() {
         let root = UUID()
         let writer = UUID()

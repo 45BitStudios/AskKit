@@ -8,6 +8,7 @@ import UIKit
 enum AskWebMetadata {
     static let toolName = "web"
     static let specialistID = "web"
+    static let symbolName = "globe"
 
     static let note = """
     Call the web tool once and pass the https address from the question. \

@@ -2574,6 +2574,7 @@ final class AskAppleAccessTests: XCTestCase {
         )
         XCTAssertEqual(both.choices.map(\.id), ["calendar", "weather"])
         XCTAssertEqual(both.choices.map(\.origin), [.apple, .apple])
+        XCTAssertEqual(both.choices.map(\.symbolName), ["calendar", "cloud.sun"])
 
         let friday = AskTurnSpecialists.decide(
             question: "What about Friday",

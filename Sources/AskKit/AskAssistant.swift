@@ -716,9 +716,10 @@ public struct AskAssistant {
         var id: String
         var title: String
         var workingTitle: String
+        var symbolName: String
         var toolNote: String
 
-        static let writer = ReplyProfile(id: "writer", title: "", workingTitle: "", toolNote: "")
+        static let writer = ReplyProfile(id: "writer", title: "", workingTitle: "", symbolName: "", toolNote: "")
     }
 
     /// The catalog missed and an `unknown` skill is not registered.
@@ -834,6 +835,7 @@ public struct AskAssistant {
                     id: AskWebMetadata.specialistID,
                     title: "Web",
                     workingTitle: "Reading the page",
+                    symbolName: AskWebMetadata.symbolName,
                     origin: .host
                 ))
             }
@@ -842,6 +844,7 @@ public struct AskAssistant {
                     id: specialist.id,
                     title: specialist.title,
                     workingTitle: specialist.workingTitle,
+                    symbolName: specialist.symbolName,
                     origin: .host
                 )
             }
@@ -921,6 +924,7 @@ public struct AskAssistant {
                     id: choice.id,
                     title: choice.title,
                     workingTitle: choice.workingTitle,
+                    symbolName: choice.symbolName,
                     toolNote: toolNote(for: choice)
                 ),
                 promptQuestion: asked
@@ -1050,13 +1054,17 @@ public struct AskAssistant {
             imageURLs: images,
             profileID: profile.id,
             profileTitle: profile.title,
-            workingTitle: profile.workingTitle
+            workingTitle: profile.workingTitle,
+            symbolName: profile.symbolName
         )
         let written: AskWrittenReply
         do {
             let spanName = sessionTools.isEmpty ? "writer" : "specialist \(profile.id)"
             let draft = try await AskTrace.span(spanName) {
                 AskTrace.attribute("profile", profile.id)
+                if !profile.symbolName.isEmpty {
+                    AskTrace.attribute("symbol", profile.symbolName)
+                }
                 let draft: AskWrittenReply
                 if sessionTools.isEmpty {
                     draft = AskWrittenReply(text: try await model.writeReply(request))

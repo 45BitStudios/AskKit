@@ -1157,6 +1157,18 @@ enum AskAppleCards {
             card.shareText = visible.joined(separator: "\n")
             return card
         }
+        if reading.name == "photos", let grid = AskPhotosLine.grid(from: visible) {
+            var card = AskIntentCard(
+                title: title,
+                spoken: spoken,
+                text: spoken,
+                view: AskPhotosCard(title: grid.title, photos: grid.photos, shareText: grid.shareText)
+            )
+            card.shareText = grid.shareText
+            card.coveredPhrases = grid.coveredPhrases
+            card.zoomTransition = true
+            return card
+        }
         let value = visible.first ?? "Nothing to show."
         let detail = visible.dropFirst().joined(separator: "\n")
         var card = AskIntentCard(
@@ -2777,7 +2789,8 @@ enum AskAppleRepair {
         if AskPhotosQuery.listsAlbums(question) {
             return await AskPhotosRead.albums()
         }
-        return await AskPhotosRead.lines(AskPhotosQuery.fromQuestion(question))
+        let parsed = AskPhotosQuery.fromQuestion(question)
+        return await AskPhotosRead.lines(await AskPhotosQuery.resolvePlace(parsed, question: question))
     }
 
     private static func lines(_ output: String) -> [String] {

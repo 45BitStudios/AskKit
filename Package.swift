@@ -19,15 +19,24 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "AskContactsChangeHistory",
+            dependencies: [],
+            path: "Sources/AskContactsChangeHistory",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("Contacts")
+            ]
+        ),
+        .target(
             name: "AskKit",
             dependencies: [
+                "AskContactsChangeHistory",
                 .product(name: "VoiceGlowKit", package: "VoiceGlowKit"),
                 .product(name: "ThinkingOrbsKit", package: "ThinkingOrbsKit"),
                 .product(name: "BorderBeamKit", package: "BorderBeamKit"),
                 .product(name: "PhotoQueryKit", package: "PhotoQueryKit"),
                 .product(name: "Textual", package: "textual")
             ],
-            publicHeadersPath: "include",
             linkerSettings: [
                 .linkedFramework("Contacts")
             ]

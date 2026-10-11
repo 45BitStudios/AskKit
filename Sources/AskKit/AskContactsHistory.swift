@@ -1,3 +1,4 @@
+import AskContactsChangeHistory
 import Contacts
 import Foundation
 import os
@@ -72,14 +73,10 @@ enum AskContactsHistory {
             return !ready
         }
 
-        var error: NSError?
-        guard let result = AskContactsChangeHistoryFetch.result(
-            forStore: store,
-            request: request,
-            error: &error
-        ), let enumerator = result.value else {
+        guard let result = try? AskContactsChangeHistoryFetch.result(for: store, request: request) else {
             return false
         }
+        let enumerator = result.value
 
         let visitor = Visitor()
         for case let event as CNChangeHistoryEvent in enumerator {
@@ -98,7 +95,8 @@ enum AskContactsHistory {
                 map.removeValue(forKey: id)
             }
             defaults.set(encode(map), forKey: addedAtKey)
-            if let token = result.currentHistoryToken, !token.isEmpty {
+            let token = result.currentHistoryToken
+            if !token.isEmpty {
                 defaults.set(token, forKey: tokenKey)
             }
             defaults.set(true, forKey: baselinedKey)
