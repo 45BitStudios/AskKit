@@ -241,7 +241,8 @@ enum AskAppleCopy {
     To change an alarm, call action update with its current time and the new time or repeats. Recurring is daily, weekdays, weekends, or a weekday name. \
     To remove an alarm, call action delete with its time. \
     To set alarms, call the alarms tool once and pass every alarm this question asked for. Each one needs a title and a time. \
-    Pass a label, an SF Symbol, and an action id from that tool's list when the person wants a custom button. \
+    Pass a label for the button title and an SF Symbol when the person wants a custom button. \
+    Everyday symbol words such as food are fine. Pass an action id only when it is on that tool's list. \
     Say an alarm was set only when its line starts with Added.
     """
 

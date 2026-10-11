@@ -1844,8 +1844,15 @@ final class AskAppleAccessTests: XCTestCase {
             registered: ("open", "Open", "arrow.up.forward.app")
         )
         XCTAssertEqual(custom, AskAlarmButtonChoice(label: "Garage", symbol: "sunrise.fill", actionID: "open"))
+        XCTAssertEqual(
+            AskAlarmButtonPlan.choice(
+                draft: AskAlarmDraft(title: "Wake up", hour: 7, label: "Garage", symbol: "sunrise.fill", actionID: "missing"),
+                registered: nil
+            ),
+            AskAlarmButtonChoice(label: "Garage", symbol: "sunrise.fill", actionID: "open")
+        )
         XCTAssertNil(AskAlarmButtonPlan.choice(
-            draft: AskAlarmDraft(title: "Wake up", hour: 7, label: "Garage", symbol: "sunrise.fill", actionID: "missing"),
+            draft: AskAlarmDraft(title: "Wake up", hour: 7, actionID: "missing"),
             registered: nil
         ))
         XCTAssertEqual(
@@ -1854,6 +1861,45 @@ final class AskAppleAccessTests: XCTestCase {
         )
         XCTAssertNil(AskAlarmText.symbol("sunrise fill"))
         XCTAssertNil(AskAlarmText.symbol("a=b"))
+        XCTAssertEqual(AskAlarmText.symbol("food"), "fork.knife")
+        XCTAssertEqual(AskAlarmText.symbol("Food"), "fork.knife")
+
+        let customizedQuestion = "Set an alarm for 11:05 PM with a Symbol of Food and a custom button of awesome"
+        let fromQuestion = AskAlarmCommand.drafts(in: customizedQuestion)
+        XCTAssertEqual(fromQuestion.count, 1)
+        XCTAssertEqual(fromQuestion.first?.hour, 23)
+        XCTAssertEqual(fromQuestion.first?.minute, 5)
+        XCTAssertEqual(fromQuestion.first?.label, "awesome")
+        XCTAssertEqual(fromQuestion.first?.symbol, "fork.knife")
+        let customLine = AskAlarmLine.line(AskAlarmDraft(
+            title: "Alarm",
+            hour: 23,
+            minute: 5,
+            label: "awesome",
+            symbol: "fork.knife"
+        ))
+        let customItem = AskAlarmLine.item(from: customLine)
+        XCTAssertEqual(customItem?.label, "awesome")
+        XCTAssertEqual(customItem?.symbol, "fork.knife")
+        let customCard = AskAppleCards.make(
+            AskAppleReading(name: "alarms", lines: [customLine]),
+            spoken: "Alarm at 11:05 PM.",
+            custom: nil
+        )
+        XCTAssertEqual(customCard.title, "Alarm")
+        XCTAssertTrue(customCard.shareText.contains("awesome"))
+        XCTAssertTrue(customCard.shareText.contains("fork.knife"))
+
+        let modelForgotButton = AskAlarmCommand.matching(
+            [AskAlarmDraft(title: "Alarm", hour: 23, minute: 5, actionID: "awesome")],
+            asked: fromQuestion
+        )
+        XCTAssertEqual(modelForgotButton.first?.label, "awesome")
+        XCTAssertEqual(modelForgotButton.first?.symbol, "fork.knife")
+        XCTAssertEqual(
+            AskAlarmButtonPlan.choice(draft: modelForgotButton[0], registered: nil),
+            AskAlarmButtonChoice(label: "awesome", symbol: "fork.knife", actionID: "open")
+        )
 
         AskAlarms.register(AskAlarmAction(id: "Drive", label: "Maps", symbol: "car.fill") { id, _ in
             AskAlarmOpenIntent(alarmID: id.uuidString)

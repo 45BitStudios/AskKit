@@ -241,7 +241,7 @@ enum AskCardSamples {
         [
             section("Calendar", "Each event uses its calendar color.", apple("calendar", calendarLines, "Standup at 9, dentist at 3.")),
             section("Reminders", "One sample is already complete. These are not in Reminders.", reminders),
-            section("Alarm", "A custom button label and symbol. Several alarms in one answer are one card each.", apple("alarms", [alarmLine], "Wake up at 7:00 AM.")),
+            section("Alarm", "A custom button label and symbol on the card. Several alarms in one answer are one card each.", apple("alarms", [alarmLine], "Wake up at 7:00 AM.")),
             section("Contact", "Phone and email stay on one line and open a call or message.", apple("contacts", [contactLine], "April Chen.")),
             section("Place", "The map is the answer.", apple("location", [placeLine], "Apple Park.")),
             section("Nearby", "Several places share one map.", apple("location", nearbyLines, "Three places nearby.")),
