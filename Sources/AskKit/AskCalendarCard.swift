@@ -279,12 +279,6 @@ private struct AskCalendarEventRow: View {
                         .foregroundStyle(tint.opacity(0.78))
                         .lineLimit(2)
                 }
-                if !item.calendarName.isEmpty {
-                    Text(item.calendarName)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(tint.opacity(0.7))
-                        .lineLimit(1)
-                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
