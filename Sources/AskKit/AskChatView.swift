@@ -96,6 +96,10 @@ private struct AskChatScreen: View {
     @State private var recentPhotos: [AskAttachedImage] = []
     @State private var isThinking = false
     @State private var turnTask: Task<Void, Never>?
+    /// Optimistic send that morphs from the composer into the transcript.
+    @State private var pendingSend: AskPendingSend?
+    /// When true, the morph bubble's geometry source is still on the composer.
+    @State private var sendFromComposer = false
     /// How far the transcript has been dragged toward the leading edge. The time sits in that gap.
     @State private var timeReveal: CGFloat = 0
     @State private var timeRevealArmed = false
@@ -121,6 +125,7 @@ private struct AskChatScreen: View {
     @State private var openPhoto: AskPhotoSet?
     @State private var photoZoomID = UUID()
     @Namespace private var photoZoom
+    @Namespace private var sendBubble
     @State private var library = AskLibraryGallery()
     @Namespace private var libraryZoom
     @State private var votes: [UUID: Bool]
@@ -152,6 +157,16 @@ private struct AskChatScreen: View {
         turns.filter { $0.thread?.assistantName == assistant.configuration.assistantName }
     }
 
+    /// Transcript rows while a send morph is in flight. The matching stored user turn stays hidden.
+    private var displayTurns: [AskTurnRecord] {
+        AskSendMorph.hidingPendingUserTurn(
+            visibleTurns,
+            pendingText: pendingSend?.text,
+            role: \.role,
+            text: \.text
+        )
+    }
+
     private var title: String {
         appearance.title ?? assistant.configuration.assistantName
     }
@@ -171,7 +186,7 @@ private struct AskChatScreen: View {
     var body: some View {
         transcript
             .overlay {
-                if visibleTurns.isEmpty, !isThinking {
+                if visibleTurns.isEmpty, pendingSend == nil, !isThinking {
                     AskEmptyPrompt(appearance: appearance, fallbackTitle: title)
                         .allowsHitTesting(false)
                 }
@@ -226,13 +241,16 @@ private struct AskChatScreen: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(visibleTurns.enumerated()), id: \.element.id) { index, turn in
-                        let previous = index > 0 ? visibleTurns[index - 1].createdAt : nil
+                    ForEach(Array(displayTurns.enumerated()), id: \.element.id) { index, turn in
+                        let previous = index > 0 ? displayTurns[index - 1].createdAt : nil
                         turnRow(turn, previous: previous)
+                    }
+                    if let pending = pendingSend {
+                        pendingSendRow(pending)
                     }
                     // Follow-up keeps isThinking set after the answer is saved. The live
                     // bubble stays only while the last turn is still the question.
-                    if isThinking, visibleTurns.last?.role == "user" {
+                    if isThinking, (visibleTurns.last?.role == "user" || pendingSend != nil) {
                         Group {
                             if activity.partial.isEmpty {
                                 AskThinkingRow(
@@ -272,7 +290,8 @@ private struct AskChatScreen: View {
             .overlay(alignment: .bottom) {
                 jumpToBottomButton(proxy)
             }
-            .onChange(of: visibleTurns.count) { scrollToEnd(proxy) }
+            .onChange(of: displayTurns.count) { scrollToEnd(proxy) }
+            .onChange(of: pendingSend?.id) { scrollToEnd(proxy) }
             .onChange(of: isThinking) { scrollToEnd(proxy) }
             .onChange(of: activity.partial) { scrollToEnd(proxy) }
             .onChange(of: followUp?.question) { scrollToEnd(proxy) }
@@ -307,7 +326,7 @@ private struct AskChatScreen: View {
     }
 
     private var canClearChat: Bool {
-        !visibleTurns.isEmpty && !isThinking
+        !visibleTurns.isEmpty && !isThinking && pendingSend == nil
     }
 
     private var showsMoreMenu: Bool {
@@ -395,6 +414,21 @@ private struct AskChatScreen: View {
         case .none:
             EmptyView()
         }
+    }
+
+    /// Optimistic user bubble that receives the matched-geometry send morph.
+    private func pendingSendRow(_ pending: AskPendingSend) -> some View {
+        HStack {
+            Spacer(minLength: 48)
+            AskSendMorphBubble(text: pending.text, appearance: appearance)
+                .matchedGeometryEffect(id: pending.id, in: sendBubble, isSource: !sendFromComposer)
+                .opacity(sendFromComposer ? 0 : 1)
+                .accessibilityHidden(sendFromComposer)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(pending.text)
+        .modifier(AskTimeRevealShift(distance: contentShift))
+        .id(pending.id)
     }
 
     /// Bubbles slide toward the leading edge. The clock time stays on the trailing edge.
@@ -600,6 +634,16 @@ private struct AskChatScreen: View {
                     openPhoto = AskPhotoSet(images: draftImages, startID: image.id)
                 }
             )
+            .overlay(alignment: .top) {
+                if let pending = pendingSend, sendFromComposer {
+                    AskSendMorphBubble(text: pending.text, appearance: appearance, fillsWidth: true)
+                        .matchedGeometryEffect(id: pending.id, in: sendBubble, isSource: true)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
         }
         .padding(.top, 4)
     }
@@ -608,11 +652,22 @@ private struct AskChatScreen: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let attached = draftImages
         guard (!text.isEmpty || !attached.isEmpty), !isThinking else { return }
+        guard pendingSend == nil else { return }
         let utterance: String
         if text.isEmpty {
             utterance = attached.count == 1 ? "Look at the attached image." : "Look at the attached images."
         } else {
             utterance = text
+        }
+        let morph = AskSendMorph.shouldMorph(
+            text: utterance,
+            imageCount: attached.count,
+            reduceMotion: reduceMotion
+        )
+        let pending = morph ? AskPendingSend(id: UUID(), text: utterance) : nil
+        if let pending {
+            pendingSend = pending
+            sendFromComposer = true
         }
         draft = ""
         draftImages = []
@@ -625,11 +680,44 @@ private struct AskChatScreen: View {
         } else {
             urls = []
         }
-        await runTurn {
+        defer {
+            if pendingSend?.id == pending?.id {
+                pendingSend = nil
+                sendFromComposer = false
+            }
+        }
+        async let turn: Void = runTurn {
             await assistant.handle(utterance: utterance, images: urls)
         }
+        if let pending {
+            await playSendMorph(pending)
+        }
+        await turn
         if !attached.isEmpty, let id = try? assistant.transcript().last(where: { $0.role == "user" })?.id {
             sentImages[id] = attached
+        }
+    }
+
+    /// Flies the optimistic bubble from the composer into the transcript, then waits for the stored turn.
+    private func playSendMorph(_ pending: AskPendingSend) async {
+        await Task.yield()
+        withAnimation(AskSendMorph.animation) {
+            sendFromComposer = false
+        }
+        try? await Task.sleep(for: .milliseconds(400))
+        for _ in 0..<40 {
+            if Task.isCancelled { break }
+            if visibleTurns.contains(where: { $0.role == "user" && $0.text == pending.text }) {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        guard pendingSend?.id == pending.id else { return }
+        // Swap onto the stored bubble without a second geometry animation.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            pendingSend = nil
         }
     }
 
@@ -654,7 +742,7 @@ private struct AskChatScreen: View {
 
     /// Drops the in-flight answer. The question already in the thread stays.
     private func stopRequest() {
-        guard isThinking else { return }
+        guard isThinking || pendingSend != nil else { return }
         AskCue.requestStopped()
         turnTask?.cancel()
         AskChatActivity.clearStream()
@@ -662,6 +750,8 @@ private struct AskChatScreen: View {
         activity.detail = ""
         activity.phase = .thinking
         isThinking = false
+        pendingSend = nil
+        sendFromComposer = false
     }
 
     private func sendFollowUp(_ offer: AskFollowUp) async {
@@ -739,6 +829,8 @@ private struct AskChatScreen: View {
         votes = [:]
         sentImages = [:]
         recentPhotos = []
+        pendingSend = nil
+        sendFromComposer = false
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
