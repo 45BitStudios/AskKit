@@ -312,6 +312,8 @@ AskSkill(
 
 The chat shows the card, then the card's action. The view does not own that button. Sentences that repeat a fact in `coveredPhrases`, and lines such as "I can open…" when the card has an action, stay out of the bubble. `replacesBubble` shows the card alone. `spoken` can still be the full answer. The stored turn keeps the shorter bubble, and a later launch rebuilds the view through the same loader.
 
+`AskCardStyle` is `.snippet`, `.chat`, or `.fullScreen`. Cards read it from the environment and thin or grow their chrome. The Shortcuts snippet sets `.snippet`. The transcript sets `.chat`. An expandable chat card (`AskIntentCard.expands`) zooms into `.fullScreen` with the same App Store–style transition the photo grid uses. Photo cards keep their own zoom and leave `expands` off.
+
 A custom transcript asks for that bubble the same way:
 
 ```swift

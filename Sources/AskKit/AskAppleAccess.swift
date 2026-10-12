@@ -1033,6 +1033,8 @@ enum AskAppleCards {
         if !combined.shareText.localizedCaseInsensitiveContains(extra) {
             combined.shareText = combined.shareText.isEmpty ? extra : combined.shareText + "\n" + extra
         }
+        combined.expands = card.expands || fact.expands
+        combined.zoomTransition = card.zoomTransition || fact.zoomTransition
         return combined
     }
 
@@ -1059,6 +1061,7 @@ enum AskAppleCards {
                 view: AskCalendarCard(title: title, items: calendarEvents)
             )
             card.shareText = calendarEvents.map(\.shareLine).joined(separator: "\n")
+            card.expands = true
             return card
         }
         let reminders = AskReminderItem.tasks(in: reading.lines)
@@ -1091,16 +1094,19 @@ enum AskAppleCards {
                     view: AskContactCard(person: person)
                 )
                 card.shareText = person.shareLine
+                card.expands = true
                 return card
             }
         }
         if reading.name == "health", let chart = AskHealthChartModel.parse(visible) {
-            return AskIntentCard(
+            var card = AskIntentCard(
                 title: title,
                 spoken: spoken,
                 text: spoken,
                 view: AskHealthChartCard(metric: chart.metric, initial: chart.range, lines: visible)
             )
+            card.expands = true
+            return card
         }
         if reading.name == "music", let item = AskMusicLine.item(from: visible.first ?? "") {
             if item.nowPlaying {
@@ -1111,6 +1117,7 @@ enum AskAppleCards {
                     view: AskNowPlayingCard(item: item, playedBy: playedBy)
                 )
                 card.shareText = item.shareText
+                card.expands = true
                 return card
             }
             var card = AskIntentCard(
@@ -1120,6 +1127,7 @@ enum AskAppleCards {
                 view: AskMusicCard(item: item)
             )
             card.shareText = item.shareText
+            card.expands = true
             return card
         }
         if reading.name == "alarms",
@@ -1135,6 +1143,7 @@ enum AskAppleCards {
                 .compactMap { $0 }
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
+            card.expands = true
             return card
         }
         if reading.name == "weather", let forecast = AskWeatherLine.forecast(from: visible) {
@@ -1145,6 +1154,7 @@ enum AskAppleCards {
                 view: AskWeatherCard(forecast: forecast)
             )
             card.shareText = forecast.shareText
+            card.expands = true
             return card
         }
         if reading.name == "web" {
@@ -1155,6 +1165,7 @@ enum AskAppleCards {
                 view: AskWebCard(lines: visible)
             )
             card.shareText = visible.joined(separator: "\n")
+            card.expands = true
             return card
         }
         if reading.name == "photos", let grid = AskPhotosLine.grid(from: visible) {
@@ -1178,21 +1189,25 @@ enum AskAppleCards {
             view: AskAppleFactCard(title: title, value: value, detail: detail)
         )
         card.shareText = [value, detail].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: "\n")
+        card.expands = true
         return card
     }
 }
 
 /// Title, value, and detail. Same shape as the sample fact cards.
+/// Layout follows ``AskCardStyle`` so snippet, chat, and full screen stay one card that zooms.
 struct AskAppleFactCard: View {
     var title: String
     var value: String
     var detail: String
 
+    @Environment(\.askCardStyle) private var style
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: style.contentSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(value)
-                    .font(.title2.weight(.semibold))
+                    .font(style.valueFont)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 AskCardBadge(
                     title: title,
@@ -1202,8 +1217,9 @@ struct AskAppleFactCard: View {
             }
             if !detail.isEmpty {
                 Text(detail)
-                    .font(.subheadline)
+                    .font(style.detailFont)
                     .foregroundStyle(.secondary)
+                    .lineLimit(style.detailLineLimit)
             }
         }
         .askCardSurface(tint: AskCardSymbol.tint(for: title))

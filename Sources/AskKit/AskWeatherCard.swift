@@ -495,29 +495,39 @@ struct AskWeatherCard: View {
     var loadsCredit: Bool = true
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.askCardStyle) private var style
     @State private var mark: URL?
     @State private var legal: URL?
 
     private var showsWeek: Bool { forecast.days.count > 1 }
 
+    /// Snippet keeps a short week. Chat and full screen show every day.
+    private var visibleDays: [AskWeatherLine.Day] {
+        let days = forecast.days
+        guard style == .snippet, days.count > 3 else { return days }
+        return Array(days.prefix(3))
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: style == .fullScreen ? 18 : 14) {
             if showsWeek {
                 weekHeader
-                ForEach(Array(forecast.days.enumerated()), id: \.offset) { _, day in
+                ForEach(Array(visibleDays.enumerated()), id: \.offset) { _, day in
                     AskWeatherDayRow(day: day)
                 }
             } else {
                 AskWeatherDayHeader(day: forecast.day)
                 if !forecast.hours.isEmpty {
-                    AskWeatherHourGrid(hours: forecast.hours)
+                    AskWeatherHourGrid(hours: style == .snippet ? Array(forecast.hours.prefix(6)) : forecast.hours)
                 }
             }
-            attribution
+            if style != .snippet {
+                attribution
+            }
         }
         .askCardSurface(tint: AskWeatherTint.color(for: forecast.day.symbol))
         .task(id: scheme) {
-            guard loadsCredit else { return }
+            guard loadsCredit, style != .snippet else { return }
             await loadAttribution()
         }
     }
@@ -525,7 +535,7 @@ struct AskWeatherCard: View {
     private var weekHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(weekTitle)
-                .font(.title3.weight(.semibold))
+                .font(style.titleFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, alignment: .leading)

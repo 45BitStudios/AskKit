@@ -85,6 +85,7 @@ struct AskTraceTurnView: View {
         if let liveCards, !liveCards.isEmpty {
             ForEach(liveCards.indices, id: \.self) { index in
                 liveCards[index]
+                    .environment(\.askCardStyle, .snippet)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else if viewModel.snippetCards != nil && liveCards == nil {
@@ -165,12 +166,15 @@ private struct AskTraceSnippetCard: View {
     }
 
     var body: some View {
-        if card.title.caseInsensitiveCompare("Web") == .orderedSame,
-           AskWebMetadata.pageAddress(in: lines) != nil {
-            AskWebCard(lines: lines)
-        } else {
-            recorded
+        Group {
+            if card.title.caseInsensitiveCompare("Web") == .orderedSame,
+               AskWebMetadata.pageAddress(in: lines) != nil {
+                AskWebCard(lines: lines)
+            } else {
+                recorded
+            }
         }
+        .environment(\.askCardStyle, .snippet)
     }
 
     /// Title and text kept for a turn whose card has no page image.
