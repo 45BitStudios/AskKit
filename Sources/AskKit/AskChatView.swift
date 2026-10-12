@@ -739,13 +739,18 @@ private struct AskChatScreen: View {
                 sendFromComposer = false
             }
         }
-        async let turn: Void = runTurn {
-            await assistant.handle(utterance: utterance, images: urls)
+        let answer = Task { @MainActor in
+            await runTurn {
+                await assistant.handle(utterance: utterance, images: urls)
+            }
         }
         if let pending {
             await playSendMorph(pending)
         }
-        await turn
+        if Task.isCancelled {
+            answer.cancel()
+        }
+        _ = await answer.value
         if !attached.isEmpty, let id = try? assistant.transcript().last(where: { $0.role == "user" })?.id {
             sentImages[id] = attached
         }
