@@ -212,6 +212,88 @@ final class AskGeneratedCardTests: XCTestCase {
         XCTAssertEqual(AskCardNodeKind.parse(card.generatedRoot?.kind ?? ""), .vstack)
         XCTAssertTrue(card.expands)
     }
+
+    func testCardSpecialistAppendsAppInstructions() {
+        let specialist = AskCardSpecialist(
+            instructions: .append("Prefer a large stat for the main number.")
+        )
+        let text = AskGeneratedCard.composeInstructions(
+            specialist: specialist,
+            allowedActions: [AskAction(id: "trip", title: "Trip")],
+            layoutNotes: "Show range under the departure time."
+        )
+        XCTAssertTrue(text.contains("CARD DSL"))
+        XCTAssertTrue(text.contains("Prefer a large stat for the main number."))
+        XCTAssertTrue(text.contains("LAYOUT"))
+        XCTAssertTrue(text.contains("Show range under the departure time."))
+        XCTAssertTrue(text.contains("trip=Trip"))
+    }
+
+    func testCardSpecialistReplaceDropsBuiltinLibrary() {
+        let specialist = AskCardSpecialist(
+            instructions: .replace("Only use a single stat node.")
+        )
+        let text = AskGeneratedCard.composeInstructions(
+            specialist: specialist,
+            allowedActions: []
+        )
+        XCTAssertFalse(text.contains("CARD DSL"))
+        XCTAssertTrue(text.contains("Only use a single stat node."))
+        XCTAssertTrue(text.contains("ALLOWED"))
+    }
+
+    @MainActor
+    func testComposeUsesCardSpecialistProfile() async throws {
+        let model = ScriptedModel()
+        model.composeError = AskCardComposeError.unavailable
+        model.replyText = "Next drive at 5 p.m."
+        let assistant = try AskAssistant(
+            AskConfiguration(
+                assistantName: "DSL",
+                persistence: .memory,
+                domains: [AskDomain(id: "trip", summary: "Trip", routingNotes: "Trip")],
+                skills: [
+                    AskSkill(
+                        id: "nextDrive",
+                        domainID: "trip",
+                        title: "Next drive",
+                        summary: "When the next drive leaves",
+                        routingNotes: "Next drive.",
+                        fulfillment: .generated { _ in
+                            AskGeneratedBlueprint(
+                                title: "Next drive",
+                                spoken: "Your next drive is at 5 p.m.",
+                                facts: "The next drive is at 5 p.m.",
+                                actions: [AskAction(id: "nextDrive", title: "Trip")],
+                                layoutNotes: "Badge says Trip."
+                            )
+                        }
+                    )
+                ],
+                context: { AskContext() },
+                chips: { _ in [] },
+                fastPath: { _ in AskRoute(skillID: "nextDrive") },
+                guide: AskGuide(replyInstructions: "Rewrite FACTS.", followUpInstructions: ""),
+                cardSpecialist: AskCardSpecialist(
+                    id: "app.card",
+                    title: "App card",
+                    symbolName: "square.grid.2x2",
+                    workingTitle: "Building the card",
+                    instructions: .append("Keep one primary stat.")
+                )
+            ),
+            model: model.client
+        )
+        _ = await assistant.handle(utterance: "when is my next drive?")
+        XCTAssertEqual(model.composeCalls, 1)
+        let request = try XCTUnwrap(model.composeRequests.last)
+        XCTAssertEqual(request.profileID, "app.card")
+        XCTAssertEqual(request.profileTitle, "App card")
+        XCTAssertEqual(request.workingTitle, "Building the card")
+        XCTAssertEqual(request.symbolName, "square.grid.2x2")
+        XCTAssertTrue(request.instructions.contains("Keep one primary stat."))
+        XCTAssertTrue(request.instructions.contains("Badge says Trip."))
+    }
 }
 
 /// Minimal scripted client for generative-card tests.
@@ -223,6 +305,7 @@ final class ScriptedModel {
     var composeResult: AskCardNode?
     var composeCalls = 0
     var replyCalls = 0
+    var composeRequests: [AskModelRequest] = []
 
     var client: AskModelClient {
         AskModelClient(
@@ -235,8 +318,9 @@ final class ScriptedModel {
                 return self.replyText
             },
             offerFollowUp: { _ in AskFollowUp(skillID: "none", question: "") },
-            composeCard: { [self] _ in
+            composeCard: { [self] request in
                 self.composeCalls += 1
+                self.composeRequests.append(request)
                 if let composeError = self.composeError { throw composeError }
                 if let composeResult = self.composeResult { return composeResult }
                 throw AskCardComposeError.unavailable

@@ -343,6 +343,23 @@ AskSkill(
 
 Supply `root` when the layout is already known (Garage's Next drive sample does this). Omit it to let the model compose a shallow tree; a failed or empty compose falls back to the same fact-card shape. Action nodes must use an id from `actions`; the first match becomes the button under the card. The DSL tree is stored with the turn so the transcript and Shortcuts snippet can rebuild the view without calling the model again. Host `.intent` cards stay the path for product UI the app already ships. Generic Apple fact cards use the same renderer with a deterministic tree.
 
+### Card specialist
+
+`cardSpecialist` is the layout profile for compose sessions. It is not a reply ``AskSpecialist``: no tools, no question match, and it does not count toward the three specialists on a turn. AskKit ships the CARD DSL kinds and rules. An app appends or replaces those instructions the same way ``AskGuide`` customizes replies. A skill can add one-off notes with `AskGeneratedBlueprint.layoutNotes`.
+
+```swift
+cardSpecialist: AskCardSpecialist(
+    id: "garage.card",
+    title: "Garage card",
+    symbolName: "car.side",
+    workingTitle: "Laying out the card",
+    instructions: .append("""
+    Prefer a large stat for the main number. Put the domain in a badge.
+    Keep secondary facts as short text or row lines.
+    """)
+)
+```
+
 `AskCardStyle` is `.snippet`, `.chat`, or `.fullScreen`. Cards read it from the environment and thin or grow their chrome. The Shortcuts snippet sets `.snippet`. The transcript sets `.chat`. An expandable chat card (`AskIntentCard.expands`) zooms into `.fullScreen` with the same App Store–style transition the photo grid uses. Photo cards keep their own zoom and leave `expands` off.
 
 A custom transcript asks for that bubble the same way:

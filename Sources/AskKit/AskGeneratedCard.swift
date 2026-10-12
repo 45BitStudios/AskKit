@@ -55,6 +55,39 @@ public enum AskCardNodeKind: String, Sendable, CaseIterable {
     }
 }
 
+/// Layout profile for generative cards.
+///
+/// Separate from ``AskSpecialist``: no tools, no question matching, and it does not count toward
+/// the three reply specialists on a turn. AskKit ships built-in CARD DSL instructions. An app
+/// appends or replaces those with its own layout rules, the same way ``AskGuide`` customizes replies.
+public struct AskCardSpecialist: Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var symbolName: String
+    /// Status line while the compose session is active.
+    public var workingTitle: String
+    /// App layout rules. A string appends after AskKit's built-in CARD DSL instructions.
+    /// `.replace` uses only the app's text for that block.
+    public var instructions: AskGuideText
+
+    public init(
+        id: String = "ask.card",
+        title: String = "Card layout",
+        symbolName: String = "rectangle.3.group",
+        workingTitle: String = "Laying out the card",
+        instructions: AskGuideText = .append("")
+    ) {
+        self.id = id
+        self.title = title
+        self.symbolName = symbolName
+        self.workingTitle = workingTitle
+        self.instructions = instructions
+    }
+
+    /// AskKit defaults with no app lines.
+    public static let `default` = AskCardSpecialist()
+}
+
 /// Facts and chrome a `.generated` skill hands AskKit before layout composition.
 public struct AskGeneratedBlueprint: Sendable {
     public var title: String
@@ -68,6 +101,8 @@ public struct AskGeneratedBlueprint: Sendable {
     public var root: AskCardNode?
     /// When true the chat card can zoom to full screen.
     public var expands: Bool
+    /// Extra layout rules for this skill only. Appended after the card specialist instructions.
+    public var layoutNotes: String
 
     public init(
         title: String,
@@ -77,7 +112,8 @@ public struct AskGeneratedBlueprint: Sendable {
         coveredPhrases: [String] = [],
         actions: [AskAction] = [],
         root: AskCardNode? = nil,
-        expands: Bool = true
+        expands: Bool = true,
+        layoutNotes: String = ""
     ) {
         self.title = title
         self.spoken = spoken
@@ -87,6 +123,7 @@ public struct AskGeneratedBlueprint: Sendable {
         self.actions = actions
         self.root = root
         self.expands = expands
+        self.layoutNotes = layoutNotes
     }
 }
 
@@ -116,19 +153,28 @@ public enum AskGeneratedCard {
         """
     }
 
-    public static func composeInstructions(allowedActions: [AskAction]) -> String {
+    public static func composeInstructions(
+        specialist: AskCardSpecialist = .default,
+        allowedActions: [AskAction],
+        layoutNotes: String = ""
+    ) -> String {
         let allowed: String
         if allowedActions.isEmpty {
             allowed = "(none)"
         } else {
             allowed = allowedActions.map { "\($0.id)=\($0.title)" }.joined(separator: ", ")
         }
-        return """
-        You compose an AskKit card layout.
-        \(libraryPrompt)
-        ALLOWED
-        \(allowed)
-        """
+        let layout = specialist.instructions.resolved(default: libraryPrompt)
+        let notes = layoutNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        var blocks = [
+            "You compose an AskKit card layout.",
+            layout,
+            "ALLOWED\n\(allowed)"
+        ]
+        if !notes.isEmpty {
+            blocks.append("LAYOUT\n\(notes)")
+        }
+        return blocks.joined(separator: "\n")
     }
 
     public static func composePrompt(facts: String, title: String, spoken: String) -> String {

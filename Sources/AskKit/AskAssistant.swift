@@ -592,21 +592,28 @@ public struct AskAssistant {
         if blueprint.root != nil {
             return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false)
         }
+        let specialist = configuration.cardSpecialist
         let request = AskModelRequest(
-            instructions: AskGeneratedCard.composeInstructions(allowedActions: blueprint.actions),
+            instructions: AskGeneratedCard.composeInstructions(
+                specialist: specialist,
+                allowedActions: blueprint.actions,
+                layoutNotes: blueprint.layoutNotes
+            ),
             prompt: AskGeneratedCard.composePrompt(
                 facts: blueprint.facts,
                 title: blueprint.title,
                 spoken: blueprint.spoken
             ),
             facts: blueprint.facts,
-            profileID: "composeCard",
-            profileTitle: "Card layout",
-            workingTitle: "Laying out the card"
+            profileID: specialist.id,
+            profileTitle: specialist.title,
+            workingTitle: specialist.workingTitle,
+            symbolName: specialist.symbolName
         )
         do {
             let root = try await AskTrace.span("composeCard") {
-                try await model.composeCard(request)
+                AskTrace.attribute("specialist", specialist.id)
+                return try await model.composeCard(request)
             }
             return ComposedCard(
                 card: AskGeneratedCard.card(from: blueprint, composed: root),

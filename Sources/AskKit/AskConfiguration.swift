@@ -423,6 +423,9 @@ public struct AskConfiguration {
     /// Replaces the fact card for a reply that used an Apple source.
     /// Return nil to keep the built-in card. The lines are what the tool returned.
     public var appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)?
+    /// Layout rules for `.generated` cards. Defaults to AskKit's CARD DSL instructions.
+    /// Append app lines with a string, or `.replace` to own the layout prompt. Not a reply specialist.
+    public var cardSpecialist: AskCardSpecialist
 
     public init(
         assistantName: String,
@@ -439,7 +442,8 @@ public struct AskConfiguration {
         specialists: [AskSpecialist] = [],
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],
-        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil
+        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil,
+        cardSpecialist: AskCardSpecialist = .default
     ) {
         self.assistantName = assistantName
         self.persistence = persistence
@@ -456,6 +460,7 @@ public struct AskConfiguration {
         self.webMetadata = webMetadata
         self.appleAccess = appleAccess
         self.appleCard = appleCard
+        self.cardSpecialist = cardSpecialist
     }
 
     public init<Source: AskContextSource>(
@@ -472,7 +477,8 @@ public struct AskConfiguration {
         specialists: [AskSpecialist] = [],
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],
-        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil
+        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil,
+        cardSpecialist: AskCardSpecialist = .default
     ) {
         self.init(
             assistantName: assistantName,
@@ -491,7 +497,8 @@ public struct AskConfiguration {
             specialists: specialists,
             webMetadata: webMetadata,
             appleAccess: appleAccess,
-            appleCard: appleCard
+            appleCard: appleCard,
+            cardSpecialist: cardSpecialist
         )
     }
 
