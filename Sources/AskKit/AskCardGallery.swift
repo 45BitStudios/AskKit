@@ -42,6 +42,8 @@ public struct AskCardGalleryScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     AskOrbGallerySection()
+                    AskCardPresentationGallerySection()
+                    AskCardZoomGallerySection()
                     ForEach(AskCardSamples.sections()) { section in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(section.title)
@@ -54,6 +56,7 @@ public struct AskCardGalleryScreen: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             section.view
+                                .environment(\.askCardStyle, .chat)
                         }
                     }
                 }
@@ -374,6 +377,86 @@ struct AskCardGallerySection: Identifiable {
     var title: String
     var note: String
     var view: AnyView
+}
+
+/// Side-by-side snippet, chat, and full screen for the same fact card.
+private struct AskCardPresentationGallerySection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Presentation")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text("AskCardStyle draws the same card as snippet, chat, or full screen.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(AskCardStyle.allCases, id: \.self) { style in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(style.rawValue)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        AskAppleFactCard(
+                            title: "Charge",
+                            value: "68 percent",
+                            detail: "About 40 minutes to the limit."
+                        )
+                        .environment(\.askCardStyle, style)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// App Store–style zoom from the chat card into full screen.
+private struct AskCardZoomGallerySection: View {
+    @State private var expansion = AskCardExpansion()
+    @Namespace private var zoom
+
+    private var presented: Binding<Bool> {
+        Binding(get: { expansion.presented }, set: { if !$0 { expansion.presented = false } })
+    }
+
+    private var sample: AskIntentCard {
+        var card = AskIntentCard(
+            title: "Charge",
+            spoken: "68 percent. About 40 minutes to the limit.",
+            view: AskAppleFactCard(
+                title: "Charge",
+                value: "68 percent",
+                detail: "About 40 minutes to the limit."
+            )
+        )
+        card.expands = true
+        return card
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Zoom")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text("Tap the chat card. It zooms to full screen the way the App Store opens Today stories.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            let card = sample
+            let pageID = UUID(uuidString: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890") ?? UUID()
+            card.view
+                .environment(\.askCardStyle, .chat)
+                .environment(\.cardExpansion, expansion)
+                .environment(\.cardZoomNamespace, zoom)
+                .modifier(AskCardZoomSource(pageID: pageID, card: card, enabled: true))
+        }
+        .navigationDestination(isPresented: presented) {
+            if let card = expansion.card, let pageID = expansion.pageID {
+                AskCardFullScreen(card: card)
+                    .navigationTransition(.zoom(sourceID: pageID, in: zoom))
+            }
+        }
+    }
 }
 
 private struct AskOrbGallerySection: View {

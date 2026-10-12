@@ -2,8 +2,154 @@ import AppIntents
 import SwiftUI
 import UIKit
 
-enum AskCardStyle {
-    static let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+/// Where a card is drawn. Snippet is Shortcuts/Siri. Chat is the transcript. Full screen is the zoomed detail.
+/// Cards read ``EnvironmentValues/askCardStyle`` and thin or grow their chrome. Chat → full screen uses an App Store–style zoom.
+public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
+    /// Compact card in the Shortcuts / Siri snippet window.
+    case snippet
+    /// Card under the answer bubble in ``AskChatView``.
+    case chat
+    /// Zoomed detail after opening an expandable chat card.
+    case fullScreen
+
+    public static let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+
+    public var padding: CGFloat {
+        switch self {
+        case .snippet: 12
+        case .chat: 16
+        case .fullScreen: 20
+        }
+    }
+
+    public var contentSpacing: CGFloat {
+        switch self {
+        case .snippet: 6
+        case .chat: 8
+        case .fullScreen: 14
+        }
+    }
+
+    public var valueFont: Font {
+        switch self {
+        case .snippet: .title3.weight(.semibold)
+        case .chat: .title2.weight(.semibold)
+        case .fullScreen: .largeTitle.weight(.semibold)
+        }
+    }
+
+    public var titleFont: Font {
+        switch self {
+        case .snippet: .headline
+        case .chat: .title3.weight(.semibold)
+        case .fullScreen: .title2.weight(.semibold)
+        }
+    }
+
+    public var detailFont: Font {
+        switch self {
+        case .snippet: .footnote
+        case .chat, .fullScreen: .subheadline
+        }
+    }
+
+    /// Snippet keeps secondary lines to one row. Chat and full screen show them fully.
+    public var detailLineLimit: Int? {
+        switch self {
+        case .snippet: 1
+        case .chat, .fullScreen: nil
+        }
+    }
+}
+
+extension EnvironmentValues {
+    @Entry public var askCardStyle: AskCardStyle = .chat
+}
+
+/// Opens a chat card into full screen. The chat screen owns the zoom namespace.
+@MainActor
+@Observable
+final class AskCardExpansion {
+    var pageID: UUID?
+    var card: AskIntentCard?
+    /// Separate from `pageID` so closing does not clear the source the dismiss animation is using.
+    var presented = false
+
+    func open(pageID: UUID, card: AskIntentCard) {
+        self.pageID = pageID
+        self.card = card
+        presented = true
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var cardExpansion: AskCardExpansion?
+    @Entry var cardZoomNamespace: Namespace.ID?
+}
+
+/// Full-screen card after an App Store–style zoom from the transcript.
+struct AskCardFullScreen: View {
+    var card: AskIntentCard
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            card.view
+                .environment(\.askCardStyle, .fullScreen)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+        }
+        .scrollClipDisabled()
+        .background(Color(.systemBackground))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    AskCue.tap()
+                    dismiss()
+                }
+            }
+            if !card.shareText.isEmpty {
+                ToolbarItem(placement: .topBarLeading) {
+                    ShareLink(item: card.shareText) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share")
+                }
+            }
+        }
+        .accessibilityLabel(card.title.isEmpty ? "Card" : card.title)
+    }
+}
+
+/// Marks the chat card the full-screen zoom grows from. Long-press menus stay off this view.
+struct AskCardZoomSource: ViewModifier {
+    var pageID: UUID
+    var card: AskIntentCard
+    var enabled: Bool
+
+    @Environment(\.cardZoomNamespace) private var namespace
+    @Environment(\.cardExpansion) private var expansion
+
+    func body(content: Content) -> some View {
+        if enabled, let namespace, let expansion {
+            content
+                .contentShape(AskCardStyle.shape)
+                .matchedTransitionSource(id: pageID, in: namespace) { source in
+                    source.clipShape(AskCardStyle.shape)
+                }
+                .onTapGesture {
+                    AskCue.tap()
+                    expansion.open(pageID: pageID, card: card)
+                }
+                .accessibilityAction(named: "Open") {
+                    expansion.open(pageID: pageID, card: card)
+                }
+        } else {
+            content
+        }
+    }
 }
 
 /// Small type mark in the top-right of a card. The title itself stays plain text.
@@ -189,8 +335,19 @@ enum AskCardSymbol {
 
 extension View {
     /// Shared answer-card surface. A tint wash sits on the gray fill. Cards stay solid because they scroll.
+    /// Padding follows ``AskCardStyle``.
     func askCardSurface(tint: Color? = nil) -> some View {
-        padding(16)
+        modifier(AskCardSurfaceModifier(tint: tint))
+    }
+}
+
+private struct AskCardSurfaceModifier: ViewModifier {
+    var tint: Color?
+    @Environment(\.askCardStyle) private var style
+
+    func body(content: Content) -> some View {
+        content
+            .padding(style.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 ZStack {

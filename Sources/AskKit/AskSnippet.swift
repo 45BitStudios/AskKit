@@ -59,6 +59,7 @@ enum AskSnippetPreparation {
         return AskSnippetViewBox(view: AnyView(
             AskIntentCards(cards: cards)
                 .environment(\.askSnippet, surface)
+                .environment(\.askCardStyle, .snippet)
         ))
     }
 }

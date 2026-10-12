@@ -128,6 +128,8 @@ private struct AskChatScreen: View {
     @Namespace private var sendBubble
     @State private var library = AskLibraryGallery()
     @Namespace private var libraryZoom
+    @State private var cardExpansion = AskCardExpansion()
+    @Namespace private var cardZoom
     @State private var votes: [UUID: Bool]
     #if DEBUG
     @State private var showsCards = false
@@ -183,6 +185,10 @@ private struct AskChatScreen: View {
         Binding(get: { library.zoomID }, set: { library.zoomID = $0 })
     }
 
+    private var cardExpanded: Binding<Bool> {
+        Binding(get: { cardExpansion.presented }, set: { if !$0 { cardExpansion.presented = false } })
+    }
+
     var body: some View {
         transcript
             .overlay {
@@ -219,8 +225,17 @@ private struct AskChatScreen: View {
                 )
                 .navigationTransition(.zoom(sourceID: library.zoomID, in: libraryZoom))
             }
+            .navigationDestination(isPresented: cardExpanded) {
+                if let card = cardExpansion.card, let pageID = cardExpansion.pageID {
+                    AskCardFullScreen(card: card)
+                        .navigationTransition(.zoom(sourceID: pageID, in: cardZoom))
+                }
+            }
             .environment(\.libraryGallery, library)
             .environment(\.libraryZoomNamespace, libraryZoom)
+            .environment(\.cardExpansion, cardExpansion)
+            .environment(\.cardZoomNamespace, cardZoom)
+            .environment(\.askCardStyle, .chat)
             .task { chips = await assistant.chips() }
             #if DEBUG
             .sheet(isPresented: $showsCards) {
@@ -1002,10 +1017,16 @@ private struct AskCardBlock: View {
     var onSettled: () -> Void = {}
     @State private var cardWidth: CGFloat = 0
 
+    /// Entrance scale/offset and long-press menus both break an App Store–style zoom match.
+    private var holdsZoomSource: Bool {
+        page.card?.zoomTransition == true || page.card?.expands == true
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let card = page.card {
                 card.view
+                    .environment(\.askCardStyle, .chat)
                     .background {
                         GeometryReader { proxy in
                             Color.clear
@@ -1015,8 +1036,15 @@ private struct AskCardBlock: View {
                         }
                     }
                     .modifier(
+                        AskCardZoomSource(
+                            pageID: page.id,
+                            card: card,
+                            enabled: card.expands && !card.zoomTransition
+                        )
+                    )
+                    .modifier(
                         AskCardActions(
-                            enabled: !card.zoomTransition,
+                            enabled: !holdsZoomSource,
                             text: card.shareText,
                             width: cardWidth,
                             view: card.view
@@ -1034,7 +1062,7 @@ private struct AskCardBlock: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(AskCardEntrance(
-            plays: animatesArrival && !hasSettled && page.card != nil && page.card?.zoomTransition != true,
+            plays: animatesArrival && !hasSettled && page.card != nil && !holdsZoomSource,
             delay: entrance,
             onSettled: onSettled
         ))

@@ -57,8 +57,10 @@ public struct AskIntentCard {
     public var replacesBubble: Bool
     /// Button under the card. The view itself does not own the button.
     public var action: AskAction?
-    /// The card holds a zoom source. The long-press menu stays off this view so the zoom can match.
+    /// The card holds a photo zoom source. The long-press menu stays off this view so the zoom can match.
     var zoomTransition = false
+    /// Tapping the chat card zooms it to ``AskCardStyle/fullScreen``. Off when the card already owns a photo zoom.
+    public var expands = false
     /// Plain text for the card's Copy and Share actions. The title and spoken line, unless a card replaces it.
     var shareText: String
     public var view: AnyView
