@@ -4,5 +4,7 @@
 <dict>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>AskKit schedules alarms you ask for, including a custom button on each alarm.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 </dict>
 </plist>

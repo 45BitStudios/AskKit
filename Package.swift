@@ -8,7 +8,8 @@ let package = Package(
         .iOS(.v27)
     ],
     products: [
-        .library(name: "AskKit", targets: ["AskKit"])
+        .library(name: "AskKit", targets: ["AskKit"]),
+        .library(name: "AskKitIntents", targets: ["AskKitIntents"])
     ],
     dependencies: [
         .package(path: "Vendor/VoiceGlowKit"),
@@ -28,8 +29,19 @@ let package = Package(
             ]
         ),
         .target(
+            name: "AskKitIntents",
+            dependencies: [],
+            path: "Sources/AskKitIntents",
+            linkerSettings: [
+                .linkedFramework("ActivityKit"),
+                .linkedFramework("AppIntents"),
+                .linkedFramework("WidgetKit")
+            ]
+        ),
+        .target(
             name: "AskKit",
             dependencies: [
+                "AskKitIntents",
                 "AskContactsChangeHistory",
                 .product(name: "VoiceGlowKit", package: "VoiceGlowKit"),
                 .product(name: "ThinkingOrbsKit", package: "ThinkingOrbsKit"),
@@ -41,7 +53,7 @@ let package = Package(
                 .linkedFramework("Contacts")
             ]
         ),
-        .testTarget(name: "AskKitTests", dependencies: ["AskKit"]),
+        .testTarget(name: "AskKitTests", dependencies: ["AskKit", "AskKitIntents"]),
         .testTarget(name: "AskKitEvaluations", dependencies: ["AskKit"])
     ],
     swiftLanguageModes: [.v6]

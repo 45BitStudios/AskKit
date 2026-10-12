@@ -1,3 +1,4 @@
+import AskKitIntents
 import BorderBeamKit
 import FoundationModels
 import Photos
@@ -237,6 +238,17 @@ private struct AskChatScreen: View {
             .environment(\.cardZoomNamespace, cardZoom)
             .environment(\.askCardStyle, .chat)
             .task { chips = await assistant.chips() }
+            .task {
+                await AskSurfaces.refresh(access: assistant.configuration.appleAccess)
+                await openQueuedSurface()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .askSurfaceQueued)) { _ in
+                Task { await openQueuedSurface() }
+            }
+            .onChange(of: isThinking) { _, thinking in
+                guard !thinking else { return }
+                Task { await openQueuedSurface() }
+            }
             #if DEBUG
             .sheet(isPresented: $showsCards) {
                 AskCardGalleryScreen()
@@ -573,7 +585,7 @@ private struct AskChatScreen: View {
                     AskAnswerPager(
                         pages: pages,
                         appearance: appearance,
-                        onAction: onAction,
+                        onAction: performAction,
                         answerMenu: menu,
                         animatesArrival: livePages[turn.id] != nil,
                         settledCards: settledCards,
@@ -587,7 +599,7 @@ private struct AskChatScreen: View {
                     AskAnswerColumn(
                         page: page,
                         appearance: appearance,
-                        onAction: onAction,
+                        onAction: performAction,
                         answerMenu: menu,
                         animatesArrival: livePages[turn.id] != nil,
                         settledCards: settledCards,
@@ -661,6 +673,32 @@ private struct AskChatScreen: View {
             }
         }
         .padding(.top, 4)
+    }
+
+    /// A calendar card's Pin button, or the words "Pin this", keeps the next event on the Lock Screen.
+    private func performAction(_ action: AskAction) {
+        guard action.id == AskPinPhrase.actionID else {
+            onAction(action)
+            return
+        }
+        guard !isThinking else { return }
+        draft = action.title
+        turnTask = Task { await sendDraft() }
+    }
+
+    /// A Control or widget asked for a question, and maybe a Lock Screen pin, while Ask was closed.
+    private func openQueuedSurface() async {
+        let pin = AskSurfaceStore.shared.consumePin()
+        let question = isThinking ? nil : AskSurfaceStore.shared.takeQuestion()
+        if let question {
+            draft = question
+            await sendDraft()
+        }
+        guard pin || question != nil else { return }
+        await AskSurfaces.refresh(access: assistant.configuration.appleAccess)
+        if pin {
+            await AskSurfaces.pinNextEvent()
+        }
     }
 
     private func sendDraft() async {

@@ -1,4 +1,5 @@
 import AppIntents
+import AskKitIntents
 import Contacts
 import CoreLocation
 import EventKit
@@ -1058,6 +1059,7 @@ enum AskAppleCards {
                 title: title,
                 spoken: spoken,
                 text: spoken,
+                action: AskAction(id: AskPinPhrase.actionID, title: "Pin this"),
                 view: AskCalendarCard(title: title, items: calendarEvents)
             )
             card.shareText = calendarEvents.map(\.shareLine).joined(separator: "\n")
@@ -3053,6 +3055,36 @@ private enum AskCalendarRead {
             calendarName: event.calendar.title
         )
     }
+
+    /// The soonest event that has not ended, through the next week. Does not ask for access.
+    static func upcoming(now: Date) async -> AskSurfaceEvent? {
+        let store = EKEventStore()
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return nil }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: now)
+        guard let end = calendar.date(byAdding: .day, value: 7, to: start) else { return nil }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        guard let event = store.events(matching: predicate)
+            .filter({ $0.endDate > now })
+            .sorted(by: { $0.startDate < $1.startDate })
+            .first else { return nil }
+        let rawTitle = event.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = rawTitle.isEmpty ? "Event" : AskAppleCopy.plain(rawTitle, limit: 120)
+        return AskSurfaceEvent(
+            id: event.calendarItemIdentifier,
+            title: title,
+            start: event.startDate,
+            end: event.endDate,
+            isAllDay: event.isAllDay,
+            location: AskAppleCopy.plain(event.location ?? "", limit: 80)
+        )
+    }
+}
+
+enum AskSurfaceCalendar {
+    static func upcoming(now: Date) async -> AskSurfaceEvent? {
+        await AskCalendarRead.upcoming(now: now)
+    }
 }
 
 enum AskRemindersRead {
@@ -3240,6 +3272,41 @@ enum AskRemindersRead {
                 }
                 let entities = matched.prefix(limit).map(Self.entity)
                 continuation.resume(returning: Array(entities))
+            }
+        }
+    }
+
+    /// Open reminders in due-date order. Does not ask for access.
+    static func openItems(limit: Int) async -> [AskSurfaceReminder] {
+        let store = EKEventStore()
+        guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else { return [] }
+        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
+        let cap = min(max(limit, 1), 8)
+        let calendar = Calendar.current
+        return await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { reminders in
+                let soonest = (reminders ?? []).sorted { lhs, rhs in
+                    switch (Self.dueDate(lhs, calendar: calendar), Self.dueDate(rhs, calendar: calendar)) {
+                    case let (left?, right?):
+                        return left < right
+                    case (_?, nil):
+                        return true
+                    case (nil, _?):
+                        return false
+                    case (nil, nil):
+                        return false
+                    }
+                }
+                let items = soonest.prefix(cap).map { reminder in
+                    let raw = reminder.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let title = raw.isEmpty ? "Reminder" : AskAppleCopy.plain(raw, limit: 120)
+                    return AskSurfaceReminder(
+                        id: reminder.calendarItemIdentifier,
+                        title: title,
+                        due: Self.dueDate(reminder, calendar: calendar)
+                    )
+                }
+                continuation.resume(returning: Array(items))
             }
         }
     }

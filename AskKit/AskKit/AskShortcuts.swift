@@ -1,10 +1,11 @@
 import AppIntents
 import AskKit
+import AskKitIntents
 
 /// Lists the AskKit package so Shortcuts and Siri can see ``AskIntent``.
 nonisolated struct AskGarageAppIntents: AppIntentsPackage {
     static var includedPackages: [any AppIntentsPackage.Type] {
-        [AskKitAppIntents.self]
+        [AskKitAppIntents.self, AskKitIntentsPackage.self]
     }
 }
 

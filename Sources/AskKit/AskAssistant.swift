@@ -66,6 +66,9 @@ public struct AskAssistant {
                 AskTrace.attribute("images", "\(images.count)")
             }
             let trimmed = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
+            if AskPinPhrase.matches(trimmed) {
+                return await pinLockScreen(utterance: trimmed)
+            }
             let context = await AskTrace.span("context") {
                 await configuration.context()
             }
@@ -98,6 +101,43 @@ public struct AskAssistant {
             let routed = await route(utterance: routedUtterance, context: context, earlier: priors)
             return await fulfill(routed, utterance: routedUtterance, context: context, allowsTools: true, images: images)
         }
+    }
+
+    /// "Pin this" keeps the next calendar event on the Lock Screen. The model is not asked.
+    private func pinLockScreen(utterance: String) async -> AskTurnResult {
+        AskTrace.attribute("routedVia", "pin")
+        AskTrace.decision("pin")
+        try? store.appendUser(assistantName: configuration.assistantName, text: utterance)
+        AskChatActivity.update("Pinning the next event")
+        let spoken = await AskSurfaces.pinSpoken(access: configuration.appleAccess)
+        AskTrace.result(spoken)
+        let page = AskPage(
+            question: utterance,
+            text: spoken,
+            spoken: spoken,
+            skillID: AskPinPhrase.actionID,
+            domainID: ""
+        )
+        let savedID = try? store.appendAssistant(
+            assistantName: configuration.assistantName,
+            text: spoken,
+            spoken: spoken,
+            skillID: page.skillID,
+            domainID: "",
+            slots: [:],
+            omitting: configuration.omittedSlotKeys,
+            pagesJSON: AskStoredPages.encode([page], omitting: configuration.omittedSlotKeys)
+        )
+        AskChatActivity.clearStream()
+        return AskTurnResult(
+            skillID: page.skillID,
+            domainID: "",
+            slots: [:],
+            usedModel: false,
+            fulfillment: .reply(AskReply(text: spoken, spoken: spoken)),
+            pages: [page],
+            id: savedID ?? UUID()
+        )
     }
 
     /// A chip already chose the skill. This does not open a routing session, and the reply does not receive tools.

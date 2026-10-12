@@ -8,10 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* AskKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000002 /* AskKit */; };
+		A10000000000000000000020 /* AskKitWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000023 /* AskKitWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A10000000000000000000021 /* AskKitIntents in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000002F /* AskKitIntents */; };
+		A10000000000000000000022 /* AskKitIntents in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000030 /* AskKitIntents */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000010 /* AskKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AskKit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000023 /* AskKitWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AskKitWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -20,13 +24,49 @@
 			path = AskKit;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000024 /* AskKitWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AskKitWidgets;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		A1000000000000000000002B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000019 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000029;
+			remoteInfo = AskKitWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A10000000000000000000025 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A10000000000000000000020 /* AskKitWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A10000000000000000000012 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				A10000000000000000000001 /* AskKit in Frameworks */,
+				A10000000000000000000021 /* AskKitIntents in Frameworks */,
+			);
+		};
+		A10000000000000000000026 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				A10000000000000000000022 /* AskKitIntents in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -36,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000011 /* AskKit */,
+				A10000000000000000000024 /* AskKitWidgets */,
 				A10000000000000000000014 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -44,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000010 /* AskKit.app */,
+				A10000000000000000000023 /* AskKitWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -58,8 +100,12 @@
 				A10000000000000000000017 /* Sources */,
 				A10000000000000000000012 /* Frameworks */,
 				A10000000000000000000018 /* Resources */,
+				A10000000000000000000025 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000002A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A10000000000000000000011 /* AskKit */,
@@ -67,10 +113,34 @@
 			name = AskKit;
 			packageProductDependencies = (
 				A10000000000000000000002 /* AskKit */,
+				A1000000000000000000002F /* AskKitIntents */,
 			);
 			productName = AskKit;
 			productReference = A10000000000000000000010 /* AskKit.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A10000000000000000000029 /* AskKitWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000000000000000000002E /* Build configuration list for PBXNativeTarget "AskKitWidgets" */;
+			buildPhases = (
+				A10000000000000000000028 /* Sources */,
+				A10000000000000000000026 /* Frameworks */,
+				A10000000000000000000027 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A10000000000000000000024 /* AskKitWidgets */,
+			);
+			name = AskKitWidgets;
+			packageProductDependencies = (
+				A10000000000000000000030 /* AskKitIntents */,
+			);
+			productName = AskKitWidgets;
+			productReference = A10000000000000000000023 /* AskKitWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -83,6 +153,9 @@
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					A10000000000000000000015 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					A10000000000000000000029 = {
 						CreatedOnToolsVersion = 27.0;
 					};
 				};
@@ -105,12 +178,18 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000000015 /* AskKit */,
+				A10000000000000000000029 /* AskKitWidgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A10000000000000000000018 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		A10000000000000000000027 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -123,7 +202,20 @@
 			files = (
 			);
 		};
+		A10000000000000000000028 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1000000000000000000002A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000029 /* AskKitWidgets */;
+			targetProxy = A1000000000000000000002B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A1000000000000000000001B /* Debug configuration for PBXProject "AskKit" */ = {
@@ -252,18 +344,19 @@
 				DEVELOPMENT_TEAM = SP7UUHBXPL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Alarm-Info.plist;
+				INFOPLIST_FILE = "Alarm-Info.plist";
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "AskKit checks what is playing, searches songs and albums, and plays a song or album from a card.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "AskKit reads your calendar to answer what is coming up, and adds an event when you ask.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "AskKit uses the camera so you can add a photo to a question.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "AskKit reads your contacts to answer a question about a person.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "AskKit reads activity, heart, body, and other Health measurements to answer a health question.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "AskKit uses your location to answer where you are, to look up a place you name, and to fetch the forecast.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "AskKit uses the camera so you can add a photo to a question.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AskKit uses the microphone so you can speak a question.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AskKit saves a picture of a card to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AskKit searches your photo library when you ask for screenshots, favorites, or photos that match a filter.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AskKit reads your reminders to answer what is still open, and adds a reminder when you ask.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AskKit turns your speech into text in the question field.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -302,18 +395,19 @@
 				DEVELOPMENT_TEAM = SP7UUHBXPL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Alarm-Info.plist;
+				INFOPLIST_FILE = "Alarm-Info.plist";
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "AskKit checks what is playing, searches songs and albums, and plays a song or album from a card.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "AskKit reads your calendar to answer what is coming up, and adds an event when you ask.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "AskKit uses the camera so you can add a photo to a question.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "AskKit reads your contacts to answer a question about a person.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "AskKit reads activity, heart, body, and other Health measurements to answer a health question.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "AskKit uses your location to answer where you are, to look up a place you name, and to fetch the forecast.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "AskKit uses the camera so you can add a photo to a question.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AskKit uses the microphone so you can speak a question.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "AskKit saves a picture of a card to your photo library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "AskKit searches your photo library when you ask for screenshots, favorites, or photos that match a filter.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "AskKit reads your reminders to answer what is still open, and adds a reminder when you ask.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "AskKit turns your speech into text in the question field.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -340,6 +434,72 @@
 			};
 			name = Release;
 		};
+		A1000000000000000000002C /* Debug configuration for PBXNativeTarget "AskKitWidgets" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = AskKitWidgets/AskKitWidgets.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SP7UUHBXPL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AskKitWidgets-Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AskKit;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.45bitstudios.askkitapp.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1000000000000000000002D /* Release configuration for PBXNativeTarget "AskKitWidgets" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = AskKitWidgets/AskKitWidgets.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SP7UUHBXPL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AskKitWidgets-Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AskKit;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.45bitstudios.askkitapp.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -348,6 +508,14 @@
 			buildConfigurations = (
 				A1000000000000000000001D /* Debug configuration for PBXNativeTarget "AskKit" */,
 				A1000000000000000000001E /* Release configuration for PBXNativeTarget "AskKit" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		A1000000000000000000002E /* Build configuration list for PBXNativeTarget "AskKitWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000000000000000000002C /* Debug configuration for PBXNativeTarget "AskKitWidgets" */,
+				A1000000000000000000002D /* Release configuration for PBXNativeTarget "AskKitWidgets" */,
 			);
 			defaultConfigurationName = Release;
 		};
@@ -373,6 +541,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A10000000000000000000003 /* XCLocalSwiftPackageReference ".." */;
 			productName = AskKit;
+		};
+		A1000000000000000000002F /* AskKitIntents */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000003 /* XCLocalSwiftPackageReference ".." */;
+			productName = AskKitIntents;
+		};
+		A10000000000000000000030 /* AskKitIntents */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000003 /* XCLocalSwiftPackageReference ".." */;
+			productName = AskKitIntents;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
