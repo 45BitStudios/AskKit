@@ -312,6 +312,37 @@ AskSkill(
 
 The chat shows the card, then the card's action. The view does not own that button. Sentences that repeat a fact in `coveredPhrases`, and lines such as "I can open…" when the card has an action, stay out of the bubble. `replacesBubble` shows the card alone. `spoken` can still be the full answer. The stored turn keeps the shorter bubble, and a later launch rebuilds the view through the same loader.
 
+## Generative card DSL
+
+When a skill has no host-drawn SwiftUI card, use `.generated`. AskKit owns a small layout IR (`AskCardNode`: `vstack`, `hstack`, `text`, `stat`, `badge`, `divider`, `spacer`, `row`, `action`) and maps it to SwiftUI with `AskGeneratedCardView`. This is not runtime SwiftUI source.
+
+```swift
+AskSkill(
+    id: "nextDrive",
+    domainID: "trip",
+    title: "Next drive",
+    summary: "When the next drive leaves",
+    routingNotes: "The next drive on the calendar.",
+    fulfillment: .generated { _ in
+        AskGeneratedBlueprint(
+            title: "Next drive",
+            spoken: "Your next drive is at 5 p.m.",
+            facts: "The next drive is at 5 p.m. Range is 210 miles.",
+            coveredPhrases: ["5 p.m.", "210 miles"],
+            actions: [AskAction(id: "nextDrive", title: "Trip")],
+            // Optional. When nil, AskKit asks the model to compose a tree from FACTS.
+            root: AskGeneratedCard.factTree(
+                title: "Next drive",
+                value: "5 p.m.",
+                detail: "About 210 miles"
+            )
+        )
+    }
+)
+```
+
+Supply `root` when the layout is already known (Garage's Next drive sample does this). Omit it to let the model compose a shallow tree; a failed or empty compose falls back to the same fact-card shape. Action nodes must use an id from `actions`; the first match becomes the button under the card. The DSL tree is stored with the turn so the transcript and Shortcuts snippet can rebuild the view without calling the model again. Host `.intent` cards stay the path for product UI the app already ships. Generic Apple fact cards use the same renderer with a deterministic tree.
+
 `AskCardStyle` is `.snippet`, `.chat`, or `.fullScreen`. Cards read it from the environment and thin or grow their chrome. The Shortcuts snippet sets `.snippet`. The transcript sets `.chat`. An expandable chat card (`AskIntentCard.expands`) zooms into `.fullScreen` with the same App Store–style transition the photo grid uses. Photo cards keep their own zoom and leave `expands` off.
 
 A custom transcript asks for that bubble the same way:

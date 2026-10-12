@@ -184,10 +184,7 @@ public struct AskAssistant {
                 skills: configuration.skills
             )
         }
-        guard let skill = configuration.skill(id: turn.skillID),
-              case .intent(let make) = skill.fulfillment else {
-            return nil
-        }
+        guard let skill = configuration.skill(id: turn.skillID) else { return nil }
         let utterance = turns[..<index].last { $0.role == "user" }?.text ?? turn.text
         let snapshot = await configuration.context()
         let invocation = AskInvocation(
@@ -198,7 +195,25 @@ public struct AskAssistant {
             context: await contextForSkill(skill, fallback: snapshot),
             usedModel: false
         )
-        return await make(invocation)
+        switch skill.fulfillment {
+        case .intent(let make):
+            return await make(invocation)
+        case .generated(let make):
+            let blueprint = await make(invocation)
+            // Rebuild from the skill's tree or the fact fallback. Do not call the model again.
+            return AskGeneratedCard.card(from: AskGeneratedBlueprint(
+                title: blueprint.title,
+                spoken: turn.spoken.isEmpty ? turn.text : turn.spoken,
+                text: turn.text,
+                facts: blueprint.facts,
+                coveredPhrases: blueprint.coveredPhrases,
+                actions: blueprint.actions,
+                root: blueprint.root,
+                expands: blueprint.expands
+            ))
+        case .reply:
+            return nil
+        }
     }
 
     private func route(utterance: String, context: AskContext, earlier: [String]) async -> RoutedTurn {
@@ -528,6 +543,78 @@ public struct AskAssistant {
                 fulfillment: .intent(pages[0].card ?? card),
                 more: Array(pages.dropFirst())
             )
+        case .generated(let make):
+            var blueprint = await make(invocation)
+            var usedModel = routed.usedModel
+            let draft = await rewrite(
+                blueprint.facts,
+                question: utterance,
+                excluding: excluding,
+                skill: skill,
+                context: context,
+                allowsTools: allowsTools,
+                images: images
+            )
+            if let written = draft.text {
+                blueprint.text = written
+                blueprint.spoken = AskGuide.plainSpeech(written)
+                usedModel = true
+            }
+            let composed = await composeGeneratedCard(blueprint)
+            if composed.usedModel { usedModel = true }
+            let pages = laidOutPages(
+                question: utterance,
+                text: composed.card.text,
+                spoken: composed.card.spoken,
+                skillID: skill.id,
+                domainID: skill.domainID,
+                slots: routed.slots,
+                actions: [],
+                readings: draft.readings,
+                skillCard: composed.card
+            )
+            return BuiltPage(
+                page: pages[0],
+                usedModel: usedModel,
+                fulfillment: .intent(pages[0].card ?? composed.card),
+                more: Array(pages.dropFirst())
+            )
+        }
+    }
+
+    private struct ComposedCard {
+        var card: AskIntentCard
+        var usedModel: Bool
+    }
+
+    /// Uses a prebuilt tree when the skill supplied one. Otherwise asks the model, then the fact fallback.
+    private func composeGeneratedCard(_ blueprint: AskGeneratedBlueprint) async -> ComposedCard {
+        if blueprint.root != nil {
+            return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false)
+        }
+        let request = AskModelRequest(
+            instructions: AskGeneratedCard.composeInstructions(allowedActions: blueprint.actions),
+            prompt: AskGeneratedCard.composePrompt(
+                facts: blueprint.facts,
+                title: blueprint.title,
+                spoken: blueprint.spoken
+            ),
+            facts: blueprint.facts,
+            profileID: "composeCard",
+            profileTitle: "Card layout",
+            workingTitle: "Laying out the card"
+        )
+        do {
+            let root = try await AskTrace.span("composeCard") {
+                try await model.composeCard(request)
+            }
+            return ComposedCard(
+                card: AskGeneratedCard.card(from: blueprint, composed: root),
+                usedModel: true
+            )
+        } catch {
+            AskTrace.decision(AskModelSafety.failure(error) ?? "card compose failed")
+            return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false)
         }
     }
 
@@ -1280,13 +1367,40 @@ public struct AskAssistant {
                 skills: configuration.skills
             )
         }
+        let spoken = item.spoken.isEmpty ? item.text : item.spoken
         let reading = item.appleName.isEmpty
             ? nil
             : AskAppleReading(name: item.appleName, lines: item.appleLines)
-        guard let skill = configuration.skill(id: item.skillID),
-              case .intent(let make) = skill.fulfillment else {
+        if let root = AskGeneratedCard.decode(item.cardJSON) {
+            let allowed = item.actions.map { AskAction(id: $0.id, title: $0.title) }
+            let card = AskGeneratedCard.card(
+                title: item.cardTitle.isEmpty ? "Card" : item.cardTitle,
+                spoken: spoken,
+                text: item.text,
+                facts: spoken,
+                allowedActions: allowed,
+                root: root,
+                expands: true
+            )
+            // Skill cards may sit above an Apple fact. Pure Apple / reply fact trees are the card itself.
+            if let skill = configuration.skill(id: item.skillID) {
+                switch skill.fulfillment {
+                case .intent, .generated:
+                    return AskAppleCards.under(
+                        card,
+                        reading: reading,
+                        showsCoordinates: AskLocationPin.asks(item.question),
+                        playedBy: configuration.assistantName,
+                        custom: configuration.appleCard
+                    )
+                case .reply:
+                    return card
+                }
+            }
+            return card
+        }
+        guard let skill = configuration.skill(id: item.skillID) else {
             guard let reading else { return nil }
-            let spoken = item.spoken.isEmpty ? item.text : item.spoken
             return AskAppleCards.make(
                 reading,
                 spoken: spoken,
@@ -1304,14 +1418,39 @@ public struct AskAssistant {
             context: await contextForSkill(skill, fallback: snapshot),
             usedModel: false
         )
-        let card = await make(invocation)
-        return AskAppleCards.under(
-            card,
-            reading: reading,
-            showsCoordinates: AskLocationPin.asks(item.question),
-            playedBy: configuration.assistantName,
-            custom: configuration.appleCard
-        )
+        switch skill.fulfillment {
+        case .intent(let make):
+            let card = await make(invocation)
+            return AskAppleCards.under(
+                card,
+                reading: reading,
+                showsCoordinates: AskLocationPin.asks(item.question),
+                playedBy: configuration.assistantName,
+                custom: configuration.appleCard
+            )
+        case .generated(let make):
+            let blueprint = await make(invocation)
+            var restored = blueprint
+            restored.spoken = spoken
+            restored.text = item.text
+            let card = AskGeneratedCard.card(from: restored)
+            return AskAppleCards.under(
+                card,
+                reading: reading,
+                showsCoordinates: AskLocationPin.asks(item.question),
+                playedBy: configuration.assistantName,
+                custom: configuration.appleCard
+            )
+        case .reply:
+            guard let reading else { return nil }
+            return AskAppleCards.make(
+                reading,
+                spoken: spoken,
+                showsCoordinates: AskLocationPin.asks(item.question),
+                playedBy: configuration.assistantName,
+                custom: configuration.appleCard
+            )
+        }
     }
 
     /// Turns already saved, without the question this reply is about to answer.

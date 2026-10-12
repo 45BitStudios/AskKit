@@ -111,9 +111,14 @@ struct AskStoredPage: Codable {
     /// Empty when this page did not read an Apple source.
     var appleName: String
     var appleLines: [String]
+    /// JSON for a generative card DSL tree. Empty when the card is host-drawn.
+    var cardJSON: String
+    /// Title for a generative card rebuild.
+    var cardTitle: String
 
     private enum CodingKeys: String, CodingKey {
         case id, question, text, spoken, skillID, domainID, slotsJSON, hasCard, actions, appleName, appleLines
+        case cardJSON, cardTitle
     }
 
     init(
@@ -127,7 +132,9 @@ struct AskStoredPage: Codable {
         hasCard: Bool,
         actions: [AskStoredAction],
         appleName: String = "",
-        appleLines: [String] = []
+        appleLines: [String] = [],
+        cardJSON: String = "",
+        cardTitle: String = ""
     ) {
         self.id = id
         self.question = question
@@ -140,6 +147,8 @@ struct AskStoredPage: Codable {
         self.actions = actions
         self.appleName = appleName
         self.appleLines = appleLines
+        self.cardJSON = cardJSON
+        self.cardTitle = cardTitle
     }
 
     init(from decoder: Decoder) throws {
@@ -155,6 +164,8 @@ struct AskStoredPage: Codable {
         actions = try container.decode([AskStoredAction].self, forKey: .actions)
         appleName = try container.decodeIfPresent(String.self, forKey: .appleName) ?? ""
         appleLines = try container.decodeIfPresent([String].self, forKey: .appleLines) ?? []
+        cardJSON = try container.decodeIfPresent(String.self, forKey: .cardJSON) ?? ""
+        cardTitle = try container.decodeIfPresent(String.self, forKey: .cardTitle) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -170,13 +181,20 @@ struct AskStoredPage: Codable {
         try container.encode(actions, forKey: .actions)
         try container.encode(appleName, forKey: .appleName)
         try container.encode(appleLines, forKey: .appleLines)
+        try container.encode(cardJSON, forKey: .cardJSON)
+        try container.encode(cardTitle, forKey: .cardTitle)
     }
 }
 
 enum AskStoredPages {
     static func encode(_ pages: [AskPage], omitting keys: Set<String>) -> String {
         let stored = pages.map { page in
-            AskStoredPage(
+            var cardActions = page.actions.map { AskStoredAction(id: $0.id, title: $0.title) }
+            if let action = page.card?.action,
+               !cardActions.contains(where: { $0.id.caseInsensitiveCompare(action.id) == .orderedSame }) {
+                cardActions.insert(AskStoredAction(id: action.id, title: action.title), at: 0)
+            }
+            return AskStoredPage(
                 id: page.id,
                 question: page.question,
                 text: page.text,
@@ -185,9 +203,11 @@ enum AskStoredPages {
                 domainID: page.domainID,
                 slotsJSON: AskSlots.json(page.slots, omitting: keys),
                 hasCard: page.card != nil,
-                actions: page.actions.map { AskStoredAction(id: $0.id, title: $0.title) },
+                actions: cardActions,
                 appleName: page.appleReading?.name ?? "",
-                appleLines: page.appleReading?.lines ?? []
+                appleLines: page.appleReading?.lines ?? [],
+                cardJSON: page.card?.generatedRoot.map(AskGeneratedCard.encode) ?? "",
+                cardTitle: page.card?.title ?? ""
             )
         }
         guard let data = try? JSONEncoder().encode(stored),

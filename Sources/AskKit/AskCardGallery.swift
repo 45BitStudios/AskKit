@@ -260,7 +260,8 @@ enum AskCardSamples {
             section("Nothing playing", "", apple("music", ["Nothing is playing."], "Nothing is playing.")),
             section("No forecast", "", apple("weather", ["No forecast."], "No forecast.")),
             section("Capabilities", "What this assistant can answer.", capabilities),
-            section("Skill", "Same shape as a sample fact card.", skill)
+            section("Skill", "Same shape as a sample fact card.", skill),
+            section("Generated DSL", "AskCardNode tree rendered by AskGeneratedCardView.", generated)
         ]
     }
 
@@ -369,6 +370,27 @@ enum AskCardSamples {
     @MainActor
     private static var skill: some View {
         AskAppleFactCard(title: "Charge", value: "68 percent", detail: "About 40 minutes to the limit.")
+    }
+
+    @MainActor
+    private static var generated: some View {
+        AskGeneratedCardView(
+            root: AskCardNode(
+                kind: AskCardNodeKind.vstack.rawValue,
+                children: [
+                    AskCardNode(
+                        kind: AskCardNodeKind.hstack.rawValue,
+                        children: [
+                            AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "5 p.m."),
+                            AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Trip")
+                        ]
+                    ),
+                    AskCardNode(kind: AskCardNodeKind.row.rawValue, text: "Range", detail: "210 mi"),
+                    AskCardNode(kind: AskCardNodeKind.text.rawValue, text: "From the calendar")
+                ]
+            ),
+            title: "Trip"
+        )
     }
 }
 

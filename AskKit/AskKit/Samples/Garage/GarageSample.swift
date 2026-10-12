@@ -216,9 +216,10 @@ enum GarageSample {
             spoken: "Your next drive is set for \(departure). The car can go about \(range).",
             facts: "The next drive is at \(departure). Range is \(range).",
             headline: departure,
-            detail: "From the calendar",
+            detail: "From the calendar · about \(range)",
             actionTitle: "Trip",
-            replyOnly: true,
+            covered: [departure, range],
+            generatedCard: true,
             workingTitle: "Checking the next drive"
         ),
         SampleSkillSpec(
