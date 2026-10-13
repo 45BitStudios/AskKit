@@ -395,6 +395,17 @@ enum AskFoundationSessions {
         return AskFollowUp(skillID: response.content.skill, question: response.content.question)
     }
 
+    static func composeCard(_ request: AskModelRequest) async throws -> AskCardNode {
+        let session = await routingSession(instructions: request.instructions, activity: .quiet)
+        let response = try await AskTrace.respond(
+            session,
+            label: "composeCard",
+            to: request.prompt,
+            generating: AskCardNode.self
+        )
+        return response.content
+    }
+
     private static func skillChoice(_ request: AskModelRequest, label: String) async throws -> AskModelSkillChoice {
         let session = await routingSession(instructions: request.instructions, activity: .choosing)
         let response = try await AskTrace.respond(session, label: label, to: request.prompt, generating: AskSkillChoice.self)

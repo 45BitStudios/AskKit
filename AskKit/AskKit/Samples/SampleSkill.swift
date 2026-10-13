@@ -15,6 +15,8 @@ struct SampleSkillSpec {
     var actionTitle: String
     var covered: [String] = []
     var replyOnly: Bool = false
+    /// Uses AskKit's card DSL instead of a host-drawn SwiftUI card.
+    var generatedCard: Bool = false
     /// Status line while this skill runs, before the reply rewrite.
     var workingTitle: String = ""
 }
@@ -36,6 +38,30 @@ enum SampleSkill {
                         spoken: spec.spoken,
                         actions: [AskAction(id: spec.id, title: spec.actionTitle)],
                         facts: spec.facts
+                    )
+                }
+            )
+        }
+        if spec.generatedCard {
+            return AskSkill(
+                id: spec.id,
+                domainID: spec.domainID,
+                title: spec.title,
+                summary: spec.summary,
+                routingNotes: spec.routingNotes,
+                fulfillment: .generated { _ in
+                    AskChatActivity.update(line)
+                    return AskGeneratedBlueprint(
+                        title: spec.title,
+                        spoken: spec.spoken,
+                        facts: spec.facts,
+                        coveredPhrases: spec.covered,
+                        actions: [AskAction(id: spec.id, title: spec.actionTitle)],
+                        root: AskGeneratedCard.factTree(
+                            title: spec.title,
+                            value: spec.headline,
+                            detail: spec.detail
+                        )
                     )
                 }
             )

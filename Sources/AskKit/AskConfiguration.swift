@@ -41,7 +41,7 @@ public struct AskAction: Sendable, Equatable, Identifiable {
 
 /// The card an existing intent already knows how to draw.
 /// Ask shows this view. A bubble is added only for the sentences the card does not already show.
-/// The view is not stored.
+/// The view is not stored. A generative card keeps its DSL tree in ``generatedRoot`` for rebuild.
 public struct AskIntentCard {
     /// Trace and accessibility name. Not the button title.
     public var title: String
@@ -64,6 +64,8 @@ public struct AskIntentCard {
     /// Plain text for the card's Copy and Share actions. The title and spoken line, unless a card replaces it.
     var shareText: String
     public var view: AnyView
+    /// DSL tree for a generative card. Nil for host-drawn views. Stored so the transcript can rebuild the view.
+    public var generatedRoot: AskCardNode?
 
     public init(
         title: String = "",
@@ -73,6 +75,7 @@ public struct AskIntentCard {
         replacesBubble: Bool = false,
         action: AskAction? = nil,
         facts: String? = nil,
+        generatedRoot: AskCardNode? = nil,
         view: AnyView
     ) {
         self.title = title
@@ -83,6 +86,7 @@ public struct AskIntentCard {
         self.replacesBubble = replacesBubble
         self.action = action
         self.shareText = AskCardShareText.make(title: title, spoken: spoken)
+        self.generatedRoot = generatedRoot
         self.view = view
     }
 
@@ -94,6 +98,7 @@ public struct AskIntentCard {
         replacesBubble: Bool = false,
         action: AskAction? = nil,
         facts: String? = nil,
+        generatedRoot: AskCardNode? = nil,
         view: Content
     ) {
         self.title = title
@@ -104,6 +109,7 @@ public struct AskIntentCard {
         self.replacesBubble = replacesBubble
         self.action = action
         self.shareText = AskCardShareText.make(title: title, spoken: spoken)
+        self.generatedRoot = generatedRoot
         self.view = AnyView(view)
     }
 }
@@ -125,6 +131,8 @@ public enum AskFulfillment {
     case reply(@MainActor (AskInvocation) async -> AskReply)
     /// Ask shows the card from an existing intent's loader.
     case intent(@MainActor (AskInvocation) async -> AskIntentCard)
+    /// Ask composes a card from the card DSL. The skill supplies facts; AskKit lays out the view.
+    case generated(@MainActor (AskInvocation) async -> AskGeneratedBlueprint)
 }
 
 public struct AskSkill: Identifiable {
@@ -315,6 +323,8 @@ public struct AskModelClient: Sendable {
     public var offerFollowUp: @Sendable (AskModelRequest) async throws -> AskFollowUp
     /// Reply rewrite when Apple sources or skill tools are attached. The default ignores the tools.
     public var writeReplyUsing: @Sendable (AskModelRequest, [any Tool]) async throws -> AskWrittenReply
+    /// Composes a card DSL tree from FACTS. Failures fall back to a deterministic fact card.
+    public var composeCard: @Sendable (AskModelRequest) async throws -> AskCardNode
 
     public init(
         routeDomain: @escaping @Sendable (AskModelRequest) async throws -> String,
@@ -327,7 +337,8 @@ public struct AskModelClient: Sendable {
         offerFollowUp: @escaping @Sendable (AskModelRequest) async throws -> AskFollowUp = { _ in
             AskFollowUp(skillID: "none", question: "")
         },
-        writeReplyUsing: (@Sendable (AskModelRequest, [any Tool]) async throws -> AskWrittenReply)? = nil
+        writeReplyUsing: (@Sendable (AskModelRequest, [any Tool]) async throws -> AskWrittenReply)? = nil,
+        composeCard: (@Sendable (AskModelRequest) async throws -> AskCardNode)? = nil
     ) {
         self.routeDomain = routeDomain
         self.routeSkill = routeSkill
@@ -340,6 +351,13 @@ public struct AskModelClient: Sendable {
         } else {
             self.writeReplyUsing = { request, _ in
                 AskWrittenReply(text: try await writeReply(request))
+            }
+        }
+        if let composeCard {
+            self.composeCard = composeCard
+        } else {
+            self.composeCard = { _ in
+                throw AskCardComposeError.unavailable
             }
         }
     }
@@ -366,9 +384,16 @@ public struct AskModelClient: Sendable {
             },
             writeReplyUsing: { request, tools in
                 try await AskFoundationSessions.writeReply(request, tools: tools)
+            },
+            composeCard: { request in
+                try await AskFoundationSessions.composeCard(request)
             }
         )
     }
+}
+
+enum AskCardComposeError: Error {
+    case unavailable
 }
 
 public struct AskConfiguration {
@@ -398,6 +423,9 @@ public struct AskConfiguration {
     /// Replaces the fact card for a reply that used an Apple source.
     /// Return nil to keep the built-in card. The lines are what the tool returned.
     public var appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)?
+    /// Layout rules for `.generated` cards. Defaults to AskKit's CARD DSL instructions.
+    /// Append app lines with a string, or `.replace` to own the layout prompt. Not a reply specialist.
+    public var cardSpecialist: AskCardSpecialist
 
     public init(
         assistantName: String,
@@ -414,7 +442,8 @@ public struct AskConfiguration {
         specialists: [AskSpecialist] = [],
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],
-        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil
+        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil,
+        cardSpecialist: AskCardSpecialist = .default
     ) {
         self.assistantName = assistantName
         self.persistence = persistence
@@ -431,6 +460,7 @@ public struct AskConfiguration {
         self.webMetadata = webMetadata
         self.appleAccess = appleAccess
         self.appleCard = appleCard
+        self.cardSpecialist = cardSpecialist
     }
 
     public init<Source: AskContextSource>(
@@ -447,7 +477,8 @@ public struct AskConfiguration {
         specialists: [AskSpecialist] = [],
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],
-        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil
+        appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil,
+        cardSpecialist: AskCardSpecialist = .default
     ) {
         self.init(
             assistantName: assistantName,
@@ -466,7 +497,8 @@ public struct AskConfiguration {
             specialists: specialists,
             webMetadata: webMetadata,
             appleAccess: appleAccess,
-            appleCard: appleCard
+            appleCard: appleCard,
+            cardSpecialist: cardSpecialist
         )
     }
 

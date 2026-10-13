@@ -1182,47 +1182,28 @@ enum AskAppleCards {
         }
         let value = visible.first ?? "Nothing to show."
         let detail = visible.dropFirst().joined(separator: "\n")
-        var card = AskIntentCard(
+        var card = AskGeneratedCard.card(
             title: title,
             spoken: spoken,
             text: spoken,
-            view: AskAppleFactCard(title: title, value: value, detail: detail)
+            root: AskGeneratedCard.factTree(title: title, value: value, detail: detail)
         )
         card.shareText = [value, detail].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: "\n")
-        card.expands = true
         return card
     }
 }
 
-/// Title, value, and detail. Same shape as the sample fact cards.
-/// Layout follows ``AskCardStyle`` so snippet, chat, and full screen stay one card that zooms.
+/// Title, value, and detail via the card DSL renderer. Same shape as the sample fact cards.
 struct AskAppleFactCard: View {
     var title: String
     var value: String
     var detail: String
 
-    @Environment(\.askCardStyle) private var style
-
     var body: some View {
-        VStack(alignment: .leading, spacing: style.contentSpacing) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(value)
-                    .font(style.valueFont)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(
-                    title: title,
-                    symbol: AskCardSymbol.symbol(for: title),
-                    tint: AskCardSymbol.tint(for: title)
-                )
-            }
-            if !detail.isEmpty {
-                Text(detail)
-                    .font(style.detailFont)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(style.detailLineLimit)
-            }
-        }
-        .askCardSurface(tint: AskCardSymbol.tint(for: title))
+        AskGeneratedCardView(
+            root: AskGeneratedCard.factTree(title: title, value: value, detail: detail),
+            title: title
+        )
     }
 }
 

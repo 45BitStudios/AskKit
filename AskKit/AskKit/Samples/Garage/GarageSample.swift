@@ -95,9 +95,23 @@ enum GarageSample {
             fastPath: { route($0) },
             guide: guide,
             specialists: specialists,
-            appleAccess: appleAccess
+            appleAccess: appleAccess,
+            cardSpecialist: cardSpecialist
         ))
     }
+
+    /// Layout rules for generative cards. Appends onto AskKit's CARD DSL instructions.
+    private static let cardSpecialist = AskCardSpecialist(
+        id: "garage.card",
+        title: "Garage card",
+        symbolName: "car.side",
+        workingTitle: "Laying out the card",
+        instructions: .append("""
+        Prefer a large stat for the main number (battery percent, range, departure time).
+        Put the domain name in a badge. Keep secondary facts as short text or row lines.
+        Do not invent vehicle data that FACTS do not state.
+        """)
+    )
 
     /// Host specialists. Matching questions show each working title beside the thinking orb.
     private static let specialists: [AskSpecialist] = [
@@ -216,9 +230,10 @@ enum GarageSample {
             spoken: "Your next drive is set for \(departure). The car can go about \(range).",
             facts: "The next drive is at \(departure). Range is \(range).",
             headline: departure,
-            detail: "From the calendar",
+            detail: "From the calendar · about \(range)",
             actionTitle: "Trip",
-            replyOnly: true,
+            covered: [departure, range],
+            generatedCard: true,
             workingTitle: "Checking the next drive"
         ),
         SampleSkillSpec(
