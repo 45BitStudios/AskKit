@@ -375,6 +375,7 @@ struct AskWebCard: View {
 
     @State private var hero: UIImage?
     @State private var icon: UIImage?
+    @Environment(\.askCardStyle) private var style
 
     private var title: String {
         lines.first ?? "Web"
@@ -386,7 +387,8 @@ struct AskWebCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let hero {
+            AskCardMark(title: "Web", symbol: "globe", tint: .blue)
+            if style == .fullScreen, let hero {
                 Image(uiImage: hero)
                     .resizable()
                     .scaledToFill()
@@ -406,18 +408,17 @@ struct AskWebCard: View {
                 }
                 Text(title)
                     .font(.title3.weight(.semibold))
-                    .lineLimit(3)
+                    .lineLimit(style == .fullScreen ? nil : 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(title: "Web", symbol: "globe", tint: .blue)
             }
             if !detail.isEmpty {
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(6)
+                    .lineLimit(style == .fullScreen ? nil : 2)
             }
         }
-        .askCardSurface(tint: .blue)
+        .askCardSurface()
         .task(id: AskWebMetadata.pageAddress(in: lines) ?? "") {
             await load()
         }

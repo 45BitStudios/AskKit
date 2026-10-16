@@ -510,36 +510,35 @@ struct AskWeatherCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: style == .fullScreen ? 18 : 14) {
-            if showsWeek {
-                weekHeader
+            AskCardMark(
+                title: "Forecast",
+                symbol: AskWeatherPalette.badgeSymbol(forecast.day.symbol),
+                tint: AskWeatherTint.color(for: forecast.day.symbol)
+            )
+            if showsWeek, style == .fullScreen {
+                Text(weekTitle)
+                    .font(style.titleFont)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 ForEach(Array(visibleDays.enumerated()), id: \.offset) { _, day in
                     AskWeatherDayRow(day: day)
                 }
+            } else if showsWeek, let day = forecast.days.first {
+                AskWeatherCompactDay(day: day)
             } else {
-                AskWeatherDayHeader(day: forecast.day)
-                if !forecast.hours.isEmpty {
-                    AskWeatherHourGrid(hours: style == .snippet ? Array(forecast.hours.prefix(6)) : forecast.hours)
+                AskWeatherCompactDay(day: forecast.day)
+                if style == .fullScreen, !forecast.hours.isEmpty {
+                    AskWeatherHourGrid(hours: forecast.hours)
                 }
             }
-            if style != .snippet {
+            if style == .fullScreen {
                 attribution
             }
         }
-        .askCardSurface(tint: AskWeatherTint.color(for: forecast.day.symbol))
+        .askCardSurface()
         .task(id: scheme) {
-            guard loadsCredit, style != .snippet else { return }
+            guard loadsCredit, style == .fullScreen else { return }
             await loadAttribution()
-        }
-    }
-
-    private var weekHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(weekTitle)
-                .font(style.titleFont)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            AskCardBadge(title: "Forecast", symbol: "cloud.sun.fill", tint: .blue)
         }
     }
 
@@ -597,27 +596,14 @@ private enum AskWeatherTint {
     }
 }
 
-private struct AskWeatherDayHeader: View {
+private struct AskWeatherCompactDay: View {
     var day: AskWeatherLine.Day
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                AskWeatherSymbol(name: day.symbol, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(day.title)
-                        .font(.title3.weight(.semibold))
-                    if !day.condition.isEmpty, day.condition != "Unknown" {
-                        Text(day.condition)
-                            .font(.title3.weight(.semibold))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(
-                    title: "Forecast",
-                    symbol: AskWeatherPalette.badgeSymbol(day.symbol),
-                    tint: AskWeatherTint.color(for: day.symbol)
-                )
+        VStack(alignment: .leading, spacing: 8) {
+            if !day.condition.isEmpty, day.condition != "Unknown" {
+                Text(day.condition)
+                    .font(.title3.weight(.semibold))
             }
             HStack(alignment: .firstTextBaseline, spacing: 20) {
                 if !day.high.isEmpty {
@@ -627,25 +613,8 @@ private struct AskWeatherDayHeader: View {
                     AskWeatherReading(label: "Low", value: day.low)
                 }
             }
-            if !day.rain.isEmpty {
-                Label {
-                    Text(rainLine)
-                        .foregroundStyle(.secondary)
-                } icon: {
-                    Image(systemName: "drop.fill")
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(Color.blue)
-                        .accessibilityHidden(true)
-                }
-                .font(.subheadline)
-                .labelStyle(.titleAndIcon)
-            }
         }
         .accessibilityElement(children: .combine)
-    }
-
-    private var rainLine: String {
-        day.rain == "0 percent" ? "No rain" : "\(day.rain) rain"
     }
 }
 

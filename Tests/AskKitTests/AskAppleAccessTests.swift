@@ -1803,7 +1803,8 @@ final class AskAppleAccessTests: XCTestCase {
         let heart = AskCardSamples.healthSeries(metric: .heart, range: .day, now: now, calendar: calendar)
         XCTAssertTrue(heart.points.contains(where: \.recorded))
         XCTAssertEqual(AskHealthCatalog.chartKind(for: .heart), .line)
-        XCTAssertEqual(AskCardSamples.sections().map(\.title), AskCardSamples.names)
+        let sampleSections = AskCardSamples.sections().map(\.title).filter { $0 != "Generated DSL" }
+        XCTAssertEqual(sampleSections, AskCardSamples.names)
     }
 
     func testSeveralAlarmsBecomeSeparateCards() {

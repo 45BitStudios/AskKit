@@ -1,3 +1,4 @@
+import AskKit
 import SwiftUI
 
 struct DinnerCard: View {
@@ -8,6 +9,7 @@ struct DinnerCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            AskCardMark(title: "Dinner", symbol: "fork.knife", tint: .orange)
             Text(name)
                 .font(.headline)
             Text("\(minutes) min")
@@ -16,9 +18,7 @@ struct DinnerCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }
 
@@ -27,17 +27,14 @@ struct StockCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Pantry")
-                .font(.headline)
+            AskCardMark(title: "Pantry", symbol: "shippingbox.fill", tint: .green)
             Text("On hand")
                 .font(.title2.weight(.semibold))
             Text(onHand.capitalized)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }
 
@@ -47,16 +44,13 @@ struct ShoppingCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Shopping list")
-                .font(.headline)
+            AskCardMark(title: "Shopping list", symbol: "cart.fill", tint: .orange)
             Text(missing.capitalized)
                 .font(.title2.weight(.semibold))
             Text(market.capitalized)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }

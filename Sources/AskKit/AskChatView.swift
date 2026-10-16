@@ -96,6 +96,8 @@ private struct AskChatScreen: View {
     /// The last pictures sent in this thread. A later "where was it taken" still reads them.
     @State private var recentPhotos: [AskAttachedImage] = []
     @State private var isThinking = false
+    /// True from the voice send through the spoken answer, so Stop can cancel playback.
+    @State private var voiceSpeaking = false
     @State private var turnTask: Task<Void, Never>?
     /// Optimistic send that morphs from the composer into the transcript.
     @State private var pendingSend: AskPendingSend?
@@ -134,6 +136,7 @@ private struct AskChatScreen: View {
     @State private var votes: [UUID: Bool]
     #if DEBUG
     @State private var showsCards = false
+    @State private var showsToolkit = false
     @State private var showsTrace = false
     @State private var traceFocus: AskTraceFocus?
     @AppStorage(AskWorkedTraceSelection.storageKey) private var showsWorkedTrace = true
@@ -237,6 +240,7 @@ private struct AskChatScreen: View {
             .environment(\.cardExpansion, cardExpansion)
             .environment(\.cardZoomNamespace, cardZoom)
             .environment(\.askCardStyle, .chat)
+            .environment(\.askBubbleFill, appearance.assistantBubble)
             .task { chips = await assistant.chips() }
             .task {
                 await AskSurfaces.refresh(access: assistant.configuration.appleAccess)
@@ -252,6 +256,11 @@ private struct AskChatScreen: View {
             #if DEBUG
             .sheet(isPresented: $showsCards) {
                 AskCardGalleryScreen()
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showsToolkit) {
+                AskCardToolkitScreen(assistant: assistant)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
@@ -392,6 +401,10 @@ private struct AskChatScreen: View {
                 Menu {
                     menu
                     #if DEBUG
+                    Button("Card toolkit", systemImage: "rectangle.3.group") {
+                        AskCue.tap()
+                        showsToolkit = true
+                    }
                     Button("Cards", systemImage: "rectangle.stack") {
                         AskCue.tap()
                         showsCards = true
@@ -651,8 +664,19 @@ private struct AskChatScreen: View {
                 draft: $draft,
                 images: $draftImages,
                 isThinking: isThinking,
+                voiceSpeaking: voiceSpeaking,
                 onSubmit: {
-                    turnTask = Task { await sendDraft() }
+                    turnTask = Task { _ = await sendDraft() }
+                },
+                onVoice: { text in
+                    draft = text
+                    turnTask = Task {
+                        voiceSpeaking = true
+                        defer { voiceSpeaking = false }
+                        let line = await sendDraft(entry: .voice)
+                        guard !Task.isCancelled, !line.isEmpty else { return }
+                        await AskVoiceSpeaker.shared.speak(line)
+                    }
                 },
                 onStop: stopRequest,
                 photoZoom: photoZoom,
@@ -683,7 +707,7 @@ private struct AskChatScreen: View {
         }
         guard !isThinking else { return }
         draft = action.title
-        turnTask = Task { await sendDraft() }
+        turnTask = Task { _ = await sendDraft() }
     }
 
     /// A Control or widget asked for a question, and maybe a Lock Screen pin, while Ask was closed.
@@ -692,7 +716,7 @@ private struct AskChatScreen: View {
         let question = isThinking ? nil : AskSurfaceStore.shared.takeQuestion()
         if let question {
             draft = question
-            await sendDraft()
+            _ = await sendDraft()
         }
         guard pin || question != nil else { return }
         await AskSurfaces.refresh(access: assistant.configuration.appleAccess)
@@ -701,11 +725,11 @@ private struct AskChatScreen: View {
         }
     }
 
-    private func sendDraft() async {
+    private func sendDraft(entry: AskTraceEntry = .composer) async -> String {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let attached = draftImages
-        guard (!text.isEmpty || !attached.isEmpty), !isThinking else { return }
-        guard pendingSend == nil else { return }
+        guard (!text.isEmpty || !attached.isEmpty), !isThinking else { return "" }
+        guard pendingSend == nil else { return "" }
         let utterance: String
         if text.isEmpty {
             utterance = attached.count == 1 ? "Look at the attached image." : "Look at the attached images."
@@ -739,9 +763,12 @@ private struct AskChatScreen: View {
                 sendFromComposer = false
             }
         }
+        var line = ""
         let answer = Task { @MainActor in
             await runTurn {
-                await assistant.handle(utterance: utterance, images: urls)
+                let result = await assistant.handle(utterance: utterance, entry: entry, images: urls)
+                line = AskVoiceLine.text(from: result)
+                return result
             }
         }
         if let pending {
@@ -754,6 +781,7 @@ private struct AskChatScreen: View {
         if !attached.isEmpty, let id = try? assistant.transcript().last(where: { $0.role == "user" })?.id {
             sentImages[id] = attached
         }
+        return line
     }
 
     /// Flies the optimistic bubble from the composer into the transcript, then waits for the stored turn.
@@ -800,9 +828,11 @@ private struct AskChatScreen: View {
 
     /// Drops the in-flight answer. The question already in the thread stays.
     private func stopRequest() {
-        guard isThinking || pendingSend != nil else { return }
+        guard isThinking || pendingSend != nil || voiceSpeaking else { return }
         AskCue.requestStopped()
         turnTask?.cancel()
+        voiceSpeaking = false
+        AskVoiceSpeaker.shared.stop()
         AskChatActivity.clearStream()
         activity.title = ""
         activity.detail = ""
@@ -2034,7 +2064,9 @@ private struct AskComposerField: View {
     @Binding var draft: String
     @Binding var images: [AskAttachedImage]
     let isThinking: Bool
+    let voiceSpeaking: Bool
     let onSubmit: () -> Void
+    let onVoice: (String) -> Void
     let onStop: () -> Void
     let photoZoom: Namespace.ID
     let onOpenPhoto: (AskAttachedImage) -> Void
@@ -2049,10 +2081,7 @@ private struct AskComposerField: View {
     @State private var onDeviceModel = SystemLanguageModel.default
     @State private var cloudModel = PrivateCloudComputeLanguageModel()
     @State private var network = AskNetworkStatus.shared
-    @State private var showsCloudOptions = false
-    @State private var showsTools = false
-    @State private var streams = AskStreamSelection.isOn
-    @AppStorage(AskMarkdownSelection.storageKey) private var markdown = false
+    @State private var showsModel = false
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -2095,14 +2124,16 @@ private struct AskComposerField: View {
         } message: {
             Text(voiceAlert ?? "")
         }
-        .sheet(isPresented: $showsCloudOptions) {
-            AskCloudOptionsSheet(tint: appearance.tint)
-        }
-        .sheet(isPresented: $showsTools) {
-            AskToolsSheet(
+        .sheet(isPresented: $showsModel) {
+            AskModelSheet(
                 tint: appearance.tint,
                 assistantName: assistantName,
-                allowed: allowedAccess
+                allowed: allowedAccess,
+                running: runningCompute,
+                onDeviceAvailable: onDeviceModel.isAvailable,
+                cloudAvailable: cloudModel.isAvailable && network.isOnline,
+                changesModel: !isThinking,
+                onSelect: selectCompute
             )
         }
         .photosPicker(
@@ -2248,33 +2279,21 @@ private struct AskComposerField: View {
         HStack(spacing: 0) {
             addButton
                 .padding(.leading, 4)
-            modelMenu
+            modelButton
                 .padding(.leading, 4)
-                .disabled(isThinking)
-            toolsButton
-                .padding(.leading, 2)
-                .disabled(isThinking)
-            streamButton
-                .padding(.leading, 2)
-            markdownButton
-                .padding(.leading, 2)
-            if runningCompute == .privateCloud {
-                cloudOptionsButton
-                    .padding(.leading, 2)
-                    .disabled(isThinking)
-                    .transition(buttonTransition)
-            }
             Spacer(minLength: 8)
-            if appearance.showsMicrophone, !isThinking {
+            if appearance.showsMicrophone, !isThinking, !voiceSpeaking {
                 if speech.isRecording {
                     recordingButton
                         .transition(buttonTransition)
                 } else {
+                    voiceButton
+                        .transition(buttonTransition)
                     microphoneButton
                         .transition(buttonTransition)
                 }
             }
-            if isThinking {
+            if isThinking || voiceSpeaking {
                 stopRequestButton
                     .transition(buttonTransition)
             } else if showsSend {
@@ -2284,7 +2303,6 @@ private struct AskComposerField: View {
         }
         .animation(controlAnimation, value: speech.isRecording)
         .animation(controlAnimation, value: canSend)
-        .animation(controlAnimation, value: runningCompute)
         .animation(controlAnimation, value: isThinking)
     }
 
@@ -2298,18 +2316,10 @@ private struct AskComposerField: View {
         )
     }
 
-    private var modelMenu: some View {
-        Menu {
-            Picker("Model", selection: modelSelection) {
-                ForEach(AskCompute.allCases, id: \.self) { choice in
-                    Label(choice.title, systemImage: choice.symbolName)
-                        .tag(choice)
-                        .disabled(!computeIsAvailable(choice))
-                        .accessibilityLabel(choice.accessibilityLabel)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
+    private var modelButton: some View {
+        Button {
+            AskCue.tap()
+            showsModel = true
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: runningCompute.symbolName)
@@ -2328,21 +2338,8 @@ private struct AskComposerField: View {
             .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
         }
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .accessibilityLabel(runningCompute.accessibilityLabel)
-        .accessibilityHint("Switches between the on-device model and Private Cloud Compute")
-    }
-
-    private func computeIsAvailable(_ choice: AskCompute) -> Bool {
-        switch choice {
-        case .onDevice: onDeviceModel.isAvailable
-        case .privateCloud: cloudModel.isAvailable && network.isOnline
-        }
-    }
-
-    /// The menu check sits on the model that will run. Choosing a row saves that preference.
-    private var modelSelection: Binding<AskCompute> {
-        Binding(get: { runningCompute }, set: { selectCompute($0) })
+        .accessibilityHint("Opens model, tools, streaming, rich text, and Private Cloud options")
     }
 
     private func selectCompute(_ choice: AskCompute) {
@@ -2352,84 +2349,16 @@ private struct AskComposerField: View {
         AskCue.tap()
     }
 
-    private var toolsButton: some View {
+    private var voiceButton: some View {
         Button {
             AskCue.tap()
-            showsTools = true
+            Task { await startListening() }
         } label: {
-            Image(systemName: "puzzlepiece.extension")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
-                .background(Color(uiColor: .tertiarySystemFill), in: Circle())
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
+            roundControl(systemName: "waveform", foreground: .white, fill: appearance.tint)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Tools")
-        .accessibilityHint("Shows the Apple sources a reply can read, and which ones are on")
-    }
-
-    private var streamButton: some View {
-        Button {
-            AskCue.tap()
-            streams.toggle()
-            AskStreamSelection.isOn = streams
-            if !streams {
-                AskChatActivity.clearStream()
-            }
-        } label: {
-            Image(systemName: "text.bubble")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(streams ? appearance.tint : Color.secondary)
-                .frame(width: 32, height: 32)
-                .background(Color(uiColor: .tertiarySystemFill), in: Circle())
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Streaming")
-        .accessibilityValue(streams ? "On" : "Off")
-        .accessibilityHint("Shows the answer while it is written. Off keeps the thinking status until the answer is ready.")
-        .accessibilityAddTraits(streams ? .isSelected : AccessibilityTraits())
-    }
-
-    private var markdownButton: some View {
-        Button {
-            AskCue.tap()
-            markdown.toggle()
-        } label: {
-            Image(systemName: "doc.richtext")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(markdown ? appearance.tint : Color.secondary)
-                .frame(width: 32, height: 32)
-                .background(Color(uiColor: .tertiarySystemFill), in: Circle())
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Rich text")
-        .accessibilityValue(markdown ? "On" : "Off")
-        .accessibilityHint("Renders Markdown in answer bubbles and asks the model for lists, tables, and math when that helps.")
-        .accessibilityAddTraits(markdown ? .isSelected : AccessibilityTraits())
-    }
-
-    private var cloudOptionsButton: some View {
-        Button {
-            AskCue.tap()
-            showsCloudOptions = true
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
-                .background(Color(uiColor: .tertiarySystemFill), in: Circle())
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Private Cloud options")
-        .accessibilityHint("Reasoning, temperature, and response length")
+        .accessibilityLabel("Voice")
+        .accessibilityHint("Listens, then asks when you pause")
     }
 
     private var microphoneButton: some View {
@@ -2450,7 +2379,7 @@ private struct AskComposerField: View {
             roundControl(systemName: "stop.fill", foreground: .white, fill: .red)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Stop dictation")
+        .accessibilityLabel(speech.isListening ? "Stop listening" : "Stop dictation")
     }
 
     private var stopRequestButton: some View {
@@ -2459,7 +2388,7 @@ private struct AskComposerField: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Stop")
-        .accessibilityHint("Stops the request that is running")
+        .accessibilityHint(voiceSpeaking && !isThinking ? "Stops the spoken answer" : "Stops the request that is running")
     }
 
     private func roundControl(systemName: String, foreground: Color, fill: Color) -> some View {
@@ -2502,6 +2431,13 @@ private struct AskComposerField: View {
 
     private var controlAnimation: Animation? {
         reduceMotion ? nil : .spring(duration: 0.32, bounce: 0.25)
+    }
+
+    private func startListening() async {
+        resignKeyboard()
+        await speech.listen(onPartial: { draft = $0 }, onUtterance: onVoice) { message in
+            voiceAlert = message
+        }
     }
 
     private func startRecording() async {
@@ -2549,53 +2485,43 @@ private struct AskComposerField: View {
     }
 }
 
-/// The Apple sources this assistant allows, and which of them the next reply may read.
-private struct AskToolsSheet: View {
+/// Model, tools, streaming, rich text, and Private Cloud options. Opened from the composer capsule.
+private struct AskModelSheet: View {
     var tint: Color
     var assistantName: String
     var allowed: AskAppleAccess
-    @Environment(\.dismiss) private var dismiss
-    @State private var selected: AskAppleAccess
+    var running: AskCompute
+    var onDeviceAvailable: Bool
+    var cloudAvailable: Bool
+    /// False while a turn is running. Streaming and rich text stay editable.
+    var changesModel: Bool
+    var onSelect: (AskCompute) -> Void
 
-    init(tint: Color, assistantName: String, allowed: AskAppleAccess) {
-        self.tint = tint
-        self.assistantName = assistantName
-        self.allowed = allowed
-        _selected = State(initialValue: AskAppleSelection.active(allowed: allowed, for: assistantName))
-    }
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             Form {
-                if sources.isEmpty {
-                    Section {
-                        Text("This assistant has not turned on any Apple sources.")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Section {
-                        ForEach(sources) { source in
-                            Toggle(isOn: binding(for: source)) {
-                                Label {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(source.title)
-                                        Text(source.detail)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                } icon: {
-                                    Image(systemName: source.symbol)
-                                }
-                            }
-                        }
-                    } footer: {
-                        Text("A reply uses the tools that are on, including any tools the skill adds. Chip taps do not use them.")
-                    }
+                AskModelChoiceSection(
+                    running: running,
+                    onDeviceAvailable: onDeviceAvailable,
+                    cloudAvailable: cloudAvailable,
+                    enabled: changesModel,
+                    onSelect: onSelect
+                )
+                AskReplyOptionsSection()
+                AskModelToolsSection(
+                    assistantName: assistantName,
+                    allowed: allowed,
+                    enabled: changesModel
+                )
+                if running == .privateCloud {
+                    AskCloudOptionsSections(tint: tint, enabled: changesModel)
                 }
             }
             .tint(tint)
             .scrollContentBackground(.hidden)
-            .navigationTitle("Tools")
+            .navigationTitle("Model")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -2610,6 +2536,123 @@ private struct AskToolsSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(.thinMaterial)
+    }
+}
+
+/// On-Device or Private Cloud. The check sits on the model the next turn will run.
+private struct AskModelChoiceSection: View {
+    var running: AskCompute
+    var onDeviceAvailable: Bool
+    var cloudAvailable: Bool
+    var enabled: Bool
+    var onSelect: (AskCompute) -> Void
+
+    var body: some View {
+        Section {
+            Picker("Model", selection: selection) {
+                ForEach(AskCompute.allCases, id: \.self) { choice in
+                    Label(choice.title, systemImage: choice.symbolName)
+                        .tag(choice)
+                        .disabled(!isAvailable(choice))
+                        .accessibilityLabel(choice.accessibilityLabel)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+            .disabled(!enabled)
+        } header: {
+            Text("Model")
+        }
+    }
+
+    private var selection: Binding<AskCompute> {
+        Binding(get: { running }, set: { onSelect($0) })
+    }
+
+    private func isAvailable(_ choice: AskCompute) -> Bool {
+        switch choice {
+        case .onDevice: onDeviceAvailable
+        case .privateCloud: cloudAvailable
+        }
+    }
+}
+
+/// Streaming and rich text. Both stay available while a turn is running.
+private struct AskReplyOptionsSection: View {
+    @State private var streams = AskStreamSelection.isOn
+    @AppStorage(AskMarkdownSelection.storageKey) private var markdown = false
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $streams) {
+                Label("Streaming", systemImage: "text.bubble")
+            }
+            .onChange(of: streams) { _, isOn in
+                AskStreamSelection.isOn = isOn
+                if !isOn {
+                    AskChatActivity.clearStream()
+                }
+                AskCue.tap()
+            }
+            .accessibilityHint("Shows the answer while it is written. Off keeps the thinking status until the answer is ready.")
+            Toggle(isOn: $markdown) {
+                Label("Rich text", systemImage: "doc.richtext")
+            }
+            .onChange(of: markdown) { _, _ in
+                AskCue.tap()
+            }
+            .accessibilityHint("Renders Markdown in answer bubbles and asks the model for lists, tables, and math when that helps.")
+        } footer: {
+            Text("Streaming shows the answer while it is written. Rich text renders lists, tables, and math.")
+        }
+    }
+}
+
+/// The Apple sources this assistant allows, and which of them the next reply may read.
+private struct AskModelToolsSection: View {
+    var assistantName: String
+    var allowed: AskAppleAccess
+    var enabled: Bool
+    @State private var selected: AskAppleAccess
+
+    init(assistantName: String, allowed: AskAppleAccess, enabled: Bool) {
+        self.assistantName = assistantName
+        self.allowed = allowed
+        self.enabled = enabled
+        _selected = State(initialValue: AskAppleSelection.active(allowed: allowed, for: assistantName))
+    }
+
+    var body: some View {
+        if sources.isEmpty {
+            Section {
+                Text("This assistant has not turned on any Apple sources.")
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Tools")
+            }
+        } else {
+            Section {
+                ForEach(sources) { source in
+                    Toggle(isOn: binding(for: source)) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(source.title)
+                                Text(source.detail)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: source.symbol)
+                        }
+                    }
+                    .disabled(!enabled)
+                }
+            } header: {
+                Text("Tools")
+            } footer: {
+                Text("A reply uses the tools that are on, including any tools the skill adds. Chip taps do not use them.")
+            }
+        }
     }
 
     private var sources: [AskAppleSource] {
@@ -2635,108 +2678,91 @@ private struct AskToolsSheet: View {
     }
 }
 
-/// Reasoning, temperature, and response length for the next Private Cloud Compute turn.
-private struct AskCloudOptionsSheet: View {
+/// Reasoning, temperature, response length, and the daily limit. Shown when Private Cloud will run.
+private struct AskCloudOptionsSections: View {
     var tint: Color
-    @Environment(\.dismiss) private var dismiss
+    var enabled: Bool
     @State private var options = AskCloudSettings.current
     @State private var model = PrivateCloudComputeLanguageModel()
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(quotaLine)
-                            if let reset = model.quotaUsage.resetDate {
-                                Text("Resets \(reset.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        if let suggestion = model.quotaUsage.limitIncreaseSuggestion {
-                            Button {
-                                AskCue.tap()
-                                suggestion.show()
-                            } label: {
-                                Text("Raise limit")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(tint, in: Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
+        Group {
+        Section {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(quotaLine)
+                    if let reset = model.quotaUsage.resetDate {
+                        Text("Resets \(reset.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                } header: {
-                    Text("Daily limit")
                 }
-
-                Section {
-                    Picker("Reasoning", selection: $options.reasoning) {
-                        ForEach(AskCloudReasoning.allCases, id: \.self) { level in
-                            Text(level.title).tag(level)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    Text(options.reasoning.detail)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } footer: {
-                    Text("Light answers sooner. Deep spends longer before it answers.")
-                }
-
-                Section {
-                    Toggle("Temperature", isOn: temperatureEnabled)
-                    if options.temperature != nil {
-                        HStack {
-                            Slider(value: temperatureValue, in: 0...1)
-                                .tint(tint)
-                            Text(temperatureValue.wrappedValue, format: .number.precision(.fractionLength(2)))
-                                .font(.footnote.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 36, alignment: .trailing)
-                        }
-                    }
-                } header: {
-                    Text("Sampling")
-                } footer: {
-                    Text("Lower stays closer to the likely answer. Higher varies more. Off uses the model's own setting.")
-                }
-
-                Section {
-                    Picker("Response length", selection: $options.length) {
-                        ForEach(AskCloudLength.allCases, id: \.self) { length in
-                            Text(length.title)
-                                .tag(length)
-                                .accessibilityLabel(length.accessibilityLabel)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                } footer: {
-                    Text("A shorter cap stops a long answer early. Automatic uses the room left in the context.")
-                }
-            }
-            .tint(tint)
-            .scrollContentBackground(.hidden)
-            .navigationTitle("Private Cloud")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if let suggestion = model.quotaUsage.limitIncreaseSuggestion {
+                    Button {
                         AskCue.tap()
-                        dismiss()
+                        suggestion.show()
+                    } label: {
+                        Text("Raise limit")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(tint, in: Capsule())
                     }
+                    .buttonStyle(.plain)
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+        } header: {
+            Text("Daily limit")
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(.thinMaterial)
+
+        Section {
+            Picker("Reasoning", selection: $options.reasoning) {
+                ForEach(AskCloudReasoning.allCases, id: \.self) { level in
+                    Text(level.title).tag(level)
+                }
+            }
+            .pickerStyle(.menu)
+            Text(options.reasoning.detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } footer: {
+            Text("Light answers sooner. Deep spends longer before it answers.")
+        }
+
+        Section {
+            Toggle("Temperature", isOn: temperatureEnabled)
+            if options.temperature != nil {
+                HStack {
+                    Slider(value: temperatureValue, in: 0...1)
+                        .tint(tint)
+                    Text(temperatureValue.wrappedValue, format: .number.precision(.fractionLength(2)))
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+        } header: {
+            Text("Sampling")
+        } footer: {
+            Text("Lower stays closer to the likely answer. Higher varies more. Off uses the model's own setting.")
+        }
+
+        Section {
+            Picker("Response length", selection: $options.length) {
+                ForEach(AskCloudLength.allCases, id: \.self) { length in
+                    Text(length.title)
+                        .tag(length)
+                        .accessibilityLabel(length.accessibilityLabel)
+                }
+            }
+            .pickerStyle(.menu)
+        } footer: {
+            Text("A shorter cap stops a long answer early. Automatic uses the room left in the context.")
+        }
+        }
+        .disabled(!enabled)
         .onChange(of: options) { _, newValue in
             AskCloudSettings.current = newValue
         }

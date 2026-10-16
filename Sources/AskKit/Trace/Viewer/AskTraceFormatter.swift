@@ -95,6 +95,7 @@ enum AskTraceFormatter {
         case "chip": return "tag"
         case "siri": return "waveform"
         case "voice": return "mic"
+        case "toolkit": return "rectangle.3.group"
         case "shortcut": return "square.grid.2x2"
         case "composer": return "bubble.left.and.text.bubble.right"
         default: return "questionmark.circle"
@@ -259,7 +260,8 @@ enum AskTraceFormatter {
         case "chip": return "Suggestion chip"
         case "shortcut": return "Shortcut"
         case "siri": return "Siri"
-        case "voice": return "Microphone"
+        case "voice": return "Voice"
+        case "toolkit": return "Card toolkit"
         default: return entry.rawValue
         }
     }
@@ -300,6 +302,10 @@ enum AskTraceFormatter {
         switch message {
         case "fast path": return "Router skipped"
         case "joined to the previous question": return "Joined onto the previous question"
+        case "card layout from the skill": return "The card layout came from the skill."
+        case "card layout from the model": return "The model composed the card layout."
+        case "card layout from the facts": return "The fact layout was used for the card."
+        case "card compose failed": return "The model could not compose the card."
         default: return message
         }
     }

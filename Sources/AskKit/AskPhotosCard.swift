@@ -121,17 +121,10 @@ struct AskPhotosCard: View {
 
 /// The card fill stays rounded without clipping the cells. A clipped ancestor breaks the zoom.
 private struct AskPhotosCardFill: View {
+    @Environment(\.askBubbleFill) private var fill
+
     var body: some View {
-        ZStack {
-            AskCardStyle.shape.fill(.quaternary)
-            AskCardStyle.shape.fill(
-                LinearGradient(
-                    colors: [Color.teal.opacity(0.32), Color.teal.opacity(0.06)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-        }
+        AskCardStyle.shape.fill(fill)
     }
 }
 
@@ -139,16 +132,11 @@ private struct AskPhotosCardHeader: View {
     var title: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .font(.title2.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            AskCardBadge(
-                title: "Photos",
-                symbol: "photo.on.rectangle",
-                tint: AskCardSymbol.tint(for: "Photos")
-            )
-        }
+        AskCardMark(
+            title: title.isEmpty ? "Photos" : title,
+            symbol: "photo.on.rectangle",
+            tint: AskCardSymbol.tint(for: "Photos")
+        )
     }
 }
 

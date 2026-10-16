@@ -13,6 +13,10 @@ public struct AskTraceEntry: RawRepresentable, Codable, Sendable, Hashable {
     /// ``AskIntent``, unless the registered client or the caller passes another entry.
     public static let shortcut = AskTraceEntry(rawValue: "shortcut")
     public static let siri = AskTraceEntry(rawValue: "siri")
+    /// Listen until a pause, then speak the answer. Not a Siri turn.
+    public static let voice = AskTraceEntry(rawValue: "voice")
+    /// Card toolkit. Facts in, a composed card out. Not a chat question.
+    public static let toolkit = AskTraceEntry(rawValue: "toolkit")
 }
 
 /// What a span measures. `.model` spans carry a Foundation Models transcript.

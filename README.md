@@ -314,7 +314,7 @@ The chat shows the card, then the card's action. The view does not own that butt
 
 ## Generative card DSL
 
-When a skill has no host-drawn SwiftUI card, use `.generated`. AskKit owns a small layout IR (`AskCardNode`: `vstack`, `hstack`, `text`, `stat`, `badge`, `divider`, `spacer`, `row`, `action`) and maps it to SwiftUI with `AskGeneratedCardView`. This is not runtime SwiftUI source.
+When a skill has no host-drawn SwiftUI card, use `.generated`. AskKit owns a small layout IR (`AskCardNode`: `vstack`, `hstack`, `text`, `stat`, `figure`, `quote`, `eyebrow`, `badge`, `plate`, `symbol`, `divider`, `spacer`, `row`, `action`) and maps it to SwiftUI with `AskGeneratedCardView`. This is not runtime SwiftUI source. `plate` is a rounded symbol image, `symbol` is a palette SF Symbol, `eyebrow` is the small label above the hero, and the stat uses a display size. Charts, photos, and maps stay on host-drawn cards.
 
 ```swift
 AskSkill(
@@ -360,7 +360,7 @@ cardSpecialist: AskCardSpecialist(
 )
 ```
 
-`AskCardStyle` is `.snippet`, `.chat`, or `.fullScreen`. Cards read it from the environment and thin or grow their chrome. The Shortcuts snippet sets `.snippet`. The transcript sets `.chat`. An expandable chat card (`AskIntentCard.expands`) zooms into `.fullScreen` with the same App Store–style transition the photo grid uses. Photo cards keep their own zoom and leave `expands` off.
+`AskCardStyle` is `.snippet`, `.chat`, or `.fullScreen`. Cards read it from the environment and thin or grow their chrome. The Shortcuts snippet sets `.snippet`. The transcript sets `.chat`. An expandable chat card (`AskIntentCard.expands`) zooms into `.fullScreen` with the same App Store–style transition the photo grid uses. Photo cards keep their own zoom and leave `expands` off. Chat and snippet cards fill with the speech-bubble color (`askBubbleFill`, which defaults to the secondary system background) and put a 36-point gradient mark (`AskCardMark`) with the symbol and name at the top left. Full screen uses the page background and can show the rest of the card.
 
 A custom transcript asks for that bubble the same way:
 

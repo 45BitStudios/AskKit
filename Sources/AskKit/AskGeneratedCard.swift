@@ -7,14 +7,14 @@ import SwiftUI
 /// This is not SwiftUI source — kinds are a closed set the renderer understands.
 @Generable
 public struct AskCardNode: Sendable, Equatable, Codable {
-    /// One of: `vstack`, `hstack`, `text`, `stat`, `badge`, `divider`, `spacer`, `row`, `action`.
-    @Guide(description: "One of: vstack, hstack, text, stat, badge, divider, spacer, row, action")
+    /// One of: `vstack`, `hstack`, `text`, `stat`, `figure`, `quote`, `eyebrow`, `badge`, `plate`, `symbol`, `divider`, `spacer`, `row`, `action`.
+    @Guide(description: "One of: vstack, hstack, text, stat, figure, quote, eyebrow, badge, plate, symbol, divider, spacer, row, action")
     public var kind: String
     /// Primary text. Empty for pure layout nodes.
     @Guide(description: "Primary text. Empty for layout, divider, and spacer nodes.")
     public var text: String
-    /// Secondary text for `stat` and `row`. Empty otherwise.
-    @Guide(description: "Secondary text for stat or row. Empty otherwise.")
+    /// Secondary text for `stat`, `figure`, and `row`. Empty otherwise.
+    @Guide(description: "Secondary text for stat, figure, or row. Empty otherwise.")
     public var detail: String
     /// Action id copied from ALLOWED when kind is `action`. Empty otherwise.
     @Guide(description: "Action id copied from ALLOWED when kind is action. Empty otherwise.")
@@ -44,7 +44,12 @@ public enum AskCardNodeKind: String, Sendable, CaseIterable {
     case hstack
     case text
     case stat
+    case figure
+    case quote
+    case eyebrow
     case badge
+    case plate
+    case symbol
     case divider
     case spacer
     case row
@@ -86,6 +91,37 @@ public struct AskCardSpecialist: Sendable, Equatable {
 
     /// AskKit defaults with no app lines.
     public static let `default` = AskCardSpecialist()
+}
+
+/// Where a generative card's tree came from.
+public enum AskCardLayoutSource: String, Sendable, Equatable {
+    /// The skill passed a finished tree. The model was not asked.
+    case skill = "from the skill"
+    /// The model composed the tree from the facts.
+    case model = "from the model"
+    /// Compose failed, so the fact layout was used.
+    case facts = "from the facts"
+
+    /// Story line for this source.
+    public var sentence: String {
+        switch self {
+        case .skill: "The card layout came from the skill."
+        case .model: "The model composed the card layout."
+        case .facts: "The fact layout was used for the card."
+        }
+    }
+}
+
+/// A card laid out from a blueprint, plus which path produced the tree.
+@MainActor
+public struct AskComposedCard {
+    public var card: AskIntentCard
+    public var layout: AskCardLayoutSource
+
+    public init(card: AskIntentCard, layout: AskCardLayoutSource) {
+        self.card = card
+        self.layout = layout
+    }
 }
 
 /// Facts and chrome a `.generated` skill hands AskKit before layout composition.
@@ -139,17 +175,27 @@ public enum AskGeneratedCard {
         Compose one root AskCardNode tree from FACTS only. Do not invent numbers or names.
         Kinds:
         - vstack / hstack: layout. Put content in children.
-        - text: primary line in text.
-        - stat: large value in text, optional caption in detail.
+        - text: secondary line in text.
+        - eyebrow: a short label above the hero, in text. Smaller than the stat.
+        - stat: the one large value in text, optional caption in detail.
+        - figure: a peer value in text, short caption in detail. Use beside other figures, not as the hero.
+        - quote: one primary sentence in text when FACTS have no number. Larger than body text.
         - badge: short label in text.
+        - plate: one rounded image. Put an SF Symbol name in text, such as car.fill or music.note.
+        - symbol: an SF Symbol name in text, such as cloud.sun.fill or clock. Set detail to mini beside a row or above a figure.
         - divider / spacer: no text.
-        - row: label in text, value in detail.
+        - row: title in text, short meta in detail. For an agenda, the event title is text and the time is detail.
         - action: actionID copied from ALLOWED, title in text. At most one action.
         Rules:
         - Root is usually a vstack.
+        - Open with a plate or a hero symbol, then an eyebrow, then one stat. Put the domain in a badge.
+        - Peer numbers are figure nodes in one hstack, not more stats. A symbol with detail mini can sit above each figure.
+        - A day of events is a stat plus rows. A mini symbol can sit beside each row.
+        - A sentence with no number is a quote next to a plate.
+        - At most one plate and six symbols, taken from FACTS or a known label.
         - Prefer a shallow tree (at most two levels of children).
         - Leave unused fields empty.
-        - If FACTS are thin, use one stat and one text line.
+        - If FACTS are thin, use a plate, one stat, and one text line.
         """
     }
 
@@ -228,7 +274,16 @@ public enum AskGeneratedCard {
     /// Drops unknown kinds, caps depth and node count, and keeps only allowed actions.
     public static func sanitize(_ root: AskCardNode, allowedActionIDs: Set<String> = []) -> AskCardNode? {
         var count = 0
-        guard let node = sanitize(root, depth: 0, count: &count, allowedActionIDs: allowedActionIDs) else {
+        var symbolCount = 0
+        var plateCount = 0
+        guard let node = sanitize(
+            root,
+            depth: 0,
+            count: &count,
+            symbolCount: &symbolCount,
+            plateCount: &plateCount,
+            allowedActionIDs: allowedActionIDs
+        ) else {
             return nil
         }
         return node
@@ -255,17 +310,30 @@ public enum AskGeneratedCard {
         return matched
     }
 
+    /// Indented kind lines for a tree, so a toolkit can show how the card was built.
+    public static func outline(_ root: AskCardNode) -> String {
+        outlineLines(root, depth: 0).joined(separator: "\n")
+    }
+
     /// Plain text for Copy / Share.
     public static func shareText(in root: AskCardNode) -> String {
         var lines: [String] = []
         walk(root) { node in
             guard let kind = AskCardNodeKind.parse(node.kind) else { return }
             switch kind {
-            case .text, .stat, .badge:
+            case .text, .stat, .badge, .quote, .eyebrow:
                 let line = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !line.isEmpty { lines.append(line) }
                 let detail = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
                 if kind == .stat, !detail.isEmpty { lines.append(detail) }
+            case .figure:
+                let value = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let caption = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !caption.isEmpty, !value.isEmpty {
+                    lines.append("\(caption): \(value)")
+                } else if !value.isEmpty {
+                    lines.append(value)
+                }
             case .row:
                 let label = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 let value = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -279,7 +347,7 @@ public enum AskGeneratedCard {
             case .action:
                 let title = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !title.isEmpty { lines.append(title) }
-            case .vstack, .hstack, .divider, .spacer:
+            case .plate, .symbol, .vstack, .hstack, .divider, .spacer:
                 break
             }
         }
@@ -322,7 +390,7 @@ public enum AskGeneratedCard {
             spoken: spoken,
             text: text,
             coveredPhrases: coveredPhrases,
-            action: matched.first,
+            action: matched.first ?? allowedActions.first,
             facts: facts,
             generatedRoot: tree,
             view: AskGeneratedCardView(root: display, title: title)
@@ -364,6 +432,8 @@ public enum AskGeneratedCard {
         _ node: AskCardNode,
         depth: Int,
         count: inout Int,
+        symbolCount: inout Int,
+        plateCount: inout Int,
         allowedActionIDs: Set<String>
     ) -> AskCardNode? {
         guard depth <= maxDepth, count < maxNodes else { return nil }
@@ -371,6 +441,16 @@ public enum AskGeneratedCard {
         if kind == .action {
             let id = node.actionID.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty, allowedActionIDs.contains(id.lowercased()) else { return nil }
+        }
+        if kind == .symbol {
+            let label = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard symbolCount < 8, AskCardSymbol.systemName(for: label) != nil else { return nil }
+            symbolCount += 1
+        }
+        if kind == .plate {
+            let label = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard plateCount < 1, AskCardSymbol.systemName(for: label) != nil else { return nil }
+            plateCount += 1
         }
         count += 1
         var copy = node
@@ -381,11 +461,33 @@ public enum AskGeneratedCard {
         switch kind {
         case .vstack, .hstack:
             copy.children = node.children.compactMap {
-                sanitize($0, depth: depth + 1, count: &count, allowedActionIDs: allowedActionIDs)
+                sanitize(
+                    $0,
+                    depth: depth + 1,
+                    count: &count,
+                    symbolCount: &symbolCount,
+                    plateCount: &plateCount,
+                    allowedActionIDs: allowedActionIDs
+                )
             }
             if copy.children.isEmpty { return nil }
-        case .text, .stat, .badge:
+        case .text, .stat, .badge, .eyebrow:
             if copy.text.isEmpty { return nil }
+            copy.children = []
+        case .quote:
+            if copy.text.isEmpty { return nil }
+            copy.detail = ""
+            copy.children = []
+        case .figure:
+            if copy.text.isEmpty { return nil }
+            copy.children = []
+        case .plate:
+            copy.detail = ""
+            copy.actionID = ""
+            copy.children = []
+        case .symbol:
+            if copy.detail.lowercased() != "mini" { copy.detail = "" }
+            copy.actionID = ""
             copy.children = []
         case .row:
             if copy.text.isEmpty, copy.detail.isEmpty { return nil }
@@ -414,6 +516,233 @@ public enum AskGeneratedCard {
             }
         }
         return copy
+    }
+
+    private static func outlineLines(_ node: AskCardNode, depth: Int) -> [String] {
+        let indent = String(repeating: "  ", count: depth)
+        let kind = AskCardNodeKind.parse(node.kind)?.rawValue ?? node.kind
+        var label = kind
+        let text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { label += " · \(text)" }
+        if !detail.isEmpty { label += " · \(detail)" }
+        if AskCardNodeKind.parse(node.kind) == .action {
+            let id = node.actionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !id.isEmpty { label += " · \(id)" }
+        }
+        var lines = ["\(indent)\(label)"]
+        for child in node.children {
+            lines.append(contentsOf: outlineLines(child, depth: depth + 1))
+        }
+        return lines
+    }
+
+    /// Static layouts for the Cards gallery. The toolkit scenarios describe the same shapes in words.
+    static let gallerySamples: [(title: String, root: AskCardNode)] = [
+        ("Next drive", nextDriveSample),
+        ("Agenda", agendaSample),
+        ("Forecast", forecastSample),
+        ("Steps", stepsSample),
+        ("Reminders", remindersSample),
+        ("Now playing", nowPlayingSample),
+        ("Note", noteSample)
+    ]
+
+    static let nextDriveSample = AskCardNode(
+        kind: AskCardNodeKind.vstack.rawValue,
+        children: [
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    plate("car.fill"),
+                    AskCardNode(
+                        kind: AskCardNodeKind.vstack.rawValue,
+                        children: [
+                            eyebrow("Next drive"),
+                            AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "5 p.m."),
+                            AskCardNode(kind: AskCardNodeKind.text.rawValue, text: "From the calendar"),
+                            AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Trip")
+                        ]
+                    )
+                ]
+            ),
+            AskCardNode(kind: AskCardNodeKind.row.rawValue, text: "Range", detail: "210 mi")
+        ]
+    )
+
+    static let agendaSample = AskCardNode(
+        kind: AskCardNodeKind.vstack.rawValue,
+        children: [
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    plate("calendar"),
+                    AskCardNode(
+                        kind: AskCardNodeKind.vstack.rawValue,
+                        children: [
+                            eyebrow("Friday"),
+                            AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "27"),
+                            AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Calendar")
+                        ]
+                    )
+                ]
+            ),
+            event("Kick-off", "11:00 AM"),
+            event("Lunch", "12:00 PM"),
+            event("Pack", "1:00 PM")
+        ]
+    )
+
+    static let forecastSample = AskCardNode(
+        kind: AskCardNodeKind.vstack.rawValue,
+        children: [
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    symbol("cloud.sun.fill"),
+                    AskCardNode(
+                        kind: AskCardNodeKind.vstack.rawValue,
+                        children: [
+                            eyebrow("Partly cloudy"),
+                            AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "72°")
+                        ]
+                    ),
+                    AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Weather")
+                ]
+            ),
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    AskCardNode(kind: AskCardNodeKind.figure.rawValue, text: "78°", detail: "High"),
+                    AskCardNode(kind: AskCardNodeKind.figure.rawValue, text: "61°", detail: "Low")
+                ]
+            ),
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    hour("sun.max.fill", "70°", "9 AM"),
+                    hour("sun.max.fill", "74°", "12 PM"),
+                    hour("cloud.sun.fill", "76°", "3 PM"),
+                    hour("moon.stars.fill", "71°", "6 PM")
+                ]
+            )
+        ]
+    )
+
+    static let stepsSample = AskCardNode(
+        kind: AskCardNodeKind.vstack.rawValue,
+        children: [
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    plate("figure.walk"),
+                    AskCardNode(
+                        kind: AskCardNodeKind.vstack.rawValue,
+                        children: [
+                            eyebrow("Today"),
+                            AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "8,420"),
+                            AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Steps")
+                        ]
+                    )
+                ]
+            ),
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    hour("figure.walk", "3.2 mi", "Distance"),
+                    hour("figure.stairs", "12", "Flights"),
+                    hour("flame.fill", "24 min", "Exercise")
+                ]
+            )
+        ]
+    )
+
+    static let remindersSample = AskCardNode(
+        kind: AskCardNodeKind.vstack.rawValue,
+        children: [
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    plate("checklist"),
+                    AskCardNode(
+                        kind: AskCardNodeKind.vstack.rawValue,
+                        children: [
+                            eyebrow("Open"),
+                            AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "3"),
+                            AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Reminders")
+                        ]
+                    )
+                ]
+            ),
+            event("Buy milk", "Today", mark: "circle"),
+            event("Call the shop", "Tomorrow", mark: "circle"),
+            event("Pack the bag", "Friday", mark: "checkmark.circle")
+        ]
+    )
+
+    static let nowPlayingSample = AskCardNode(
+        kind: AskCardNodeKind.hstack.rawValue,
+        children: [
+            plate("music.note"),
+            AskCardNode(
+                kind: AskCardNodeKind.vstack.rawValue,
+                children: [
+                    eyebrow("Now playing"),
+                    AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "Anti-Hero"),
+                    AskCardNode(kind: AskCardNodeKind.text.rawValue, text: "Taylor Swift"),
+                    AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Now playing")
+                ]
+            )
+        ]
+    )
+
+    static let noteSample = AskCardNode(
+        kind: AskCardNodeKind.vstack.rawValue,
+        children: [
+            AskCardNode(
+                kind: AskCardNodeKind.hstack.rawValue,
+                children: [
+                    plate("moon.stars.fill"),
+                    AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Note")
+                ]
+            ),
+            AskCardNode(
+                kind: AskCardNodeKind.quote.rawValue,
+                text: "I give myself permission to do what is right for me."
+            )
+        ]
+    )
+
+    private static func plate(_ name: String) -> AskCardNode {
+        AskCardNode(kind: AskCardNodeKind.plate.rawValue, text: name)
+    }
+
+    private static func eyebrow(_ text: String) -> AskCardNode {
+        AskCardNode(kind: AskCardNodeKind.eyebrow.rawValue, text: text)
+    }
+
+    private static func symbol(_ name: String, mini: Bool = false) -> AskCardNode {
+        AskCardNode(kind: AskCardNodeKind.symbol.rawValue, text: name, detail: mini ? "mini" : "")
+    }
+
+    private static func hour(_ name: String, _ value: String, _ caption: String) -> AskCardNode {
+        AskCardNode(
+            kind: AskCardNodeKind.vstack.rawValue,
+            children: [
+                symbol(name, mini: true),
+                AskCardNode(kind: AskCardNodeKind.figure.rawValue, text: value, detail: caption)
+            ]
+        )
+    }
+
+    private static func event(_ label: String, _ value: String, mark: String = "clock.fill") -> AskCardNode {
+        AskCardNode(
+            kind: AskCardNodeKind.hstack.rawValue,
+            children: [
+                symbol(mark, mini: true),
+                AskCardNode(kind: AskCardNodeKind.row.rawValue, text: label, detail: value)
+            ]
+        )
     }
 
     private static func walk(_ node: AskCardNode, visit: (AskCardNode) -> Void) {

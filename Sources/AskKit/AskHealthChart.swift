@@ -393,6 +393,7 @@ struct AskHealthChartCard: View {
     @State private var ranges = AskHealthRanges.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.askSnippet) private var snippet
+    @Environment(\.askCardStyle) private var style
 
     var body: some View {
         let prepared = snippet.health[metric.key]
@@ -400,29 +401,30 @@ struct AskHealthChartCard: View {
         let choice = ranges.choices[metric.key]
         let live = AskHealthChartModel.follows(choice: choice, opened: opened, active: active)
         let range = prepared?.range ?? picked ?? live ?? (active ? initial : (pinned ?? initial))
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                AskHealthFigure(text: headline(for: range), color: AskHealthColor.color(for: metric))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(
-                    title: metric.title,
-                    symbol: AskHealthColor.symbol(for: metric),
-                    tint: AskHealthColor.color(for: metric)
-                )
-            }
-            AskHealthRangeControl(metric: metric, selected: range) { item in
-                picked = item
-                ranges.select(metric: metric.key, range: item)
-            }
-            AskHealthChartPlot(
-                metric: metric,
-                range: prepared?.range ?? loadedRange ?? range,
-                snapshot: prepared?.series ?? snapshot,
-                shapes: prepared != nil
+        VStack(alignment: .leading, spacing: style.contentSpacing) {
+            AskCardMark(
+                title: metric.title,
+                symbol: AskHealthColor.symbol(for: metric),
+                tint: AskHealthColor.color(for: metric)
             )
-            AskHealthExtraLines(lines: extras)
+            AskHealthFigure(text: headline(for: range), color: AskHealthColor.color(for: metric))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if style == .fullScreen {
+                AskHealthRangeControl(metric: metric, selected: range) { item in
+                    picked = item
+                    ranges.select(metric: metric.key, range: item)
+                }
+                AskHealthChartPlot(
+                    metric: metric,
+                    range: prepared?.range ?? loadedRange ?? range,
+                    snapshot: prepared?.series ?? snapshot,
+                    shapes: prepared != nil
+                )
+                AskHealthExtraLines(lines: extras)
+            }
         }
-        .askCardSurface(tint: AskHealthColor.color(for: metric))
+        .frame(maxWidth: .infinity, maxHeight: style.fillsPage ? .infinity : nil, alignment: .top)
+        .askCardSurface()
         .onAppear {
             guard prepared == nil else { return }
             ranges.claim(metric: metric.key, id: cardID, opened: opened)
@@ -561,18 +563,25 @@ private struct AskHealthFigure: View {
     var color: Color
 
     @Environment(\.askSnippet) private var snippet
+    @Environment(\.askCardStyle) private var style
 
     var body: some View {
         if let split = splitNumber {
-            if snippet.isSnippet {
+            if snippet.isSnippet || style == .snippet {
                 snippetLine(split)
+            } else if style == .fullScreen {
+                stacked(split, numberFont: .system(size: 72, weight: .semibold, design: .rounded))
             } else {
-                chatLine(split)
+                ViewThatFits(in: .horizontal) {
+                    beside(split)
+                    stacked(split, numberFont: .system(.largeTitle, design: .rounded).weight(.semibold))
+                }
             }
         } else {
             Text(text)
-                .font(snippet.isSnippet ? .subheadline.weight(.semibold) : .title3.weight(.semibold))
-                .lineLimit(snippet.isSnippet ? 2 : nil)
+                .font(snippet.isSnippet ? .subheadline.weight(.semibold) : style.valueFont)
+                .lineLimit(snippet.isSnippet || style == .snippet ? 2 : 1)
+                .minimumScaleFactor(0.6)
                 .accessibilityAddTraits(.updatesFrequently)
         }
     }
@@ -592,19 +601,42 @@ private struct AskHealthFigure: View {
             .accessibilityAddTraits(.updatesFrequently)
     }
 
-    private func chatLine(_ split: (number: String, rest: String)) -> some View {
+    /// Number and unit on one line. No shrinking, so a total that cannot fit falls through to the stack.
+    private func beside(_ split: (number: String, rest: String)) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(split.number)
-                .font(.system(.largeTitle, design: .rounded).weight(.semibold))
-                .foregroundStyle(color)
-                .contentTransition(.numericText())
-            Text(split.rest)
-                .font(.title3)
-                .foregroundStyle(.secondary)
+            number(split.number, font: .system(.largeTitle, design: .rounded).weight(.semibold), scale: 1)
+            unit(split.rest, font: .title3)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(text)
         .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    /// Full screen puts the unit under the total, so "1,691,035" stays one line while the chart grows.
+    private func stacked(_ split: (number: String, rest: String), numberFont: Font) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            number(split.number, font: numberFont, scale: 0.4)
+            unit(split.rest, font: style == .fullScreen ? .title2 : .title3)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    private func number(_ value: String, font: Font, scale: CGFloat) -> some View {
+        Text(value)
+            .font(font)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(scale)
+            .contentTransition(.numericText())
+    }
+
+    private func unit(_ value: String, font: Font) -> some View {
+        Text(value)
+            .font(font)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
     }
 
     private var splitNumber: (number: String, rest: String)? {
@@ -680,6 +712,8 @@ private struct AskHealthChartPlot: View {
     /// Shortcut snippets snapshot the view immediately. Swift Charts does not draw into that image, so the snippet uses shapes.
     var shapes = false
 
+    @Environment(\.askCardStyle) private var style
+
     var body: some View {
         if let snapshot {
             if snapshot.denied {
@@ -733,7 +767,7 @@ private struct AskHealthChartPlot: View {
         } else {
             ProgressView()
                 .controlSize(.small)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .healthPlotHeight(fillsPage: style.fillsPage, compact: style.chartHeight)
                 .accessibilityLabel("Loading chart")
         }
     }
@@ -759,6 +793,7 @@ private struct AskHealthBarChart: View {
     var color: Color
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.askCardStyle) private var style
 
     var body: some View {
         let peak = max(points.map(\.value).max() ?? 0, 1)
@@ -768,12 +803,12 @@ private struct AskHealthBarChart: View {
                 y: .value("Value", point.value)
             )
             .foregroundStyle(color.gradient)
-            .cornerRadius(5)
+            .cornerRadius(style == .fullScreen ? 8 : 5)
         }
         .chartYScale(domain: 0.0 ... peak * 1.08)
-        .healthAxes(range: range, unit: axisLabel)
+        .healthAxes(range: range, unit: axisLabel, labelFont: style == .fullScreen ? .caption : .caption2)
         .animation(reduceMotion ? nil : .smooth(duration: 0.55), value: points.map(\.value))
-        .frame(height: 168)
+        .healthPlotHeight(fillsPage: style.fillsPage, compact: style.chartHeight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title) for the \(range.spokenName)")
         .accessibilityValue(headline)
@@ -789,6 +824,7 @@ private struct AskHealthLineChart: View {
     var color: Color
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.askCardStyle) private var style
 
     var body: some View {
         let values = points.map(\.value)
@@ -815,7 +851,7 @@ private struct AskHealthLineChart: View {
             )
             .foregroundStyle(color)
             .interpolationMethod(.catmullRom)
-            .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            .lineStyle(StrokeStyle(lineWidth: style == .fullScreen ? 3.5 : 2.5, lineCap: .round, lineJoin: .round))
             PointMark(
                 x: .value("When", point.date, unit: range.bucket),
                 y: .value("Value", point.value)
@@ -824,9 +860,9 @@ private struct AskHealthLineChart: View {
             .symbolSize(36)
         }
         .chartYScale(domain: (low - pad) ... (high + pad))
-        .healthAxes(range: range, unit: axisLabel)
+        .healthAxes(range: range, unit: axisLabel, labelFont: style == .fullScreen ? .caption : .caption2)
         .animation(reduceMotion ? nil : .smooth(duration: 0.55), value: points.map(\.value))
-        .frame(height: 168)
+        .healthPlotHeight(fillsPage: style.fillsPage, compact: style.chartHeight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title) for the \(range.spokenName)")
         .accessibilityValue(headline)
@@ -834,14 +870,20 @@ private struct AskHealthLineChart: View {
 }
 
 private extension View {
-    func healthAxes(range: AskHealthRange, unit: String) -> some View {
+    /// Chat keeps a fixed plot. Full screen gives the chart whatever height the page has left.
+    func healthPlotHeight(fillsPage: Bool, compact: CGFloat) -> some View {
+        frame(maxWidth: .infinity, maxHeight: fillsPage ? .infinity : compact)
+            .frame(height: fillsPage ? nil : compact)
+    }
+
+    func healthAxes(range: AskHealthRange, unit: String, labelFont: Font) -> some View {
         chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) { value in
                 AxisGridLine().foregroundStyle(.quaternary)
                 AxisValueLabel {
                     if let date = value.as(Date.self) {
                         Text(date, format: range.xFormat)
-                            .font(.caption2)
+                            .font(labelFont)
                     } else {
                         EmptyView()
                     }
@@ -854,7 +896,7 @@ private extension View {
                 AxisValueLabel {
                     if let number = value.as(Double.self) {
                         Text(number, format: .number.notation(.compactName))
-                            .font(.caption2)
+                            .font(labelFont)
                     } else {
                         EmptyView()
                     }

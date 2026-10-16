@@ -42,7 +42,9 @@ enum AskTraceGuide {
             Item(symbol: .entry(.chip), title: "Suggestion chip", detail: "A chip tap. No model session is opened to choose the skill."),
             Item(symbol: .entry(.shortcut), title: "Shortcut", detail: "AskIntent, or a host intent that calls AskIntent.answer. The registered client can change this entry."),
             Item(symbol: .entry(.siri), title: "Siri", detail: "A host that passes AskTraceEntry.siri."),
-            Item(symbol: .system("questionmark.circle", .secondary), title: "Any other name", detail: "A host can pass its own entry, such as voice. The raw value is what the list shows.")
+            Item(symbol: .entry(.voice), title: "Voice", detail: "Listen until the person pauses, then Ask speaks the answer. Not Siri."),
+            Item(symbol: .entry(.toolkit), title: "Card toolkit", detail: "A scenario from the card toolkit. The model lays out the card, or the fact layout is used when compose fails."),
+            Item(symbol: .system("questionmark.circle", .secondary), title: "Any other name", detail: "A host can pass its own entry. The raw value is what the list shows.")
         ]),
         Section(title: "Kinds of calls", items: [
             Item(symbol: .kind(.turn), title: "Turn", detail: "The whole question. Everything else nests under it."),
@@ -53,7 +55,7 @@ enum AskTraceGuide {
         ]),
         Section(title: "Markers", items: [
             Item(symbol: .glyph("→"), title: "Result", detail: "A short summary of what the step returned, such as the domain id."),
-            Item(symbol: .system("arrow.triangle.branch", .purple), title: "Decision", detail: "Why the turn took a branch. Router skipped means the skill was chosen without a router model. A specialist can still call the model after that. Joined onto the previous question means a follow-up was sent with the question before it."),
+            Item(symbol: .system("arrow.triangle.branch", .purple), title: "Decision", detail: "Why the turn took a branch. Router skipped means the skill was chosen without a router model. A specialist can still call the model after that. Joined onto the previous question means a follow-up was sent with the question before it. A generated card says the layout came from the skill, the model composed it, or the fact layout was used."),
             Item(symbol: .glyph("∥"), title: "Ran in parallel", detail: "This call overlapped another call under the same parent."),
             Item(symbol: .system("xmark.octagon", .red), title: "Threw an error", detail: "The call ended by throwing."),
             Item(symbol: .system("hourglass", .secondary), title: "Unfinished", detail: "Still running when the turn ended. Its end is clamped to the turn's end.")

@@ -41,21 +41,16 @@ public struct AskCapabilitiesCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: style == .fullScreen ? 14 : 10) {
-            HStack(alignment: .center, spacing: 8) {
-                Text("I can help with")
-                    .font(style.titleFont)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(title: "Help", symbol: "sparkles", tint: .indigo)
-            }
-            ForEach(groups) { group in
-                VStack(alignment: .leading, spacing: style == .snippet ? 2 : 4) {
+            AskCardMark(title: "Help", symbol: "sparkles", tint: .indigo)
+            ForEach(style == .fullScreen ? groups : Array(groups.prefix(1))) { group in
+                VStack(alignment: .leading, spacing: 4) {
                     Text(group.title)
                         .font(.subheadline.weight(.semibold))
                     ForEach(group.items) { item in
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.title)
                                 .font(.subheadline)
-                            if !item.detail.isEmpty, style != .snippet {
+                            if !item.detail.isEmpty, style == .fullScreen {
                                 Text(item.detail)
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)

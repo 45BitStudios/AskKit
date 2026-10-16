@@ -1079,12 +1079,14 @@ enum AskAppleCards {
         }
         let places = AskLocationPin.places(in: reading.lines)
         if reading.name == "location", !places.isEmpty {
-            return AskIntentCard(
+            var card = AskIntentCard(
                 title: title,
                 spoken: spoken,
                 text: spoken,
                 view: AskLocationMapCard(title: title, places: places, showsCoordinates: showsCoordinates)
             )
+            card.expands = true
+            return card
         }
         if reading.name == "contacts", let line = visible.first {
             let person = AskContactLine.person(from: line)
@@ -1214,7 +1216,9 @@ struct AskContactCard: View {
     var person: AskContactLine.Person
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+            AskCardMark(title: "Contact", symbol: "person.fill", tint: monogram)
+            HStack(alignment: .top, spacing: 14) {
             Text(initials)
                 .font(.headline)
                 .foregroundStyle(monogram)
@@ -1222,14 +1226,11 @@ struct AskContactCard: View {
                 .background(monogram.opacity(0.16), in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(person.name)
-                        .font(.title3.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    AskCardBadge(title: "Contact", symbol: "person.fill", tint: monogram)
-                }
+                Text(person.name)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if !person.phone.isEmpty {
                     contactAction(
                         title: person.phone,
@@ -1250,8 +1251,9 @@ struct AskContactCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .askCardSurface(tint: monogram)
+        .askCardSurface()
     }
 
     private func contactAction<I: AppIntent>(
@@ -1520,15 +1522,14 @@ struct AskLocationMapCard: View {
     var showsCoordinates: Bool
 
     @Environment(\.askSnippet) private var snippet
+    @Environment(\.askCardStyle) private var style
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(title: "Place", symbol: "mappin.and.ellipse", tint: .green)
-            }
+            AskCardMark(title: "Place", symbol: "mappin.and.ellipse", tint: .green)
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
             map
             ForEach(places) { place in
                 AskLocationPlaceRow(
@@ -1538,7 +1539,7 @@ struct AskLocationMapCard: View {
                 )
             }
         }
-        .askCardSurface(tint: .green)
+        .askCardSurface()
     }
 
     @ViewBuilder
@@ -1554,7 +1555,7 @@ struct AskLocationMapCard: View {
                 }
             }
             .mapStyle(.standard)
-            .frame(height: 180)
+            .frame(height: style == .fullScreen ? 320 : 120)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .allowsHitTesting(false)
             .accessibilityLabel(label)
@@ -1760,17 +1761,12 @@ struct AskReminderCard: View {
     var body: some View {
         let _ = AskReminderChecks.shared.completed
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 8) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(title: "Reminders", symbol: "checklist", tint: .orange)
-            }
+            AskCardMark(title: title.isEmpty ? "Reminders" : title, symbol: "checklist", tint: .orange)
             ForEach(items) { item in
                 AskReminderRow(item: item)
             }
         }
-        .askCardSurface(tint: .orange)
+        .askCardSurface()
         .task(id: items.map(\.id)) {
             guard readsCompletion else { return }
             let found = await AskRemindersRead.completedIDs(items.map(\.id))

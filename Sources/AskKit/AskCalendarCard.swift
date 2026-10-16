@@ -208,6 +208,8 @@ struct AskCalendarCard: View {
     var title: String
     var items: [AskCalendarItem.Item]
 
+    @Environment(\.askCardStyle) private var style
+
     private var groups: [(day: String, items: [AskCalendarItem.Item])] {
         var order: [String] = []
         var map: [String: [AskCalendarItem.Item]] = [:]
@@ -223,13 +225,8 @@ struct AskCalendarCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 8) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(title: "Calendar", symbol: "calendar", tint: .red)
-            }
-            ForEach(groups, id: \.day) { group in
+            AskCardMark(title: title.isEmpty ? "Calendar" : title, symbol: "calendar", tint: .red)
+            ForEach(shown, id: \.day) { group in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(group.day)
                         .font(.subheadline.weight(.semibold))
@@ -240,8 +237,14 @@ struct AskCalendarCard: View {
                 }
             }
         }
-        .askCardSurface(tint: .red)
+        .askCardSurface()
         .accessibilityElement(children: .contain)
+    }
+
+    /// Chat shows the next event. Full screen shows the rest of the day.
+    private var shown: [(day: String, items: [AskCalendarItem.Item])] {
+        guard style != .fullScreen, let first = groups.first, let event = first.items.first else { return groups }
+        return [(first.day, [event])]
     }
 }
 

@@ -13,6 +13,13 @@ final class AskCardStyleTests: XCTestCase {
         XCTAssertLessThan(AskCardStyle.snippet.contentSpacing, AskCardStyle.fullScreen.contentSpacing)
     }
 
+    func testFullScreenChartFillsThePage() {
+        XCTAssertTrue(AskCardStyle.fullScreen.fillsPage)
+        XCTAssertFalse(AskCardStyle.chat.fillsPage)
+        XCTAssertFalse(AskCardStyle.snippet.fillsPage)
+        XCTAssertEqual(AskCardStyle.chat.chartHeight, 168)
+    }
+
     func testSnippetDetailStaysOnOneLine() {
         XCTAssertEqual(AskCardStyle.snippet.detailLineLimit, 1)
         XCTAssertNil(AskCardStyle.chat.detailLineLimit)
@@ -41,6 +48,7 @@ final class AskCardStyleTests: XCTestCase {
                     domainID: "battery",
                     title: "Charge status",
                     summary: "Current battery",
+                    routingNotes: "",
                     fulfillment: .reply { _ in AskReply(text: "68%", spoken: "68%") }
                 )
             ]

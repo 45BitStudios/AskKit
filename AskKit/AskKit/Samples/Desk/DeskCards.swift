@@ -1,3 +1,4 @@
+import AskKit
 import SwiftUI
 
 struct PassCard: View {
@@ -6,18 +7,14 @@ struct PassCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Visitor")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            AskCardMark(title: "Visitor", symbol: "person.fill", tint: .blue)
             Text(guest)
                 .font(.title2.weight(.semibold))
             Text("Host \(host) · valid today")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }
 
@@ -27,16 +24,13 @@ struct RoomCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Meeting room")
-                .font(.headline)
+            AskCardMark(title: "Meeting room", symbol: "door.left.hand.open", tint: .indigo)
             Text(room)
                 .font(.title2.weight(.semibold))
             Text("Free until \(freeUntil)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }

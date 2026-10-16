@@ -49,12 +49,6 @@ public struct AskCardGalleryScreen: View {
                             Text(section.title)
                                 .font(.headline)
                                 .accessibilityAddTraits(.isHeader)
-                            if !section.note.isEmpty {
-                                Text(section.note)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
                             section.view
                                 .environment(\.askCardStyle, .chat)
                         }
@@ -261,7 +255,7 @@ enum AskCardSamples {
             section("No forecast", "", apple("weather", ["No forecast."], "No forecast.")),
             section("Capabilities", "What this assistant can answer.", capabilities),
             section("Skill", "Same shape as a sample fact card.", skill),
-            section("Generated DSL", "AskCardNode tree rendered by AskGeneratedCardView.", generated)
+            section("Generated DSL", "A plate, palette symbols, and a display number. Charts and photos stay on the host cards.", generated)
         ]
     }
 
@@ -374,23 +368,17 @@ enum AskCardSamples {
 
     @MainActor
     private static var generated: some View {
-        AskGeneratedCardView(
-            root: AskCardNode(
-                kind: AskCardNodeKind.vstack.rawValue,
-                children: [
-                    AskCardNode(
-                        kind: AskCardNodeKind.hstack.rawValue,
-                        children: [
-                            AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: "5 p.m."),
-                            AskCardNode(kind: AskCardNodeKind.badge.rawValue, text: "Trip")
-                        ]
-                    ),
-                    AskCardNode(kind: AskCardNodeKind.row.rawValue, text: "Range", detail: "210 mi"),
-                    AskCardNode(kind: AskCardNodeKind.text.rawValue, text: "From the calendar")
-                ]
-            ),
-            title: "Trip"
-        )
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(AskGeneratedCard.gallerySamples, id: \.title) { sample in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(sample.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    AskGeneratedCardView(root: sample.root)
+                }
+            }
+        }
     }
 }
 
@@ -468,9 +456,9 @@ private struct AskCardZoomGallerySection: View {
             let pageID = UUID(uuidString: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890") ?? UUID()
             card.view
                 .environment(\.askCardStyle, .chat)
+                .modifier(AskCardZoomSource(pageID: pageID, card: card, enabled: true))
                 .environment(\.cardExpansion, expansion)
                 .environment(\.cardZoomNamespace, zoom)
-                .modifier(AskCardZoomSource(pageID: pageID, card: card, enabled: true))
         }
         .navigationDestination(isPresented: presented) {
             if let card = expansion.card, let pageID = expansion.pageID {

@@ -622,15 +622,28 @@ public struct AskAssistant {
         }
     }
 
+    /// Lays out `blueprint` without a chat turn. A prebuilt `root` is kept. Otherwise the model composes the tree, and a failure uses the fact layout.
+    public func composeCard(from blueprint: AskGeneratedBlueprint) async -> AskComposedCard {
+        let name = blueprint.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = name.isEmpty ? blueprint.facts : name
+        return await AskTrace.turn(question, entry: .toolkit) {
+            let composed = await composeGeneratedCard(blueprint)
+            AskTrace.shown(composed.card.spoken, cards: composed.card.title)
+            return AskComposedCard(card: composed.card, layout: composed.layout)
+        }
+    }
+
     private struct ComposedCard {
         var card: AskIntentCard
         var usedModel: Bool
+        var layout: AskCardLayoutSource
     }
 
     /// Uses a prebuilt tree when the skill supplied one. Otherwise asks the model, then the fact fallback.
     private func composeGeneratedCard(_ blueprint: AskGeneratedBlueprint) async -> ComposedCard {
         if blueprint.root != nil {
-            return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false)
+            noteGeneratedCard(.skill)
+            return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false, layout: .skill)
         }
         let specialist = configuration.cardSpecialist
         let request = AskModelRequest(
@@ -655,14 +668,24 @@ public struct AskAssistant {
                 AskTrace.attribute("specialist", specialist.id)
                 return try await model.composeCard(request)
             }
+            noteGeneratedCard(.model)
             return ComposedCard(
                 card: AskGeneratedCard.card(from: blueprint, composed: root),
-                usedModel: true
+                usedModel: true,
+                layout: .model
             )
         } catch {
             AskTrace.decision(AskModelSafety.failure(error) ?? "card compose failed")
-            return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false)
+            noteGeneratedCard(.facts)
+            return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false, layout: .facts)
         }
+    }
+
+    /// On the fulfill span, so the Story line and the trace JSON say the view was generated and which layout was used.
+    private func noteGeneratedCard(_ layout: AskCardLayoutSource) {
+        AskTrace.attribute("cardView", "generated")
+        AskTrace.attribute("cardLayout", layout.rawValue)
+        AskTrace.decision("card layout \(layout.rawValue)")
     }
 
     /// The speech stays on the first page. Each Apple source after that is another card, with no second bubble.

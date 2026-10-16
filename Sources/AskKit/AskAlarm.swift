@@ -965,19 +965,17 @@ struct AskAlarmCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(item.time)
-                    .font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(
-                    title: customized ? "Custom" : "Alarm",
-                    symbol: customized ? buttonSymbol : "alarm.fill",
-                    tint: .orange
-                )
-            }
+            AskCardMark(
+                title: customized ? "Custom" : "Alarm",
+                symbol: customized ? buttonSymbol : "alarm.fill",
+                tint: .orange
+            )
+            Text(item.time)
+                .font(.system(.largeTitle, design: .rounded, weight: .semibold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(item.title)
                 .font(.title3.weight(.semibold))
                 .lineLimit(2)
@@ -1013,7 +1011,7 @@ struct AskAlarmCard: View {
                     .accessibilityLabel("Alarm button, custom symbol \(symbol)")
             }
         }
-        .askCardSurface(tint: .orange)
+        .askCardSurface()
         .accessibilityElement(children: .combine)
     }
 }

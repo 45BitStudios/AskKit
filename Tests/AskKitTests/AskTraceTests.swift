@@ -343,6 +343,18 @@ final class AskTraceTests: XCTestCase {
         XCTAssertFalse(story.contains { $0.text == "fast path" })
         XCTAssertEqual(AskTraceFormatter.routeWords("fastPath"), "Router skipped")
         XCTAssertEqual(AskTraceFormatter.decisionWords("fast path"), "Router skipped")
+        XCTAssertEqual(
+            AskTraceFormatter.decisionWords("card layout from the skill"),
+            "The card layout came from the skill."
+        )
+        XCTAssertEqual(
+            AskTraceFormatter.decisionWords("card layout from the model"),
+            "The model composed the card layout."
+        )
+        XCTAssertEqual(
+            AskTraceFormatter.decisionWords("card layout from the facts"),
+            "The fact layout was used for the card."
+        )
     }
 
     func testStoryUsesTheRecordedPromptQuestion() {

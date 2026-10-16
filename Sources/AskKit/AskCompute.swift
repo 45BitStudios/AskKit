@@ -10,7 +10,7 @@ public enum AskCompute: String, Sendable, CaseIterable, Hashable {
     case onDevice
     case privateCloud
 
-    /// Short name shown on the composer and in the menu.
+    /// Short name shown on the composer capsule and in the model sheet.
     public var title: String {
         switch self {
         case .onDevice: "On-Device"

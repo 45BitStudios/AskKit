@@ -2,11 +2,65 @@ import AVFoundation
 import os
 import Speech
 
+/// Silence after the last new word. Matches the travel-mode listen clock: unchanged text for 2.5 seconds commits.
+struct AskListenClock: Equatable {
+    static let silence: TimeInterval = 2.5
+
+    private(set) var latest = ""
+    private(set) var deadline: Date?
+    private var committed = false
+    private var cancelled = false
+
+    /// True when this partial moved the silence deadline. The same words do not reset it.
+    mutating func note(_ text: String, now: Date) -> Bool {
+        guard !committed, !cancelled else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != latest else { return false }
+        latest = trimmed
+        deadline = now.addingTimeInterval(Self.silence)
+        return true
+    }
+
+    /// The utterance once the silence interval has elapsed. Empty text never commits.
+    mutating func commitIfDue(now: Date) -> String? {
+        guard !committed, !cancelled, let deadline, now >= deadline else { return nil }
+        return finish()
+    }
+
+    /// Seconds until silence commits. Nil once the words are committed, cancelled, or still empty.
+    func timeUntilCommit(now: Date) -> TimeInterval? {
+        guard !committed, !cancelled, let deadline else { return nil }
+        return deadline.timeIntervalSince(now)
+    }
+
+    /// A final result, a recognition error that already has words, or the listen cap.
+    mutating func commitNow() -> String? {
+        guard !committed, !cancelled else { return nil }
+        return finish()
+    }
+
+    mutating func cancel() {
+        cancelled = true
+        deadline = nil
+    }
+
+    private mutating func finish() -> String? {
+        let utterance = latest.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !utterance.isEmpty else { return nil }
+        committed = true
+        deadline = nil
+        return utterance
+    }
+}
+
 /// Fills a composer while the person speaks. Stop keeps the text and does not send it.
+/// `listen` is the other path: a pause commits the words so the chat can answer and speak.
 @MainActor
 @Observable
 final class AskSpeechDictation {
     private(set) var isRecording = false
+    /// True while a pause will send the words. Dictation leaves this false.
+    private(set) var isListening = false
 
     private let engine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer(locale: .current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en_US"))
@@ -18,11 +72,15 @@ final class AskSpeechDictation {
     private var published = ""
     private var timeout: DispatchWorkItem?
     private var onPartial: (String) -> Void = { _ in }
+    private var onUtterance: (String) -> Void = { _ in }
     private var onUnavailable: (String) -> Void = { _ in }
+    private var capture = Capture.dictate
+    private var clock = AskListenClock()
+    private var silence: DispatchWorkItem?
     private var hasTap = false
     private var lastRestart = Date.distantPast
     private let requestLock = OSAllocatedUnfairLock<SpeechRequest?>(initialState: nil)
-    private let session = AskDictationSession()
+    private let session = AskDictationSession.shared
 
     func start(
         startingWith existing: String = "",
@@ -56,8 +114,57 @@ final class AskSpeechDictation {
             onUnavailable("Couldn’t start the microphone.")
             return
         }
+        armTimeout()
+    }
+
+    /// Listens until the words stop changing, then returns them. Stop before that keeps nothing.
+    func listen(
+        onPartial: @escaping (String) -> Void,
+        onUtterance: @escaping (String) -> Void,
+        onUnavailable: @escaping (String) -> Void
+    ) async {
+        stop()
+        guard await Self.authorized() else {
+            onUnavailable("Turn on microphone and speech recognition to ask by voice.")
+            return
+        }
+        guard let recognizer, recognizer.isAvailable else {
+            onUnavailable("Speech recognition isn’t available right now.")
+            return
+        }
+        self.onPartial = onPartial
+        self.onUtterance = onUtterance
+        self.onUnavailable = onUnavailable
+        clock = AskListenClock()
+        capture = .listen
+        isListening = true
+        transcript = AskDictationTranscript()
+        published = ""
+        isRecording = true
+        AskCue.prepareTap()
+        AskCue.recordingStarted()
+        do {
+            try await session.activate()
+            try installTap()
+            beginRecognition(recognizer)
+            engine.prepare()
+            try engine.start()
+        } catch {
+            stop(playCue: false)
+            onUnavailable("Couldn’t start the microphone.")
+            return
+        }
+        armTimeout()
+    }
+
+    private func armTimeout() {
         let timeout = DispatchWorkItem { [weak self] in
-            self?.stop(playCue: false)
+            guard let self else { return }
+            if self.capture == .listen, let utterance = self.clock.commitNow() {
+                self.deliverListen(utterance)
+            } else {
+                self.stop(playCue: false)
+            }
         }
         self.timeout = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 40, execute: timeout)
@@ -77,10 +184,16 @@ final class AskSpeechDictation {
         guard isRecording || task != nil || engine.isRunning else { return }
         meter.reset()
         isRecording = false
+        isListening = false
+        capture = .dictate
+        clock.cancel()
+        silence?.cancel()
+        silence = nil
         generation += 1
         transcript = AskDictationTranscript()
         published = ""
         onPartial = { _ in }
+        onUtterance = { _ in }
         timeout?.cancel()
         timeout = nil
         task?.cancel()
@@ -166,6 +279,10 @@ final class AskSpeechDictation {
                     self.published = shown
                     self.onPartial(shown)
                 }
+                if self.capture == .listen {
+                    self.hear(shown, isFinal: isFinal && !failed, failed: failed)
+                    return
+                }
                 if failed {
                     if shown.isEmpty {
                         self.fail("Couldn’t start the microphone.")
@@ -180,6 +297,54 @@ final class AskSpeechDictation {
                     self.lastRestart = Date()
                     self.beginRecognition(recognizer)
                 }
+            }
+        }
+    }
+
+    private func hear(_ shown: String, isFinal: Bool, failed: Bool) {
+        if clock.note(shown, now: Date()) {
+            scheduleSilence()
+        }
+        guard failed || isFinal else { return }
+        if let utterance = clock.commitNow() {
+            deliverListen(utterance)
+        } else if failed {
+            fail("Couldn’t start the microphone.")
+        } else {
+            stop(playCue: false)
+        }
+    }
+
+    private func scheduleSilence() {
+        armSilence(after: AskListenClock.silence)
+    }
+
+    /// Fires on the silence interval. An early timer waits out the remaining time instead of dropping the words.
+    private func armSilence(after delay: TimeInterval) {
+        silence?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.capture == .listen else { return }
+            let now = Date()
+            if let utterance = self.clock.commitIfDue(now: now) {
+                self.deliverListen(utterance)
+                return
+            }
+            guard let remaining = self.clock.timeUntilCommit(now: now), remaining > 0 else { return }
+            self.armSilence(after: remaining)
+        }
+        silence = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func deliverListen(_ utterance: String) {
+        let trimmed = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
+        let deliver = onUtterance
+        stop(playCue: false)
+        guard !trimmed.isEmpty else { return }
+        let delivery = ListenDelivery(text: trimmed, deliver: deliver)
+        session.afterIdle {
+            Task { @MainActor in
+                delivery.fire()
             }
         }
     }
@@ -215,6 +380,26 @@ final class AskSpeechDictation {
 
 private enum DictationError: Error {
     case unavailable
+}
+
+private enum Capture {
+    case dictate
+    case listen
+}
+
+/// Holds the voice callback across the audio-session queue. Fired once, back on the main actor.
+private final class ListenDelivery: @unchecked Sendable {
+    private let text: String
+    private let deliver: (String) -> Void
+
+    init(text: String, deliver: @escaping (String) -> Void) {
+        self.text = text
+        self.deliver = deliver
+    }
+
+    func fire() {
+        deliver(text)
+    }
 }
 
 /// Words already accepted, plus the phrase the recognizer is still hearing.
@@ -307,7 +492,9 @@ struct AskDictationTranscript: Equatable {
 
 /// Serializes session changes off the main thread. `setActive` on the main thread logs
 /// AVAudioSession_iOS.mm:978 and can stall the UI. iOS 27's activate and deactivate return immediately.
-private final class AskDictationSession: @unchecked Sendable {
+final class AskDictationSession: @unchecked Sendable {
+    static let shared = AskDictationSession()
+
     private let lock = NSLock()
     private var running = false
     private var waiters: [() -> Void] = []
@@ -321,6 +508,40 @@ private final class AskDictationSession: @unchecked Sendable {
                         try session.setCategory(
                             .playAndRecord,
                             mode: .measurement,
+                            options: [.defaultToSpeaker, .duckOthers]
+                        )
+                        try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
+                        try session.overrideOutputAudioPort(.speaker)
+                    } catch {
+                        continuation.resume(throwing: error)
+                        self.finish()
+                        return
+                    }
+                    session.activate(options: []) { activated, error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else if !activated {
+                            continuation.resume(throwing: DictationError.unavailable)
+                        } else {
+                            continuation.resume()
+                        }
+                        self.finish()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Speaker route for a spoken answer. Listening must already be stopped.
+    func activateSpoken() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            run {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let session = AVAudioSession.sharedInstance()
+                    do {
+                        try session.setCategory(
+                            .playAndRecord,
+                            mode: .spokenAudio,
                             options: [.defaultToSpeaker, .duckOthers]
                         )
                         try session.setAllowHapticsAndSystemSoundsDuringRecording(true)

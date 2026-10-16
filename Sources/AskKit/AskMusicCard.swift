@@ -1158,14 +1158,14 @@ struct AskNowPlayingCard: View {
     private let accent = Color.pink
     private let artSize: CGFloat = 64
 
+    @Environment(\.askCardStyle) private var style
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            AskCardMark(title: "Now playing", symbol: "play.circle.fill", tint: accent)
             HStack(alignment: .center, spacing: 14) {
                 artwork
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(attribution)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     Text(item.title)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -1176,6 +1176,12 @@ struct AskNowPlayingCard: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    if !playedBy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("Played by \(playedBy)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1183,9 +1189,23 @@ struct AskNowPlayingCard: View {
             .accessibilityLabel("Now Playing")
             .accessibilityValue(spokenValue)
 
-            scrubber
+            if style == .fullScreen {
+                scrubber
+                transport
+            }
+        }
+        .askCardSurface()
+        .accessibilityElement(children: .contain)
+        .task(id: item.artwork) {
+            await loadCover()
+        }
+        .task(id: previewKey) {
+            await observePlayback()
+        }
+    }
 
-            HStack(spacing: 36) {
+    private var transport: some View {
+        HStack(spacing: 36) {
                 transportButton(
                     symbol: "backward.fill",
                     label: "Previous song",
@@ -1204,15 +1224,6 @@ struct AskNowPlayingCard: View {
                 )
             }
             .frame(maxWidth: .infinity)
-        }
-        .askCardSurface(tint: accent)
-        .accessibilityElement(children: .contain)
-        .task(id: item.artwork) {
-            await loadCover()
-        }
-        .task(id: previewKey) {
-            await observePlayback()
-        }
     }
 
     private var artwork: some View {
@@ -1290,11 +1301,6 @@ struct AskNowPlayingCard: View {
         .accessibilityLabel(label)
     }
 
-    private var attribution: String {
-        let name = playedBy.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "Now Playing" : "Played by \(name)"
-    }
-
     private var duration: TimeInterval {
         item.duration ?? 0
     }
@@ -1340,6 +1346,7 @@ struct AskMusicCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            AskCardMark(title: badgeTitle, symbol: badgeSymbol, tint: accent)
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1373,11 +1380,6 @@ struct AskMusicCard: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                AskCardBadge(
-                    title: badgeTitle,
-                    symbol: badgeSymbol,
-                    tint: accent
-                )
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(badgeTitle)
@@ -1394,7 +1396,7 @@ struct AskMusicCard: View {
                 accessibilityLabel: Text("Play \(badgeTitle.lowercased()) \(item.title)")
             )
         }
-        .askCardSurface(tint: accent)
+        .askCardSurface()
         .accessibilityElement(children: .contain)
         .task(id: item.artwork) {
             await loadCover()

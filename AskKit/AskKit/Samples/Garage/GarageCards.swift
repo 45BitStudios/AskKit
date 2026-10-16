@@ -1,3 +1,4 @@
+import AskKit
 import SwiftUI
 
 struct ChargeCard: View {
@@ -7,6 +8,7 @@ struct ChargeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            AskCardMark(title: "Charge", symbol: "bolt.fill", tint: .green)
             Text(vehicle)
                 .font(.headline)
             Text(battery)
@@ -15,9 +17,7 @@ struct ChargeCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }
 
@@ -27,6 +27,7 @@ struct RangeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            AskCardMark(title: "Range", symbol: "car.fill", tint: .blue)
             Text(vehicle)
                 .font(.headline)
             Text(range)
@@ -35,9 +36,7 @@ struct RangeCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }
 
@@ -48,6 +47,7 @@ struct ChargerCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            AskCardMark(title: "Charger", symbol: "bolt.car.fill", tint: .green)
             Text(name)
                 .font(.headline)
             Text(distance)
@@ -56,9 +56,7 @@ struct ChargerCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }
 
@@ -69,6 +67,7 @@ struct ClimateCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            AskCardMark(title: "Climate", symbol: "thermometer.medium", tint: .orange)
             Text(vehicle)
                 .font(.headline)
             Text(cabin)
@@ -77,8 +76,6 @@ struct ClimateCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .askCardSurface()
     }
 }
