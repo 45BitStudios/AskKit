@@ -1,3 +1,4 @@
+#if ASK_FOUNDATION_MODELS
 import Foundation
 import FoundationModels
 
@@ -302,4 +303,5 @@ extension AskTrace {
         return String(reflecting: type(of: error))
     }
 }
+#endif
 #endif

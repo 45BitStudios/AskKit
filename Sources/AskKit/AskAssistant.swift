@@ -1,5 +1,7 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 import SwiftData
 
 enum AskQuestionJoin {
@@ -979,7 +981,7 @@ public struct AskAssistant {
         guide: AskGuide
     ) async -> SpecialistWrite {
         let needsTool = AskAppleCopy.questionNeedsATool(question)
-        let domainTools: [any Tool]
+        let domainTools: [any AskTool]
         if allowsTools, needsTool, !domainID.isEmpty {
             domainTools = configuration.tools?(domainID) ?? []
         } else {
@@ -1097,15 +1099,19 @@ public struct AskAssistant {
         return .produced(ReplyWrite(text: joinedReply(texts), readings: readings))
     }
 
-    private func tools(for choice: AskSpecialistChoice, domainTools: [any Tool], question: String) -> [any Tool] {
+    private func tools(for choice: AskSpecialistChoice, domainTools: [any AskTool], question: String) -> [any AskTool] {
         switch choice.origin {
         case .host:
+#if ASK_FOUNDATION_MODELS
             if choice.id == AskWebMetadata.specialistID {
                 return [AskWebMetadataTool(toolLedger: AskToolLedger())]
             }
             return configuration.specialists.first { $0.id == choice.id }?.tools().map { tool in
                 AskPhotosTool.stamped(tool, question: question)
             } ?? []
+#else
+            return []
+#endif
         case .domain:
             return domainTools
         case .apple:
@@ -1158,7 +1164,7 @@ public struct AskAssistant {
         excluding: String,
         skillID: String,
         context: AskContext,
-        tools: [any Tool],
+        tools: [any AskTool],
         guide: AskGuide,
         images: [URL] = [],
         profile: ReplyProfile = .writer,
@@ -1358,7 +1364,7 @@ public struct AskAssistant {
         return !AskImageFacts.snapshots(images).isEmpty
     }
 
-    private func mergedReadings(_ transcript: [AskAppleReading], _ tools: [any Tool]) -> [AskAppleReading] {
+    private func mergedReadings(_ transcript: [AskAppleReading], _ tools: [any AskTool]) -> [AskAppleReading] {
         let ledged = AskAppleTools.readings(in: tools)
         if transcript.isEmpty { return ledged }
         if ledged.isEmpty { return transcript }

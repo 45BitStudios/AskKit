@@ -1,3 +1,4 @@
+#if canImport(Contacts)
 import AskContactsChangeHistory
 import Contacts
 import Foundation
@@ -169,3 +170,4 @@ enum AskContactsHistory {
         }
     }
 }
+#endif

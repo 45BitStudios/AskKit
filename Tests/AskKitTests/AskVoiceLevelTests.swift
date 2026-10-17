@@ -1,6 +1,9 @@
 import AVFoundation
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 final class AskVoiceLevelTests: XCTestCase {
     func testSilenceIsQuiet() {

@@ -8,6 +8,9 @@ let package = Package(
         // macOS 14 ships the same SwiftUI Shader APIs; kept so the package can
         // be type-checked and previewed on Mac during development.
         .macOS(.v14),
+        .tvOS(.v17),
+        .watchOS(.v10),
+        .visionOS(.v1)
     ],
     products: [
         .library(name: "BorderBeamKit", targets: ["BorderBeamKit"])

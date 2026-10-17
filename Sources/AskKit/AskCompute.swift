@@ -19,7 +19,7 @@ public enum AskCompute: String, Sendable, CaseIterable, Hashable {
     }
 
     /// Phone for the on-device model, cloud for Private Cloud Compute.
-    var symbolName: String {
+    package var symbolName: String {
         switch self {
         case .onDevice: "iphone"
         case .privateCloud: "cloud"
@@ -90,13 +90,13 @@ enum AskNetwork {
 /// Path status the composer observes so the capsule can fall back while offline.
 @MainActor
 @Observable
-final class AskNetworkStatus {
-    static let shared = AskNetworkStatus()
+package final class AskNetworkStatus {
+    package static let shared = AskNetworkStatus()
 
-    private(set) var isOnline = true
+    package private(set) var isOnline = true
 
     /// Starts the path monitor and syncs the current value.
-    func start() {
+    package func start() {
         isOnline = AskNetwork.isOnline
     }
 
@@ -105,11 +105,11 @@ final class AskNetworkStatus {
     }
 }
 
-enum AskComputeChoice {
+package enum AskComputeChoice {
     /// Preferred model when that one is up. Otherwise the other model when it is up.
     /// Private Cloud also needs a network path. Both down returns the preference so the
     /// session reports the model's own error.
-    static func resolved(preferred: AskCompute, onDevice: Bool, cloud: Bool, online: Bool) -> AskCompute {
+    package static func resolved(preferred: AskCompute, onDevice: Bool, cloud: Bool, online: Bool) -> AskCompute {
         let cloudReady = cloud && online
         switch preferred {
         case .onDevice where onDevice:
@@ -242,8 +242,8 @@ public enum AskCloudSettings: Sendable {
     }
 }
 
-enum AskCloudQuotaText {
-    static func line(reached: Bool, approaching: Bool) -> String {
+package enum AskCloudQuotaText {
+    package static func line(reached: Bool, approaching: Bool) -> String {
         if reached { return "Daily limit reached" }
         if approaching { return "Near the daily limit" }
         return "Within the daily limit"

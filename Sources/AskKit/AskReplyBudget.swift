@@ -1,5 +1,7 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 import os
 
 /// How long a kept reply may be, based on Markdown mode and the active model's context window.
@@ -106,6 +108,7 @@ enum AskReplyBudget {
         }
     }
 
+#if ASK_FOUNDATION_MODELS
     /// Reads the Private Cloud window and keeps it for the sync budget checks.
     /// A failed read leaves the previous window in place.
     static func rememberPrivateCloudContextSize(_ cloud: PrivateCloudComputeLanguageModel) async -> Int {
@@ -115,6 +118,7 @@ enum AskReplyBudget {
         }
         return privateCloudContextSize.withLock { $0 }
     }
+#endif
 
     private struct LiveWindow {
         var compute: AskCompute
@@ -126,6 +130,10 @@ enum AskReplyBudget {
     private static let privateCloudContextSize = OSAllocatedUnfairLock(initialState: 32_768)
 
     private static func liveWindow() -> LiveWindow {
+#if !ASK_FOUNDATION_MODELS
+        // No model here. Budget against the usual on-device window so text limits stay the same.
+        return LiveWindow(compute: .onDevice, contextSize: 4_096, cloudMaximumResponseTokens: nil)
+#else
         let onDevice = SystemLanguageModel.default
         let cloud = PrivateCloudComputeLanguageModel()
         let compute = AskComputeChoice.resolved(
@@ -148,5 +156,6 @@ enum AskReplyBudget {
                 cloudMaximumResponseTokens: AskCloudSettings.current.length.maximumResponseTokens
             )
         }
+#endif
     }
 }

@@ -3,6 +3,9 @@ import FoundationModels
 import SwiftUI
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 @MainActor
 final class AskAppleAccessTests: XCTestCase {
@@ -2754,7 +2757,7 @@ final class AskAppleAccessTests: XCTestCase {
     private func assistant(
         model: RecordingModel,
         access: AskAppleAccess,
-        tools: (@MainActor (String) -> [any Tool])? = nil,
+        tools: (@MainActor (String) -> [any AskTool])? = nil,
         specialists: [AskSpecialist] = [],
         appleCard: (@MainActor (String, [String]) -> AskIntentCard?)? = nil,
         name: String = "Ask Pantry",

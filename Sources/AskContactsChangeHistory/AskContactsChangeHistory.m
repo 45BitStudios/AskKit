@@ -1,5 +1,7 @@
 #import "AskContactsChangeHistory.h"
 
+#if __has_include(<Contacts/Contacts.h>)
+
 @implementation AskContactsChangeHistoryFetch
 
 + (CNFetchResult<NSEnumerator<CNChangeHistoryEvent *> *> *)
@@ -11,3 +13,5 @@
 }
 
 @end
+
+#endif

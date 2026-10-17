@@ -174,6 +174,10 @@ struct LineBeamLayers: View {
         matrix: [Float],
         opacity: Double
     ) -> some View {
+        #if os(watchOS)
+        // watchOS has no SwiftUI Metal shaders. This decorative layer draws nothing there.
+        return Color.clear
+        #else
         let shader = ShaderLibrary.bundle(.module).beamBlobLayer(
             .float2(0, 0),
             .float2(size),
@@ -193,5 +197,6 @@ struct LineBeamLayers: View {
             .float(opacity)
         )
         return Rectangle().fill(Color.white).colorEffect(shader)
+        #endif
     }
 }

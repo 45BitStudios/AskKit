@@ -1,3 +1,5 @@
+// Photos is not on Apple Watch, so this file builds empty there.
+#if canImport(Photos)
 import Foundation
 import Photos
 import CoreLocation
@@ -287,3 +289,4 @@ public final class PhotoLibraryService: Sendable {
         return albums
     }
 }
+#endif

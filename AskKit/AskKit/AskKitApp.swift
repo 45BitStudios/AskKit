@@ -1,5 +1,7 @@
 import AppIntents
 import AskKit
+import AskKitIntents
+import AskKitUI
 import SwiftUI
 
 @main
@@ -12,6 +14,8 @@ struct AskKitApp: App {
             let client = AskIntentClient(assistant: assistant)
             self.client = client
             AppDependencyManager.shared.add(dependency: client)
+            // A shortcut can show answer cards before the chat appears.
+            AskCardRenderer.install()
         } catch {
             fatalError("AskKit could not open its store: \(error)")
         }

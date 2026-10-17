@@ -1,9 +1,13 @@
+#if canImport(AlarmKit)
 import AlarmKit
+#endif
 import AppIntents
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
-import os
+#endif
 import SwiftUI
+import os
 
 /// How often a clock alarm repeats. A timer ignores this.
 public enum AskAlarmRepeat: Sendable, Equatable {
@@ -70,19 +74,27 @@ public struct AskAlarmDraft: Sendable, Equatable {
     }
 }
 
+#if canImport(AlarmKit)
+/// What an alarm button runs. AlarmKit needs a Live Activity intent.
+public typealias AskAlarmButtonIntent = LiveActivityIntent
+#else
+/// What an alarm button runs. Alarms are iPhone and iPad only, so elsewhere this is any intent.
+public typealias AskAlarmButtonIntent = AppIntent
+#endif
+
 /// A custom button a host can attach when an alarm is created.
 /// The closure receives the alarm id and the alarm title.
 public struct AskAlarmAction: Sendable {
     public var id: String
     public var label: String
     public var symbol: String
-    public var intent: @Sendable (UUID, String) -> any LiveActivityIntent
+    public var intent: @Sendable (UUID, String) -> any AskAlarmButtonIntent
 
     public init(
         id: String,
         label: String,
         symbol: String,
-        intent: @escaping @Sendable (UUID, String) -> any LiveActivityIntent
+        intent: @escaping @Sendable (UUID, String) -> any AskAlarmButtonIntent
     ) {
         self.id = id
         self.label = label
@@ -92,7 +104,7 @@ public struct AskAlarmAction: Sendable {
 }
 
 /// Opens the app from an alarm button. Not a Siri shortcut.
-public struct AskAlarmOpenIntent: LiveActivityIntent {
+public struct AskAlarmOpenIntent: AskAlarmButtonIntent {
     public static let title: LocalizedStringResource = "Open Alarm"
     public static let description = IntentDescription("Opens the app from an alarm button.")
     public static let isDiscoverable = false
@@ -735,18 +747,18 @@ enum AskAlarmText {
     }
 }
 
-enum AskAlarmLine {
-    struct Item: Equatable {
-        var title: String
-        var time: String
-        var repeats: String
-        var label: String?
-        var symbol: String?
+package enum AskAlarmLine {
+    package struct Item: Equatable {
+        package var title: String
+        package var time: String
+        package var repeats: String
+        package var label: String?
+        package var symbol: String?
         /// "on" or "paused" for an alarm that was already scheduled. Nil for one this turn added or changed.
-        var state: String?
+        package var state: String?
     }
 
-    static func line(_ draft: AskAlarmDraft) -> String {
+    package static func line(_ draft: AskAlarmDraft) -> String {
         line(draft, prefix: AskAppleCopy.addedPrefix)
     }
 
@@ -758,7 +770,7 @@ enum AskAlarmLine {
         AskAppleCopy.removedPrefix + time
     }
 
-    static func line(_ draft: AskAlarmDraft, prefix: String) -> String {
+    package static func line(_ draft: AskAlarmDraft, prefix: String) -> String {
         line(
             title: draft.title,
             time: time(draft),
@@ -769,7 +781,7 @@ enum AskAlarmLine {
         )
     }
 
-    static func line(title: String, time: String, repeats: String, label: String?, symbol: String?, prefix: String = AskAppleCopy.addedPrefix) -> String {
+    package static func line(title: String, time: String, repeats: String, label: String?, symbol: String?, prefix: String = AskAppleCopy.addedPrefix) -> String {
         var parts = ["\(prefix)\(title)", time, repeats]
         if let label, !label.isEmpty {
             parts.append(label)
@@ -950,74 +962,9 @@ enum AskAlarmLine {
     }
 }
 
-struct AskAlarmCard: View {
-    var item: AskAlarmLine.Item
-
-    private var customized: Bool {
-        if let label = item.label, !label.isEmpty { return true }
-        if let symbol = item.symbol, !symbol.isEmpty { return true }
-        return false
-    }
-
-    private var buttonSymbol: String {
-        item.symbol ?? "bell.fill"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            AskCardMark(
-                title: customized ? "Custom" : "Alarm",
-                symbol: customized ? buttonSymbol : "alarm.fill",
-                tint: .orange
-            )
-            Text(item.time)
-                .font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(item.title)
-                .font(.title3.weight(.semibold))
-                .lineLimit(2)
-            if item.repeats != "once" {
-                Text(item.repeats)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if item.state == "paused" {
-                Text("paused")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if let label = item.label, !label.isEmpty {
-                Label(label, systemImage: buttonSymbol)
-                    .font(.subheadline.weight(.semibold))
-                    .labelStyle(.titleAndIcon)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.orange.opacity(0.16), in: Capsule())
-                    .accessibilityLabel("Alarm button, \(label)")
-            } else if let symbol = item.symbol, !symbol.isEmpty {
-                Label("Custom", systemImage: symbol)
-                    .font(.subheadline.weight(.semibold))
-                    .labelStyle(.titleAndIcon)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.orange.opacity(0.16), in: Capsule())
-                    .accessibilityLabel("Alarm button, custom symbol \(symbol)")
-            }
-        }
-        .askCardSurface()
-        .accessibilityElement(children: .combine)
-    }
-}
-
 /// A scheduled alarm, as a line the card can show. Building a row does not open AlarmManager.
 enum AskAlarmList {
+#if canImport(AlarmKit)
     static func row(
         schedule: Alarm.Schedule?,
         countdown: TimeInterval?,
@@ -1042,6 +989,7 @@ enum AskAlarmList {
         }
         return "Alarm · once · \(word)"
     }
+#endif
 
     static func item(from line: String) -> AskAlarmLine.Item? {
         let parts = line.components(separatedBy: " · ")
@@ -1083,6 +1031,7 @@ enum AskAlarmList {
         return parts.joined(separator: ", ")
     }
 
+#if canImport(AlarmKit)
     private static func stateWord(_ state: Alarm.State) -> String {
         switch state {
         case .paused: "paused"
@@ -1090,8 +1039,10 @@ enum AskAlarmList {
         @unknown default: "on"
         }
     }
+#endif
 }
 
+#if ASK_FOUNDATION_MODELS
 @Generable
 struct AskAlarmToolDraft {
     @Guide(description: "Short alarm name, such as Wake up.")
@@ -1113,7 +1064,9 @@ struct AskAlarmToolDraft {
     @Guide(description: "Registered action id from the tool's list, such as open. Do not put the button title here. Leave empty when only the label or symbol was asked for.")
     var action: String?
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 struct AskAlarmTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     /// The question this turn asked. An alarm whose time is not in it is not scheduled.
@@ -1237,7 +1190,9 @@ struct AskAlarmTool: Tool, AskToolReadingSource {
         }.joined(separator: " | ")
     }
 }
+#endif
 
+#if canImport(AlarmKit)
 struct AskAlarmMetadata: AlarmMetadata {}
 
 enum AskAlarmRead {
@@ -1590,3 +1545,17 @@ enum AskAlarmClock {
         }
     }
 }
+#else
+/// AlarmKit runs on iPhone and iPad. Elsewhere the alarm tool answers without scheduling.
+enum AskAlarmRead {
+    static let unavailable = "Alarms aren't available on this device."
+
+    static func listing() async -> String { unavailable }
+
+    static func change(_ request: AskAlarmChange) async -> String { unavailable }
+
+    static func remove(_ request: AskAlarmRemoval) async -> String { unavailable }
+
+    static func schedule(_ drafts: [AskAlarmDraft]) async -> String { unavailable }
+}
+#endif

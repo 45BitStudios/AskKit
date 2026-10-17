@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ThinkingOrbsKit",
-    platforms: [.iOS(.v15), .macOS(.v12)],
+    platforms: [.iOS(.v15), .macOS(.v12), .tvOS(.v17), .watchOS(.v10), .visionOS(.v1)],
     products: [
         .library(name: "ThinkingOrbsKit", targets: ["ThinkingOrbsKit"])
     ],

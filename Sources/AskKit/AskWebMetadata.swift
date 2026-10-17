@@ -1,11 +1,12 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 import LinkPresentation
 import SwiftUI
-import UIKit
 
 /// The title and summary of one web page. A question that contains an https address can use it.
-enum AskWebMetadata {
+package enum AskWebMetadata {
     static let toolName = "web"
     static let specialistID = "web"
     static let symbolName = "globe"
@@ -30,7 +31,7 @@ enum AskWebMetadata {
         return nil
     }
 
-    static func allowed(_ url: URL) -> Bool {
+    package static func allowed(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return false }
         guard let host = url.host, !host.isEmpty else { return false }
         return true
@@ -77,7 +78,7 @@ enum AskWebMetadata {
     }
 
     /// The address line the card shows, without the "Page:" label.
-    static func pageAddress(in lines: [String]) -> String? {
+    package static func pageAddress(in lines: [String]) -> String? {
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.lowercased().hasPrefix("page:") else { continue }
@@ -263,6 +264,7 @@ enum AskWebMetadata {
     }
 }
 
+#if ASK_FOUNDATION_MODELS
 struct AskWebMetadataTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = AskWebMetadata.toolName
@@ -280,12 +282,13 @@ struct AskWebMetadataTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
 /// Preview image and site icon for one page. The tool text never carries these addresses.
-struct AskWebPictures: Sendable, Equatable {
-    var page: URL
-    var image: URL?
-    var icon: URL?
+package struct AskWebPictures: Sendable, Equatable {
+    package var page: URL
+    package var image: URL?
+    package var icon: URL?
 
     /// Keeps the addresses for this process, under the Page line the card shows.
     static func remember(_ pictures: AskWebPictures, for address: String) async {
@@ -294,14 +297,14 @@ struct AskWebPictures: Sendable, Equatable {
         await AskWebPictureIndex.shared.remember(pictures, for: key)
     }
 
-    static func pictures(for address: String) async -> AskWebPictures? {
+    package static func pictures(for address: String) async -> AskWebPictures? {
         let key = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return nil }
         return await AskWebPictureIndex.shared.pictures(for: key)
     }
 
     /// Image bytes from a page address. Nil when the response is not a small http image.
-    static func imageData(at url: URL) async -> Data? {
+    package static func imageData(at url: URL) async -> Data? {
         guard AskWebMetadata.allowed(url) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 6
@@ -318,7 +321,7 @@ struct AskWebPictures: Sendable, Equatable {
     }
 
     /// Link Presentation image and icon. Used when the page named nothing, or the download failed.
-    static func presentation(for url: URL) async -> (image: Data?, icon: Data?) {
+    package static func presentation(for url: URL) async -> (image: Data?, icon: Data?) {
         guard AskWebMetadata.allowed(url) else { return (nil, nil) }
         let provider = LPMetadataProvider()
         provider.timeout = 5
@@ -334,8 +337,8 @@ struct AskWebPictures: Sendable, Equatable {
     private static func file(from provider: NSItemProvider?) async -> Data? {
         guard let provider else { return nil }
         let data: Data? = await withCheckedContinuation { continuation in
-            provider.loadObject(ofClass: UIImage.self) { object, _ in
-                let bytes = (object as? UIImage)?.pngData()
+            provider.loadObject(ofClass: AskPlatformImage.self) { object, _ in
+                let bytes = (object as? AskPlatformImage).flatMap(AskPlatform.pngData)
                 continuation.resume(returning: bytes)
             }
         }
@@ -366,92 +369,5 @@ private actor AskWebPictureIndex {
 
     func pictures(for address: String) -> AskWebPictures? {
         items[address]
-    }
-}
-
-/// Page title, address, and summary, with the preview image and the site icon when they can be loaded.
-struct AskWebCard: View {
-    var lines: [String]
-
-    @State private var hero: UIImage?
-    @State private var icon: UIImage?
-    @Environment(\.askCardStyle) private var style
-
-    private var title: String {
-        lines.first ?? "Web"
-    }
-
-    private var detail: String {
-        lines.dropFirst().joined(separator: "\n")
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            AskCardMark(title: "Web", symbol: "globe", tint: .blue)
-            if style == .fullScreen, let hero {
-                Image(uiImage: hero)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 168)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .accessibilityHidden(true)
-            }
-            HStack(alignment: .top, spacing: 8) {
-                if let icon {
-                    Image(uiImage: icon)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 28, height: 28)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .accessibilityHidden(true)
-                }
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(style == .fullScreen ? nil : 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if !detail.isEmpty {
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(style == .fullScreen ? nil : 2)
-            }
-        }
-        .askCardSurface()
-        .task(id: AskWebMetadata.pageAddress(in: lines) ?? "") {
-            await load()
-        }
-    }
-
-    private func load() async {
-        let address = AskWebMetadata.pageAddress(in: lines) ?? ""
-        let cached = await AskWebPictures.pictures(for: address)
-        if let url = cached?.image {
-            hero = Self.image(await AskWebPictures.imageData(at: url))
-        }
-        if let url = cached?.icon {
-            icon = Self.image(await AskWebPictures.imageData(at: url))
-        }
-        guard hero == nil || icon == nil, !Task.isCancelled else { return }
-        let page = cached?.page ?? Self.pageURL(address)
-        guard let page else { return }
-        let fetched = await AskWebPictures.presentation(for: page)
-        if hero == nil {
-            hero = Self.image(fetched.image)
-        }
-        if icon == nil {
-            icon = Self.image(fetched.icon)
-        }
-    }
-
-    private static func image(_ data: Data?) -> UIImage? {
-        guard let data, data.count > 32, data.count <= 3_000_000 else { return nil }
-        return UIImage(data: data)
-    }
-
-    private static func pageURL(_ address: String) -> URL? {
-        guard let url = URL(string: address), AskWebMetadata.allowed(url) else { return nil }
-        return url
     }
 }

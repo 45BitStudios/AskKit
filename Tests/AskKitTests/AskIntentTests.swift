@@ -2,6 +2,9 @@ import os
 import SwiftUI
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 @MainActor
 final class AskIntentTests: XCTestCase {

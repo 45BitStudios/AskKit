@@ -3,6 +3,9 @@ import ImageIO
 import UniformTypeIdentifiers
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 final class AskImageFileTests: XCTestCase {
     func testOnlyFoundationModelImageTypesAreAccepted() {

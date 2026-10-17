@@ -3,18 +3,24 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// One image the composer will send with the next question.
-struct AskAttachedImage: Identifiable, Equatable, Sendable {
-    var id = UUID()
-    var url: URL
-    var name: String
+package struct AskAttachedImage: Identifiable, Equatable, Sendable {
+    package init(id: UUID = UUID(), url: URL, name: String) {
+        self.id = id
+        self.url = url
+        self.name = name
+    }
+
+    package var id = UUID()
+    package var url: URL
+    package var name: String
 }
 
 /// Image files Foundation Models can attach. `Transcript.Attachment` has only an image case.
-enum AskImageFile {
-    static let maximumCount = 4
+package enum AskImageFile {
+    package static let maximumCount = 4
 
     /// JPEG, PNG, HEIC, HEIF, GIF, TIFF, BMP, WebP, AVIF, and JPEG 2000.
-    static let contentTypes: [UTType] = [
+    package static let contentTypes: [UTType] = [
         .jpeg,
         .png,
         .gif,
@@ -32,7 +38,7 @@ enum AskImageFile {
     }
 
     /// Writes a decoded image into Caches. Returns nil when ImageIO cannot read it or the type is not allowed.
-    static func store(data: Data, preferredName: String) -> URL? {
+    package static func store(data: Data, preferredName: String) -> URL? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0,
               let typeID = CGImageSourceGetType(source) as String?,
@@ -45,7 +51,7 @@ enum AskImageFile {
     }
 
     /// Copies a security-scoped file after the same image check.
-    static func storeCopy(of url: URL) -> URL? {
+    package static func storeCopy(of url: URL) -> URL? {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url) else { return nil }
@@ -74,7 +80,7 @@ enum AskImageFile {
 ///
 /// The reply prompt forbids stating anything that is not in FACTS, so this block is merged into FACTS.
 /// A file with no readable metadata contributes nothing. Values never contain `=`.
-enum AskImageFacts {
+package enum AskImageFacts {
     /// Appends photo lines to skill facts. Unchanged when the photo block is empty.
     static func merging(_ facts: String, photoFacts: String) -> String {
         guard !photoFacts.isEmpty else { return facts }
@@ -118,7 +124,7 @@ enum AskImageFacts {
     }
 
     /// A later message about that picture. "What location was it taken at" counts. "Where is Apple Park" does not.
-    static func continues(_ question: String) -> Bool {
+    package static func continues(_ question: String) -> Bool {
         let folded = fold(question)
         if folded.localizedStandardContains("taken") { return true }
         if mentionsPixels(folded) { return true }

@@ -8,11 +8,11 @@ struct AskTraceContext: Sendable, Equatable {
 }
 
 extension Notification.Name {
-    static let askTraceDidRecord = Notification.Name("AskTraceDidRecord")
+    package static let askTraceDidRecord = Notification.Name("AskTraceDidRecord")
 }
 
-enum AskTraceNotifications {
-    static let darwinName = "com.studio45.askkit.trace.didRecord"
+package enum AskTraceNotifications {
+    package static let darwinName = "com.studio45.askkit.trace.didRecord"
 
     static func recordDidSave() {
         CFNotificationCenterPostNotification(

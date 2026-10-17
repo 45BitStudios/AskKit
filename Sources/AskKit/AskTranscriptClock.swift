@@ -1,7 +1,13 @@
 import Foundation
 
 /// Dates above a group of turns, and the clock time revealed beside a bubble.
-struct AskTranscriptClock: Sendable {
+package struct AskTranscriptClock: Sendable {
+    package init(calendar: Calendar, locale: Locale, now: Date) {
+        self.calendar = calendar
+        self.locale = locale
+        self.now = now
+    }
+
     var calendar: Calendar
     var locale: Locale
     var now: Date
@@ -9,19 +15,19 @@ struct AskTranscriptClock: Sendable {
     /// Same-day turns this far apart start a new dated group.
     static let gap: TimeInterval = 60 * 60
 
-    func showsMark(after previous: Date?, date: Date) -> Bool {
+    package func showsMark(after previous: Date?, date: Date) -> Bool {
         guard let previous else { return true }
         if !calendar.isDate(previous, inSameDayAs: date) { return true }
         return date.timeIntervalSince(previous) >= Self.gap
     }
 
     /// "8:03 PM"
-    func time(for date: Date) -> String {
+    package func time(for date: Date) -> String {
         date.formatted(timeStyle)
     }
 
     /// "Today 4:49 PM", "Yesterday 8:03 PM", "Monday 8:03 PM", or "Oct 5 at 8:03 PM".
-    func mark(for date: Date) -> String {
+    package func mark(for date: Date) -> String {
         let time = time(for: date)
         if calendar.isDate(date, inSameDayAs: now) {
             return String(

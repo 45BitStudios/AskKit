@@ -1,6 +1,8 @@
 import AskKit
 import Foundation
+#if os(iOS) || os(macOS) || os(visionOS)
 import FoundationModels
+#endif
 
 /// Shared matching and lookup tools for sample host specialists.
 enum SampleSpecialist {
@@ -47,11 +49,13 @@ enum SampleSpecialist {
 }
 
 /// Returns a fixed fact line. The line has no equals sign, so a reply can repeat it.
-struct SampleLookupTool: Tool {
+/// Apple TV and Apple Watch have no Foundation Models session, so the tool only keeps its name there.
+struct SampleLookupTool: AskTool {
     let name: String
     let description: String
     let result: String
 
+#if os(iOS) || os(macOS) || os(visionOS)
     @Generable
     struct Arguments {
         @Guide(description: "Leave empty.")
@@ -61,13 +65,16 @@ struct SampleLookupTool: Tool {
     func call(arguments: Arguments) async throws -> String {
         result
     }
+#endif
 }
 
 /// The current time. The line has no equals sign, so a reply can repeat it.
-struct SampleClockTool: Tool {
+/// Apple TV and Apple Watch have no Foundation Models session, so the tool only keeps its name there.
+struct SampleClockTool: AskTool {
     let name = "clock"
     let description = "The current time on this device."
 
+#if os(iOS) || os(macOS) || os(visionOS)
     @Generable
     struct Arguments {
         @Guide(description: "Leave empty.")
@@ -78,4 +85,5 @@ struct SampleClockTool: Tool {
         let time = Date.now.formatted(date: .omitted, time: .shortened)
         return "The time is \(time)."
     }
+#endif
 }

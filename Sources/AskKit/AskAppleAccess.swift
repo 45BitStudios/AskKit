@@ -1,14 +1,22 @@
 import AppIntents
-import AskKitIntents
+import AskKitSurface
+#if canImport(Contacts)
 import Contacts
+#endif
 import CoreLocation
+#if canImport(EventKit)
 import EventKit
+#endif
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
+#if canImport(HealthKit)
 import HealthKit
+#endif
 import MapKit
-import os
 import SwiftUI
+import os
 
 /// Apple sources a reply may use. Calendar and reminders can add, change, and remove. Contacts can add. Music can pause, skip, and go back. Alarms can add.
 /// Nothing is on until the app sets it.
@@ -30,16 +38,40 @@ public struct AskAppleAccess: OptionSet, Sendable {
     public static let alarms = AskAppleAccess(rawValue: 1 << 7)
 }
 
-/// One Apple source the composer can list.
-struct AskAppleSource: Identifiable, Sendable {
-    var id: String { name }
-    var name: String
-    var access: AskAppleAccess
-    var title: String
-    var symbol: String
-    var detail: String
+extension AskAppleAccess {
+    /// The sources this platform can read. The others are never offered to the model or the composer.
+    /// Apple TV has no Calendar, Reminders, Contacts, or Health. Alarms are iPhone and iPad only.
+    public static var available: AskAppleAccess {
+        var access: AskAppleAccess = [.location, .music, .weather]
+#if canImport(EventKit)
+        access.formUnion([.calendar, .reminders])
+#endif
+#if canImport(Contacts)
+        access.insert(.contacts)
+#endif
+#if canImport(HealthKit)
+        access.insert(.health)
+#endif
+#if canImport(AlarmKit)
+        access.insert(.alarms)
+#endif
+        return access
+    }
+}
 
-    static let catalog: [AskAppleSource] = [
+/// One Apple source the composer can list.
+package struct AskAppleSource: Identifiable, Sendable {
+    package var id: String { name }
+    var name: String
+    package var access: AskAppleAccess
+    package var title: String
+    package var symbol: String
+    package var detail: String
+
+    /// The sources this platform can read, in composer order.
+    package static let catalog: [AskAppleSource] = everySource.filter { AskAppleAccess.available.contains($0.access) }
+
+    private static let everySource: [AskAppleSource] = [
         AskAppleSource(
             name: "calendar",
             access: .calendar,
@@ -185,6 +217,10 @@ public struct AskWrittenReply: Sendable, Equatable {
 
 enum AskAppleCopy {
     static let denied = "Not allowed."
+    /// A source this device has no framework for.
+    static let unavailable = "Not available on this device."
+    /// Apple Watch reads Calendar, Reminders, and Contacts but cannot change them.
+    static let readOnly = "Make that change on your iPhone."
     /// A line that created an event, reminder, or contact. A later repair must not replace it with a read.
     static let addedPrefix = "Added "
     /// A line that changed or removed an event or reminder. Repair leaves it in place.
@@ -580,13 +616,13 @@ enum AskContactQuery {
 }
 
 /// One contact line: name, phone, and email. A fuzzy Contacts hit that does not match the name is dropped.
-enum AskContactLine {
-    struct Person: Equatable {
-        var name: String
-        var phone: String
-        var email: String
+package enum AskContactLine {
+    package struct Person: Equatable {
+        package var name: String
+        package var phone: String
+        package var email: String
 
-        var isPerson: Bool {
+        package var isPerson: Bool {
             let folded = AskAppleCopy.folded(name).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !folded.isEmpty else { return false }
             let status = [
@@ -599,7 +635,7 @@ enum AskContactLine {
         var shareLine: String { AskContactLine.line(name: name, phone: phone, email: email) }
     }
 
-    static func line(name: String, phone: String, email: String) -> String {
+    package static func line(name: String, phone: String, email: String) -> String {
         let who = name.trimmingCharacters(in: .whitespacesAndNewlines)
         var parts = [who.isEmpty ? "Contact" : who]
         let number = phone.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -609,7 +645,7 @@ enum AskContactLine {
         return parts.joined(separator: " · ")
     }
 
-    static func person(from line: String) -> Person {
+    package static func person(from line: String) -> Person {
         let parts = line.split(separator: "·").map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }.filter { !$0.isEmpty }
@@ -941,7 +977,7 @@ enum AskAppleFacts {
     }
 }
 
-enum AskAppleCards {
+package enum AskAppleCards {
     static let names: Set<String> = ["calendar", "reminders", "contacts", "location", "health", "music", "weather", "alarms", "web", "photos"]
 
     /// The first Apple source that ran. Later calls to that same source stay on the card, in order.
@@ -1022,14 +1058,7 @@ enum AskAppleCards {
             custom: custom
         )
         var combined = card
-        let skillView = card.view
-        let factView = fact.view
-        combined.view = AnyView(
-            VStack(alignment: .leading, spacing: 8) {
-                skillView
-                factView
-            }
-        )
+        combined.content = .stack([card.content, fact.content])
         let extra = lines.joined(separator: "\n")
         if !combined.shareText.localizedCaseInsensitiveContains(extra) {
             combined.shareText = combined.shareText.isEmpty ? extra : combined.shareText + "\n" + extra
@@ -1041,7 +1070,7 @@ enum AskAppleCards {
 
     /// The host card wins when it returns one. Nil keeps the built-in fact card.
     @MainActor
-    static func make(
+    package static func make(
         _ reading: AskAppleReading,
         spoken: String,
         showsCoordinates: Bool = false,
@@ -1060,7 +1089,7 @@ enum AskAppleCards {
                 spoken: spoken,
                 text: spoken,
                 action: AskAction(id: AskPinPhrase.actionID, title: "Pin this"),
-                view: AskCalendarCard(title: title, items: calendarEvents)
+                content: .builtIn(.calendar(title: title, items: calendarEvents))
             )
             card.shareText = calendarEvents.map(\.shareLine).joined(separator: "\n")
             card.expands = true
@@ -1072,7 +1101,7 @@ enum AskAppleCards {
                 title: title,
                 spoken: spoken,
                 text: spoken,
-                view: AskReminderCard(title: title, items: reminders)
+                content: .builtIn(.reminders(title: title, items: reminders))
             )
             card.shareText = reminders.map(\.shareLine).joined(separator: "\n")
             return card
@@ -1083,7 +1112,7 @@ enum AskAppleCards {
                 title: title,
                 spoken: spoken,
                 text: spoken,
-                view: AskLocationMapCard(title: title, places: places, showsCoordinates: showsCoordinates)
+                content: .builtIn(.places(title: title, places: places, showsCoordinates: showsCoordinates))
             )
             card.expands = true
             return card
@@ -1095,7 +1124,7 @@ enum AskAppleCards {
                     title: person.name,
                     spoken: spoken,
                     text: spoken,
-                    view: AskContactCard(person: person)
+                    content: .builtIn(.contact(person))
                 )
                 card.shareText = person.shareLine
                 card.expands = true
@@ -1107,7 +1136,7 @@ enum AskAppleCards {
                 title: title,
                 spoken: spoken,
                 text: spoken,
-                view: AskHealthChartCard(metric: chart.metric, initial: chart.range, lines: visible)
+                content: .builtIn(.health(metric: chart.metric, range: chart.range, lines: visible))
             )
             card.expands = true
             return card
@@ -1118,7 +1147,7 @@ enum AskAppleCards {
                     title: "Now Playing",
                     spoken: spoken,
                     text: spoken,
-                    view: AskNowPlayingCard(item: item, playedBy: playedBy)
+                    content: .builtIn(.nowPlaying(item, playedBy: playedBy))
                 )
                 card.shareText = item.shareText
                 card.expands = true
@@ -1128,7 +1157,7 @@ enum AskAppleCards {
                 title: item.title,
                 spoken: spoken,
                 text: spoken,
-                view: AskMusicCard(item: item)
+                content: .builtIn(.music(item))
             )
             card.shareText = item.shareText
             card.expands = true
@@ -1141,7 +1170,7 @@ enum AskAppleCards {
                 title: item.title,
                 spoken: spoken,
                 text: spoken,
-                view: AskAlarmCard(item: item)
+                content: .builtIn(.alarm(item))
             )
             card.shareText = [item.title, item.time, item.repeats, item.label, item.symbol]
                 .compactMap { $0 }
@@ -1155,7 +1184,7 @@ enum AskAppleCards {
                 title: forecast.days.count > 1 ? "Weather" : forecast.day.title,
                 spoken: spoken,
                 text: spoken,
-                view: AskWeatherCard(forecast: forecast)
+                content: .builtIn(.weather(forecast))
             )
             card.shareText = forecast.shareText
             card.expands = true
@@ -1166,7 +1195,7 @@ enum AskAppleCards {
                 title: title,
                 spoken: spoken,
                 text: spoken,
-                view: AskWebCard(lines: visible)
+                content: .builtIn(.web(lines: visible))
             )
             card.shareText = visible.joined(separator: "\n")
             card.expands = true
@@ -1177,7 +1206,7 @@ enum AskAppleCards {
                 title: title,
                 spoken: spoken,
                 text: spoken,
-                view: AskPhotosCard(title: grid.title, photos: grid.photos, shareText: grid.shareText)
+                content: .builtIn(.photos(title: grid.title, photos: grid.photos, shareText: grid.shareText))
             )
             card.shareText = grid.shareText
             card.coveredPhrases = grid.coveredPhrases
@@ -1197,126 +1226,28 @@ enum AskAppleCards {
     }
 }
 
-/// Title, value, and detail via the card DSL renderer. Same shape as the sample fact cards.
-struct AskAppleFactCard: View {
-    var title: String
-    var value: String
-    var detail: String
-
-    var body: some View {
-        AskGeneratedCardView(
-            root: AskGeneratedCard.factTree(title: title, value: value, detail: detail),
-            title: title
-        )
-    }
-}
-
-/// One person. Phone and email both stay on the card.
-struct AskContactCard: View {
-    var person: AskContactLine.Person
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AskCardMark(title: "Contact", symbol: "person.fill", tint: monogram)
-            HStack(alignment: .top, spacing: 14) {
-            Text(initials)
-                .font(.headline)
-                .foregroundStyle(monogram)
-                .frame(width: 56, height: 56)
-                .background(monogram.opacity(0.16), in: Circle())
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(person.name)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if !person.phone.isEmpty {
-                    contactAction(
-                        title: person.phone,
-                        symbol: "phone.fill",
-                        intent: AskCallTap(phone: person.phone),
-                        accessibilityLabel: Text("Call \(person.name)"),
-                        secondary: false
-                    )
-                }
-                if !person.email.isEmpty {
-                    contactAction(
-                        title: person.email,
-                        symbol: "envelope.fill",
-                        intent: AskEmailTap(email: person.email),
-                        accessibilityLabel: Text("Email \(person.name)"),
-                        secondary: true
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .askCardSurface()
-    }
-
-    private func contactAction<I: AppIntent>(
-        title: String,
-        symbol: String,
-        intent: I,
-        accessibilityLabel: Text,
-        secondary: Bool
-    ) -> some View {
-        Button(intent: intent) {
-            HStack(spacing: 6) {
-                Image(systemName: symbol)
-                    .font(.subheadline)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.subheadline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .foregroundStyle(secondary ? Color.secondary : Color.primary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var initials: String {
-        let letters = person.name.split(separator: " ").prefix(2).compactMap(\.first)
-        let text = String(letters).uppercased()
-        return text.isEmpty ? "?" : text
-    }
-
-    /// Stable across launches. `hashValue` is not.
-    private var monogram: Color {
-        let palette: [Color] = [.blue, .teal, .indigo, .purple, .orange, .pink]
-        let sum = person.name.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return palette[sum % palette.count]
-    }
-}
-
 /// A place the location tool found. The map coordinate stays off the spoken line unless the person asked.
-enum AskLocationPin {
+package enum AskLocationPin {
     /// Splits a stored line into the address and the map coordinate.
     static let marker = "\u{1E}"
 
-    struct Place: Identifiable, Equatable {
-        var label: String
-        var latitude: Double
-        var longitude: Double
+    package struct Place: Identifiable, Equatable {
+        package var label: String
+        package var latitude: Double
+        package var longitude: Double
 
-        var id: String { "\(latitude),\(longitude),\(label)" }
-        var coordinate: CLLocationCoordinate2D {
+        package var id: String { "\(latitude),\(longitude),\(label)" }
+        package var coordinate: CLLocationCoordinate2D {
             CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         }
-        var shortName: String {
+        package var shortName: String {
             label.split(separator: ",", maxSplits: 1).first.map {
                 $0.trimmingCharacters(in: .whitespacesAndNewlines)
             } ?? label
         }
 
         /// The rest of the label after the place name. Empty when the label is only a name.
-        var address: String {
+        package var address: String {
             let parts = label.split(separator: ",", maxSplits: 1)
             guard parts.count == 2 else { return "" }
             return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1352,7 +1283,7 @@ enum AskLocationPin {
         return kept.joined(separator: ", ")
     }
 
-    static func line(label: String, latitude: Double, longitude: Double) -> String {
+    package static func line(label: String, latitude: Double, longitude: Double) -> String {
         let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let shown = name.isEmpty ? "Current location" : name
         return "\(shown)\(marker)\(String(format: "%.4f", latitude)),\(String(format: "%.4f", longitude))"
@@ -1375,7 +1306,7 @@ enum AskLocationPin {
         return (shown, Place(label: shown, latitude: latitude, longitude: longitude))
     }
 
-    static func places(in lines: [String]) -> [Place] {
+    package static func places(in lines: [String]) -> [Place] {
         lines.compactMap { parse($0).place }
     }
 
@@ -1383,7 +1314,7 @@ enum AskLocationPin {
         lines.map { AskReminderItem.plain(parse($0).label) }.filter { !$0.isEmpty }
     }
 
-    static func format(_ place: Place) -> String {
+    package static func format(_ place: Place) -> String {
         String(format: "%.4f, %.4f", place.latitude, place.longitude)
     }
 
@@ -1484,8 +1415,8 @@ enum AskLocationPin {
 }
 
 /// The region a location card frames. The chat map and the shortcut snapshot use the same one.
-enum AskLocationRegion {
-    static func region(for places: [AskLocationPin.Place]) -> MKCoordinateRegion {
+package enum AskLocationRegion {
+    package static func region(for places: [AskLocationPin.Place]) -> MKCoordinateRegion {
         let coordinates = places.map(\.coordinate)
         guard let first = coordinates.first else {
             return MKCoordinateRegion(
@@ -1515,155 +1446,20 @@ enum AskLocationRegion {
     }
 }
 
-/// The location card. The map is the answer. Coordinates stay hidden until the question asked for them.
-struct AskLocationMapCard: View {
-    var title: String
-    var places: [AskLocationPin.Place]
-    var showsCoordinates: Bool
-
-    @Environment(\.askSnippet) private var snippet
-    @Environment(\.askCardStyle) private var style
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            AskCardMark(title: "Place", symbol: "mappin.and.ellipse", tint: .green)
-            Text(title)
-                .font(.title3.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            map
-            ForEach(places) { place in
-                AskLocationPlaceRow(
-                    place: place,
-                    showsCoordinates: showsCoordinates,
-                    inlineDirections: places.count > 1
-                )
-            }
-        }
-        .askCardSurface()
-    }
-
-    @ViewBuilder
-    private var map: some View {
-        let label = places.map(\.shortName).joined(separator: ", ")
-        if snippet.isSnippet {
-            // A MapKit snapshot here never returns to Siri, so the dialog disappears with it.
-            AskSnippetMapPicture(label: label)
-        } else {
-            Map(initialPosition: .region(AskLocationRegion.region(for: places))) {
-                ForEach(places) { place in
-                    Marker(place.shortName, coordinate: place.coordinate)
-                }
-            }
-            .mapStyle(.standard)
-            .frame(height: style == .fullScreen ? 320 : 120)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .allowsHitTesting(false)
-            .accessibilityLabel(label)
-        }
-    }
-}
-
-/// Place row for the shortcut. MapKit's snapshot call does not return while Siri is waiting, so this stays a symbol and the name.
-struct AskSnippetMapPicture: View {
-    var label: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "mappin.circle.fill")
-                .font(.title2)
-                .foregroundStyle(.green)
-                .accessibilityHidden(true)
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// One place under the map, with its own directions button. Several places keep the button beside the name.
-struct AskLocationPlaceRow: View {
-    var place: AskLocationPin.Place
-    var showsCoordinates: Bool
-    var inlineDirections: Bool
-
-    var body: some View {
-        if inlineDirections {
-            HStack(alignment: .center, spacing: 12) {
-                AskLocationPlaceText(place: place, showsCoordinates: showsCoordinates, splitsAddress: true)
-                directions(title: "Directions", expands: false, showsTitle: false)
-                    .layoutPriority(1)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
-                AskLocationPlaceText(place: place, showsCoordinates: showsCoordinates, splitsAddress: false)
-                directions(title: "Get Directions", expands: true, showsTitle: true)
-            }
-        }
-    }
-
-    private func directions(title: LocalizedStringKey, expands: Bool, showsTitle: Bool) -> some View {
-        AskCardCTA(
-            title: title,
-            symbol: "arrow.triangle.turn.up.right.diamond.fill",
-            tint: .green,
-            intent: AskDirectionsTap(
-                place: place.shortName,
-                latitude: place.latitude,
-                longitude: place.longitude
-            ),
-            accessibilityLabel: Text("Get directions to \(place.shortName)"),
-            expands: expands,
-            showsTitle: showsTitle
-        )
-    }
-}
-
-/// Place name, and the address under it when a card lists more than one place.
-private struct AskLocationPlaceText: View {
-    var place: AskLocationPin.Place
-    var showsCoordinates: Bool
-    var splitsAddress: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(splitsAddress ? place.shortName : place.label)
-                .font(.title3.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
-            if splitsAddress, !place.address.isEmpty {
-                Text(place.address)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if showsCoordinates {
-                Text(AskLocationPin.format(place))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// One reminder on the card. The EventKit identifier stays off the line the model reads.
-enum AskReminderItem {
+package enum AskReminderItem {
     static let marker = "\u{1F}"
 
-    struct Item: Identifiable, Equatable {
-        var id: String
-        var title: String
-        var due: String
+    package struct Item: Identifiable, Equatable {
+        package var id: String
+        package var title: String
+        package var due: String
 
         var isTask: Bool { !id.isEmpty }
         var shareLine: String { due.isEmpty ? title : "\(title) · \(due)" }
     }
 
-    static func line(title: String, due: String, id: String) -> String {
+    package static func line(title: String, due: String, id: String) -> String {
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let when = due.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = when.isEmpty ? name : "\(name) · \(when)"
@@ -1695,7 +1491,7 @@ enum AskReminderItem {
         return Item(id: id, title: title, due: due)
     }
 
-    static func tasks(in lines: [String]) -> [Item] {
+    package static func tasks(in lines: [String]) -> [Item] {
         lines.compactMap(parse).filter(\.isTask)
     }
 
@@ -1751,105 +1547,6 @@ enum AskReminderItem {
     }
 }
 
-/// Each reminder. A circle completes it. The filled check opens it again.
-struct AskReminderCard: View {
-    var title: String
-    var items: [AskReminderItem.Item]
-    /// Sample cards skip Reminders. A live card reads which rows are already complete.
-    var readsCompletion: Bool = true
-
-    var body: some View {
-        let _ = AskReminderChecks.shared.completed
-        VStack(alignment: .leading, spacing: 12) {
-            AskCardMark(title: title.isEmpty ? "Reminders" : title, symbol: "checklist", tint: .orange)
-            ForEach(items) { item in
-                AskReminderRow(item: item)
-            }
-        }
-        .askCardSurface()
-        .task(id: items.map(\.id)) {
-            guard readsCompletion else { return }
-            let found = await AskRemindersRead.completedIDs(items.map(\.id))
-            guard !found.isEmpty else { return }
-            AskReminderChecks.shared.adopt(found)
-        }
-    }
-}
-
-private struct AskReminderRow: View {
-    var item: AskReminderItem.Item
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.askSnippet) private var snippet
-
-    private var done: Bool {
-        if snippet.isSnippet {
-            return snippet.completedReminders.contains(item.id)
-        }
-        return AskReminderChecks.shared.completed.contains(item.id)
-    }
-
-    private var reminder: AskReminderEntity {
-        AskReminderEntity(id: item.id, title: item.title)
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(done ? .secondary : .primary)
-                    .overlay { AskStrike(shown: done) }
-                    .accessibilityLabel(done ? "\(item.title), completed" : item.title)
-                if !item.due.isEmpty {
-                    Text(item.due)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if done {
-                Button(intent: AskReminderReopenTap(reminder: reminder)) {
-                    reminderMark(systemName: "checkmark.circle.fill", tint: AnyShapeStyle(.green))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Mark \(item.title) incomplete")
-            } else {
-                Button(intent: AskReminderCompleteTap(reminder: reminder)) {
-                    reminderMark(systemName: "circle", tint: AnyShapeStyle(.secondary))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Complete \(item.title)")
-            }
-        }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: done)
-    }
-
-    private func reminderMark(systemName: String, tint: AnyShapeStyle) -> some View {
-        Image(systemName: systemName)
-            .font(.title2)
-            .foregroundStyle(tint)
-            .symbolEffect(.bounce, value: done)
-            .frame(width: 44, height: 44)
-            .contentShape(.rect)
-    }
-}
-
-/// Draws across the title from the leading edge. Layout stays put, so the row does not shift.
-private struct AskStrike: View {
-    var shown: Bool
-
-    var body: some View {
-        Rectangle()
-            .frame(maxWidth: .infinity)
-            .frame(height: 1.5)
-            .scaleEffect(x: shown ? 1 : 0.001, anchor: .leading)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
-
 /// Stops a reply that calls the same tool again. The session transcript can omit those calls, so the lines live here too.
 final class AskToolLedger: @unchecked Sendable {
     static let maximumCalls = 8
@@ -1896,9 +1593,11 @@ protocol AskToolReadingSource {
 }
 
 enum AskAppleTools {
-    static func make(_ access: AskAppleAccess, question: String = "") -> [any Tool] {
+    static func make(_ access: AskAppleAccess, question: String = "") -> [any AskTool] {
+#if ASK_FOUNDATION_MODELS
+        let access = access.intersection(.available)
         let ledger = AskToolLedger()
-        var tools: [any Tool] = []
+        var tools: [any AskTool] = []
         if access.contains(.calendar) { tools.append(AskCalendarTool(toolLedger: ledger)) }
         if access.contains(.reminders) { tools.append(AskRemindersTool(toolLedger: ledger)) }
         if access.contains(.contacts) { tools.append(AskContactsTool(toolLedger: ledger)) }
@@ -1908,9 +1607,12 @@ enum AskAppleTools {
         if access.contains(.weather) { tools.append(AskWeatherTool(toolLedger: ledger)) }
         if access.contains(.alarms) { tools.append(AskAlarmTool(toolLedger: ledger, question: question)) }
         return tools
+#else
+        return []
+#endif
     }
 
-    static func readings(in tools: [any Tool]) -> [AskAppleReading] {
+    static func readings(in tools: [any AskTool]) -> [AskAppleReading] {
         for tool in tools {
             if let source = tool as? AskToolReadingSource {
                 return source.toolLedger.snapshot()
@@ -1920,6 +1622,7 @@ enum AskAppleTools {
     }
 }
 
+#if ASK_FOUNDATION_MODELS
 func boundedAppleCall(
     ledger: AskToolLedger,
     name: String,
@@ -1935,7 +1638,9 @@ func boundedAppleCall(
     ledger.finish(name: name, output: output)
     return present?(output) ?? output
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 private struct AskCalendarTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "calendar"
@@ -2041,7 +1746,9 @@ private struct AskCalendarTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 private struct AskRemindersTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "reminders"
@@ -2135,7 +1842,9 @@ private struct AskRemindersTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 private struct AskContactsTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "contacts"
@@ -2221,7 +1930,9 @@ private struct AskContactsTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 private struct AskLocationTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "location"
@@ -2249,7 +1960,9 @@ private struct AskLocationTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 private struct AskHealthTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "health"
@@ -2271,7 +1984,9 @@ private struct AskHealthTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 private struct AskMusicTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "music"
@@ -2298,7 +2013,9 @@ private struct AskMusicTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 private struct AskWeatherTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     let name = "weather"
@@ -2329,6 +2046,7 @@ private struct AskWeatherTool: Tool, AskToolReadingSource {
         }
     }
 }
+#endif
 
 /// One calendar day. Offset 0 is today. Negative offsets are past days. The end is the start of the next day and is not included.
 struct AskCalendarWindow: Equatable {
@@ -2703,6 +2421,7 @@ enum AskAppleRepair {
             didChange = true
             AskTrace.decision(weather.span == .hourly ? "weather hourly" : "weather daily")
         }
+#if canImport(Photos)
         if plan.readPhotos {
             let output = await photoReading(question)
             readings.removeAll { $0.name == "photos" }
@@ -2710,6 +2429,7 @@ enum AskAppleRepair {
             didChange = true
             AskTrace.decision(AskPhotosQuery.listsAlbums(question) ? "photo albums" : "photo read")
         }
+#endif
         if plan.readReminders {
             let output = await AskRemindersRead.lines(limit: 8)
             readings.removeAll { $0.name == "reminders" }
@@ -2780,6 +2500,7 @@ enum AskAppleRepair {
         return ["No matching contacts."]
     }
 
+#if canImport(Photos)
     private static func photoReading(_ question: String) async -> String {
         if AskPhotosQuery.listsAlbums(question) {
             return await AskPhotosRead.albums()
@@ -2788,910 +2509,12 @@ enum AskAppleRepair {
         return await AskPhotosRead.lines(await AskPhotosQuery.resolvePlace(parsed, question: question))
     }
 
+#endif
     private static func lines(_ output: String) -> [String] {
         output
             .split(whereSeparator: \.isNewline)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-    }
-}
-
-private enum AskCalendarRead {
-    static func add(title: String, day: Int, hour: Int?, minute: Int, place: String, notes: String) async -> String {
-        let store = EKEventStore()
-        guard await allowEvents(store, writing: true) else { return AskAppleCopy.denied }
-        let calendar = Calendar.current
-        guard let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar) else {
-            return "Could not add the event."
-        }
-        guard let target = store.defaultCalendarForNewEvents
-            ?? store.calendars(for: .event).first(where: \.allowsContentModifications) else {
-            return "No calendar to add to."
-        }
-        let event = EKEvent(eventStore: store)
-        event.calendar = target
-        event.title = AskAppleCopy.plain(title, limit: 200)
-        event.timeZone = calendar.timeZone
-        let whereTo = AskAppleCopy.plain(place, limit: 200)
-        if !whereTo.isEmpty { event.location = whereTo }
-        let about = AskAppleCopy.plain(notes, limit: 500)
-        if !about.isEmpty { event.notes = about }
-        if let hour {
-            guard applyTime(hour: hour, minute: minute, on: window.start, to: event, calendar: calendar) else {
-                return "Could not add the event."
-            }
-        } else {
-            event.isAllDay = true
-            event.startDate = window.start
-            event.endDate = window.end
-        }
-        do {
-            try store.save(event, span: .thisEvent)
-        } catch {
-            return "Could not add the event."
-        }
-        let saved = line(event, dayTitle: window.title, dayStart: window.start, calendar: calendar)
-        return AskAppleCopy.addedPrefix + saved
-    }
-
-    /// Changes one event on that day. Write-only access can add, but it cannot find an event to change.
-    static func update(
-        title: String,
-        day: Int,
-        hour: Int?,
-        minute: Int?,
-        place: String?,
-        notes: String?,
-        newTitle: String?
-    ) async -> String {
-        let store = EKEventStore()
-        guard await allowEvents(store, writing: false) else { return AskAppleCopy.denied }
-        guard let found = events(store, day: day) else { return "Could not change the event." }
-        switch match(found.events, title: title) {
-        case .none:
-            return "No matching event."
-        case .many:
-            return "More than one event is named \(AskAppleCopy.plain(title, limit: 80))."
-        case .one(let event):
-            if let newTitle {
-                let renamed = AskAppleCopy.plain(newTitle, limit: 200)
-                if !renamed.isEmpty { event.title = renamed }
-            }
-            if let hour {
-                guard applyTime(hour: hour, minute: minute ?? 0, on: found.window.start, to: event, calendar: found.calendar) else {
-                    return "Could not change the event."
-                }
-            }
-            if let place {
-                event.location = AskAppleCopy.plain(place, limit: 200)
-            }
-            if let notes {
-                event.notes = AskAppleCopy.plain(notes, limit: 500)
-            }
-            do {
-                try store.save(event, span: .thisEvent)
-            } catch {
-                return "Could not change the event."
-            }
-            let saved = line(event, dayTitle: found.window.title, dayStart: found.window.start, calendar: found.calendar)
-            return AskAppleCopy.updatedPrefix + saved
-        }
-    }
-
-    /// Removes one event on that day. Several matches, or none, leave the calendar unchanged.
-    static func remove(title: String, day: Int) async -> String {
-        let store = EKEventStore()
-        guard await allowEvents(store, writing: false) else { return AskAppleCopy.denied }
-        guard let found = events(store, day: day) else { return "Could not remove the event." }
-        switch match(found.events, title: title) {
-        case .none:
-            return "No matching event."
-        case .many:
-            return "More than one event is named \(AskAppleCopy.plain(title, limit: 80))."
-        case .one(let event):
-            let saved = line(event, dayTitle: found.window.title, dayStart: found.window.start, calendar: found.calendar)
-            do {
-                try store.remove(event, span: .thisEvent)
-            } catch {
-                return "Could not remove the event."
-            }
-            return AskAppleCopy.removedPrefix + saved
-        }
-    }
-
-    static func lines(day: Int) async -> String {
-        let store = EKEventStore()
-        let granted = await allowEvents(store, writing: false)
-        guard granted else { return AskAppleCopy.denied }
-        let calendar = Calendar.current
-        guard let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar) else {
-            return "Nothing scheduled."
-        }
-        let predicate = store.predicateForEvents(withStart: window.start, end: window.end, calendars: nil)
-        let events = store.events(matching: predicate)
-            .filter { $0.startDate < window.end }
-            .sorted { $0.startDate < $1.startDate }
-            .prefix(8)
-        guard !events.isEmpty else { return "\(window.title) · Nothing scheduled." }
-        return events.map { line($0, dayTitle: window.title, dayStart: window.start, calendar: calendar) }.joined(separator: "\n")
-    }
-
-    /// Birthday calendar events from the start day through the next two weeks.
-    static func birthdays(from day: Int) async -> String {
-        let store = EKEventStore()
-        let granted = await allowEvents(store, writing: false)
-        guard granted else { return AskAppleCopy.denied }
-        let calendar = Calendar.current
-        guard let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar),
-              let end = calendar.date(byAdding: .day, value: 14, to: window.start) else {
-            return "No birthdays."
-        }
-        let birthdayCalendars = store.calendars(for: .event).filter { $0.type == .birthday }
-        let calendars = birthdayCalendars.isEmpty ? nil : birthdayCalendars
-        let predicate = store.predicateForEvents(withStart: window.start, end: end, calendars: calendars)
-        let events = store.events(matching: predicate)
-            .filter { calendars != nil || $0.calendar.type == .birthday }
-            .filter { $0.startDate < end }
-            .sorted { $0.startDate < $1.startDate }
-            .prefix(8)
-        guard !events.isEmpty else { return "No birthdays." }
-        return events.map { event in
-            let dayStart = calendar.startOfDay(for: event.startDate)
-            let dayTitle = AskCalendarWindow.heading(for: dayStart, calendar: calendar)
-            let name = AskAppleCopy.plain(event.title ?? "Birthday", limit: 120)
-            return AskCalendarItem.line(
-                day: dayTitle,
-                title: name,
-                when: "all day",
-                colorHex: AskCalendarItem.hex(from: event.calendar.cgColor),
-                kind: .birthday,
-                calendarName: event.calendar.title
-            )
-        }.joined(separator: "\n")
-    }
-
-    private static func events(_ store: EKEventStore, day: Int) -> (window: AskCalendarWindow, events: [EKEvent], calendar: Calendar)? {
-        let calendar = Calendar.current
-        guard let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar) else { return nil }
-        let predicate = store.predicateForEvents(withStart: window.start, end: window.end, calendars: nil)
-        let events = store.events(matching: predicate)
-            .filter { $0.startDate < window.end }
-            .sorted { $0.startDate < $1.startDate }
-        return (window, events, calendar)
-    }
-
-    private enum Match {
-        case one(EKEvent)
-        case none
-        case many
-    }
-
-    /// One exact title wins. One title that contains the words is next. Several matches change nothing.
-    private static func match(_ events: [EKEvent], title: String) -> Match {
-        let wanted = folded(title)
-        guard !wanted.isEmpty else { return .none }
-        let exact = events.filter { folded($0.title ?? "") == wanted }
-        if exact.count == 1, let event = exact.first { return .one(event) }
-        if exact.count > 1 { return .many }
-        let contains = events.filter { folded($0.title ?? "").localizedStandardContains(wanted) }
-        if contains.count == 1, let event = contains.first { return .one(event) }
-        return contains.isEmpty ? .none : .many
-    }
-
-    private static func folded(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// A timed event lasts one hour. An all-day event becomes timed when an hour is set.
-    private static func applyTime(hour: Int, minute: Int, on day: Date, to event: EKEvent, calendar: Calendar) -> Bool {
-        var parts = calendar.dateComponents([.year, .month, .day], from: day)
-        parts.hour = hour
-        parts.minute = minute
-        guard let start = calendar.date(from: parts),
-              let end = calendar.date(byAdding: .hour, value: 1, to: start) else {
-            return false
-        }
-        event.isAllDay = false
-        event.timeZone = calendar.timeZone
-        event.startDate = start
-        event.endDate = end
-        return true
-    }
-
-    private static func allowEvents(_ store: EKEventStore, writing: Bool) async -> Bool {
-        switch EKEventStore.authorizationStatus(for: .event) {
-        case .fullAccess:
-            return true
-        case .writeOnly:
-            return writing
-        case .notDetermined:
-            return (try? await store.requestFullAccessToEvents()) ?? false
-        case .denied, .restricted:
-            return false
-        @unknown default:
-            return false
-        }
-    }
-
-    private static func line(_ event: EKEvent, dayTitle: String, dayStart: Date, calendar: Calendar) -> String {
-        let title = event.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = (title?.isEmpty == false) ? title! : "Event"
-        let when: String
-        if event.isAllDay {
-            when = calendar.isDate(event.startDate, inSameDayAs: dayStart)
-                ? "all day"
-                : event.startDate.formatted(date: .abbreviated, time: .omitted)
-        } else if calendar.isDate(event.startDate, inSameDayAs: dayStart) {
-            when = event.startDate.formatted(date: .omitted, time: .shortened)
-        } else {
-            when = event.startDate.formatted(date: .abbreviated, time: .shortened)
-        }
-        var detailParts: [String] = []
-        let place = AskAppleCopy.plain(event.location ?? "", limit: 80)
-        if !place.isEmpty { detailParts.append(place) }
-        let notes = AskAppleCopy.plain(event.notes ?? "", limit: 80)
-        if !notes.isEmpty { detailParts.append(notes) }
-        let birthday = event.calendar.type == .birthday || event.birthdayContactIdentifier != nil
-        let kind: AskCalendarItem.Kind
-        if birthday {
-            kind = .birthday
-        } else if event.isAllDay {
-            kind = .allDay
-        } else {
-            kind = .timed
-        }
-        return AskCalendarItem.line(
-            day: dayTitle,
-            title: AskAppleCopy.plain(name, limit: 120),
-            when: when,
-            detail: detailParts.joined(separator: " · "),
-            colorHex: AskCalendarItem.hex(from: event.calendar.cgColor),
-            kind: kind,
-            calendarName: event.calendar.title
-        )
-    }
-
-    /// The soonest event that has not ended, through the next week. Does not ask for access.
-    static func upcoming(now: Date) async -> AskSurfaceEvent? {
-        let store = EKEventStore()
-        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return nil }
-        let calendar = Calendar.current
-        let start = calendar.startOfDay(for: now)
-        guard let end = calendar.date(byAdding: .day, value: 7, to: start) else { return nil }
-        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
-        guard let event = store.events(matching: predicate)
-            .filter({ $0.endDate > now })
-            .sorted(by: { $0.startDate < $1.startDate })
-            .first else { return nil }
-        let rawTitle = event.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let title = rawTitle.isEmpty ? "Event" : AskAppleCopy.plain(rawTitle, limit: 120)
-        return AskSurfaceEvent(
-            id: event.calendarItemIdentifier,
-            title: title,
-            start: event.startDate,
-            end: event.endDate,
-            isAllDay: event.isAllDay,
-            location: AskAppleCopy.plain(event.location ?? "", limit: 80)
-        )
-    }
-}
-
-enum AskSurfaceCalendar {
-    static func upcoming(now: Date) async -> AskSurfaceEvent? {
-        await AskCalendarRead.upcoming(now: now)
-    }
-}
-
-enum AskRemindersRead {
-    static func add(
-        title: String,
-        day: Int?,
-        hour: Int?,
-        minute: Int,
-        notes: String,
-        priority: String
-    ) async -> String {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: true) else { return AskAppleCopy.denied }
-        guard let target = store.defaultCalendarForNewReminders()
-            ?? store.calendars(for: .reminder).first(where: \.allowsContentModifications) else {
-            return "No list to add to."
-        }
-        let reminder = EKReminder(eventStore: store)
-        reminder.calendar = target
-        reminder.title = AskAppleCopy.plain(title, limit: 200)
-        let about = AskAppleCopy.plain(notes, limit: 500)
-        if !about.isEmpty { reminder.notes = about }
-        if let rank = priorityValue(priority) { reminder.priority = rank }
-        let calendar = Calendar.current
-        if let day, let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar) {
-            var parts = calendar.dateComponents([.year, .month, .day], from: window.start)
-            if let hour {
-                parts.hour = hour
-                parts.minute = minute
-            }
-            reminder.dueDateComponents = parts
-        }
-        do {
-            try store.save(reminder, commit: true)
-        } catch {
-            return "Could not add the reminder."
-        }
-        return AskReminderItem.line(
-            title: AskAppleCopy.addedPrefix + AskAppleCopy.plain(title, limit: 200),
-            due: dueText(reminder),
-            id: reminder.calendarItemIdentifier
-        )
-    }
-
-    /// Changes one incomplete reminder. Write-only access can add, but it cannot find one to change.
-    static func update(
-        title: String,
-        day: Int?,
-        hour: Int?,
-        minute: Int?,
-        notes: String?,
-        priority: String?,
-        newTitle: String?
-    ) async -> String {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: false) else { return AskAppleCopy.denied }
-        let found = await match(store, title: title, day: day)
-        switch found {
-        case .none:
-            return "No matching reminder."
-        case .many:
-            return "More than one reminder is named \(AskAppleCopy.plain(title, limit: 80))."
-        case .one(let reminder):
-            if let newTitle {
-                let renamed = AskAppleCopy.plain(newTitle, limit: 200)
-                if !renamed.isEmpty { reminder.title = renamed }
-            }
-            if hour != nil || day != nil {
-                applyDue(day: day, hour: hour, minute: minute, to: reminder)
-            }
-            if let notes {
-                reminder.notes = AskAppleCopy.plain(notes, limit: 500)
-            }
-            if let priority, let rank = priorityValue(priority) {
-                reminder.priority = rank
-            }
-            do {
-                try store.save(reminder, commit: true)
-            } catch {
-                return "Could not change the reminder."
-            }
-            let name = AskAppleCopy.plain(reminder.title ?? title, limit: 200)
-            return "\(AskAppleCopy.updatedPrefix)\(name)."
-        }
-    }
-
-    /// Removes one incomplete reminder. Several matches, or none, leave the list unchanged.
-    static func remove(title: String) async -> String {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: false) else { return AskAppleCopy.denied }
-        switch await match(store, title: title, day: nil) {
-        case .none:
-            return "No matching reminder."
-        case .many:
-            return "More than one reminder is named \(AskAppleCopy.plain(title, limit: 80))."
-        case .one(let reminder):
-            let name = AskAppleCopy.plain(reminder.title ?? title, limit: 200)
-            do {
-                try store.remove(reminder, commit: true)
-            } catch {
-                return "Could not remove the reminder."
-            }
-            return "\(AskAppleCopy.removedPrefix)\(name)."
-        }
-    }
-
-    static func complete(id: String) async throws {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: true) else { throw AskReminderIntentError.denied }
-        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else {
-            throw AskReminderIntentError.missing
-        }
-        if reminder.isCompleted { return }
-        reminder.isCompleted = true
-        reminder.completionDate = Date()
-        try store.save(reminder, commit: true)
-    }
-
-    static func reopen(id: String) async throws {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: true) else { throw AskReminderIntentError.denied }
-        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else {
-            throw AskReminderIntentError.missing
-        }
-        if !reminder.isCompleted { return }
-        reminder.isCompleted = false
-        reminder.completionDate = nil
-        try store.save(reminder, commit: true)
-    }
-
-    /// Identifiers already completed in Reminders. The card shows a filled check for these.
-    static func completedIDs(_ ids: [String]) async -> Set<String> {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: false) else { return [] }
-        var done: Set<String> = []
-        for id in ids {
-            guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder, reminder.isCompleted else { continue }
-            done.insert(id)
-        }
-        return done
-    }
-
-    static func entities(ids: [String]) async -> [AskReminderEntity] {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: false) else { return [] }
-        return ids.compactMap { id in
-            guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { return nil }
-            return entity(reminder)
-        }
-    }
-
-    static func completed(matching name: String?, limit: Int) async -> [AskReminderEntity] {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: false) else { return [] }
-        let predicate = store.predicateForCompletedReminders(withCompletionDateStarting: nil, ending: nil, calendars: nil)
-        let wanted = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return await withCheckedContinuation { continuation in
-            store.fetchReminders(matching: predicate) { reminders in
-                let matched = (reminders ?? []).filter { reminder in
-                    guard !wanted.isEmpty else { return true }
-                    return (reminder.title ?? "").localizedStandardContains(wanted)
-                }
-                let entities = matched.prefix(limit).map(Self.entity)
-                continuation.resume(returning: Array(entities))
-            }
-        }
-    }
-
-    private static func entity(_ reminder: EKReminder) -> AskReminderEntity {
-        let title = reminder.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = (title?.isEmpty == false) ? title! : "Reminder"
-        return AskReminderEntity(id: reminder.calendarItemIdentifier, title: name)
-    }
-
-    static func incomplete(matching name: String?, limit: Int) async -> [AskReminderEntity] {
-        let store = EKEventStore()
-        guard await allowReminders(store, writing: false) else { return [] }
-        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
-        let wanted = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return await withCheckedContinuation { continuation in
-            store.fetchReminders(matching: predicate) { reminders in
-                let matched = (reminders ?? []).filter { reminder in
-                    guard !wanted.isEmpty else { return true }
-                    return (reminder.title ?? "").localizedStandardContains(wanted)
-                }
-                let entities = matched.prefix(limit).map(Self.entity)
-                continuation.resume(returning: Array(entities))
-            }
-        }
-    }
-
-    /// Open reminders in due-date order. Does not ask for access.
-    static func openItems(limit: Int) async -> [AskSurfaceReminder] {
-        let store = EKEventStore()
-        guard EKEventStore.authorizationStatus(for: .reminder) == .fullAccess else { return [] }
-        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
-        let cap = min(max(limit, 1), 8)
-        let calendar = Calendar.current
-        return await withCheckedContinuation { continuation in
-            store.fetchReminders(matching: predicate) { reminders in
-                let soonest = (reminders ?? []).sorted { lhs, rhs in
-                    switch (Self.dueDate(lhs, calendar: calendar), Self.dueDate(rhs, calendar: calendar)) {
-                    case let (left?, right?):
-                        return left < right
-                    case (_?, nil):
-                        return true
-                    case (nil, _?):
-                        return false
-                    case (nil, nil):
-                        return false
-                    }
-                }
-                let items = soonest.prefix(cap).map { reminder in
-                    let raw = reminder.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    let title = raw.isEmpty ? "Reminder" : AskAppleCopy.plain(raw, limit: 120)
-                    return AskSurfaceReminder(
-                        id: reminder.calendarItemIdentifier,
-                        title: title,
-                        due: Self.dueDate(reminder, calendar: calendar)
-                    )
-                }
-                continuation.resume(returning: Array(items))
-            }
-        }
-    }
-
-    static func lines(limit: Int) async -> String {
-        let store = EKEventStore()
-        let granted = await allowReminders(store, writing: false)
-        guard granted else { return AskAppleCopy.denied }
-        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
-        let cap = min(max(limit, 1), 8)
-        let calendar = Calendar.current
-        return await withCheckedContinuation { continuation in
-            store.fetchReminders(matching: predicate) { reminders in
-                let soonest = (reminders ?? []).sorted { lhs, rhs in
-                    switch (Self.dueDate(lhs, calendar: calendar), Self.dueDate(rhs, calendar: calendar)) {
-                    case let (left?, right?):
-                        return left < right
-                    case (_?, nil):
-                        return true
-                    case (nil, _?):
-                        return false
-                    case (nil, nil):
-                        return false
-                    }
-                }
-                let lines = soonest.prefix(cap).map(Self.line)
-                let text = lines.isEmpty ? "No reminders." : lines.joined(separator: "\n")
-                continuation.resume(returning: text)
-            }
-        }
-    }
-
-    private static func dueDate(_ reminder: EKReminder, calendar: Calendar) -> Date? {
-        guard let parts = reminder.dueDateComponents else { return nil }
-        return calendar.date(from: parts)
-    }
-
-    private enum Match {
-        case one(EKReminder)
-        case none
-        case many
-    }
-
-    /// One exact title wins. One title that contains the words is next. A day limits the search to that due date.
-    private static func match(_ store: EKEventStore, title: String, day: Int?) async -> Match {
-        switch await choose(store, title: title, day: day) {
-        case .none:
-            return .none
-        case .many:
-            return .many
-        case .one(let id):
-            guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else { return .none }
-            return .one(reminder)
-        }
-    }
-
-    /// The fetch callback stays on EventKit's queue. Only the identifier crosses back.
-    private static func choose(_ store: EKEventStore, title: String, day: Int?) async -> Choice {
-        let wanted = folded(title)
-        guard !wanted.isEmpty else { return .none }
-        let calendar = Calendar.current
-        let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
-        return await withCheckedContinuation { continuation in
-            store.fetchReminders(matching: predicate) { reminders in
-                let scoped = (reminders ?? []).filter { onDay($0, day: day, calendar: calendar) }
-                let exact = scoped.filter { folded($0.title ?? "") == wanted }
-                if exact.count == 1, let reminder = exact.first {
-                    continuation.resume(returning: .one(reminder.calendarItemIdentifier))
-                    return
-                }
-                if exact.count > 1 {
-                    continuation.resume(returning: .many)
-                    return
-                }
-                let contains = scoped.filter { folded($0.title ?? "").localizedStandardContains(wanted) }
-                if contains.count == 1, let reminder = contains.first {
-                    continuation.resume(returning: .one(reminder.calendarItemIdentifier))
-                    return
-                }
-                continuation.resume(returning: contains.isEmpty ? .none : .many)
-            }
-        }
-    }
-
-    private enum Choice: Sendable {
-        case one(String)
-        case none
-        case many
-    }
-
-    private static func onDay(_ reminder: EKReminder, day: Int?, calendar: Calendar) -> Bool {
-        guard let day else { return true }
-        guard let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar),
-              let parts = reminder.dueDateComponents,
-              let due = calendar.date(from: parts) else { return false }
-        return calendar.isDate(due, inSameDayAs: window.start)
-    }
-
-    private static func applyDue(day: Int?, hour: Int?, minute: Int?, to reminder: EKReminder) {
-        let calendar = Calendar.current
-        let base: Date
-        if let day, let window = AskCalendarWindow.day(offset: day, now: Date(), calendar: calendar) {
-            base = window.start
-        } else if let existing = reminder.dueDateComponents, let date = calendar.date(from: existing) {
-            base = date
-        } else {
-            base = calendar.startOfDay(for: Date())
-        }
-        var parts = calendar.dateComponents([.year, .month, .day], from: base)
-        if let hour {
-            parts.hour = hour
-            parts.minute = minute ?? 0
-        } else if let existing = reminder.dueDateComponents, existing.hour != nil {
-            parts.hour = existing.hour
-            parts.minute = existing.minute
-        }
-        reminder.dueDateComponents = parts
-    }
-
-    /// 0 none, 1 high, 5 medium, 9 low. An empty rank stays unset.
-    private static func priorityValue(_ rank: String) -> Int? {
-        switch rank.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "none": 0
-        case "high": 1
-        case "medium": 5
-        case "low": 9
-        default: nil
-        }
-    }
-
-    private static func priorityLabel(_ value: Int) -> String {
-        switch value {
-        case 1...4: "high"
-        case 5: "medium"
-        case 6...9: "low"
-        default: ""
-        }
-    }
-
-    /// Due, then priority, then notes. They stay after the first separator so the card title is only the name.
-    private static func dueText(_ reminder: EKReminder) -> String {
-        var parts: [String] = []
-        if let components = reminder.dueDateComponents, let due = Calendar.current.date(from: components) {
-            let when = components.hour == nil
-                ? due.formatted(date: .abbreviated, time: .omitted)
-                : due.formatted(date: .abbreviated, time: .shortened)
-            parts.append(when)
-        }
-        let rank = priorityLabel(reminder.priority)
-        if !rank.isEmpty { parts.append(rank) }
-        let notes = AskAppleCopy.plain(reminder.notes ?? "", limit: 80)
-        if !notes.isEmpty { parts.append(notes) }
-        return parts.joined(separator: " · ")
-    }
-
-    private static func folded(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    static func allowReminders(_ store: EKEventStore, writing: Bool) async -> Bool {
-        switch EKEventStore.authorizationStatus(for: .reminder) {
-        case .fullAccess:
-            return true
-        case .writeOnly:
-            return writing
-        case .notDetermined:
-            return (try? await store.requestFullAccessToReminders()) ?? false
-        case .denied, .restricted:
-            return false
-        @unknown default:
-            return false
-        }
-    }
-
-    private static func line(_ reminder: EKReminder) -> String {
-        let title = reminder.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = (title?.isEmpty == false) ? title! : "Reminder"
-        return AskReminderItem.line(title: name, due: dueText(reminder), id: reminder.calendarItemIdentifier)
-    }
-}
-
-private enum AskContactsRead {
-    static func add(name: String, phone: String, email: String) async -> String {
-        let store = CNContactStore()
-        guard await allow(store) else { return AskAppleCopy.denied }
-        AskContactsHistory.sync(store: store)
-        let cleaned = AskAppleCopy.plain(name, limit: 120)
-        let parts = cleaned.split(whereSeparator: \.isWhitespace).map(String.init).filter { !$0.isEmpty }
-        guard let given = parts.first else { return "A name is needed." }
-        let contact = CNMutableContact()
-        contact.givenName = given
-        if parts.count > 1 {
-            contact.familyName = parts.dropFirst().joined(separator: " ")
-        }
-        let number = AskAppleCopy.plain(phone, limit: 40)
-        if !number.isEmpty {
-            contact.phoneNumbers = [CNLabeledValue(label: CNLabelPhoneNumberMain, value: CNPhoneNumber(stringValue: number))]
-        }
-        let address = AskAppleCopy.plain(email, limit: 120)
-        if !address.isEmpty {
-            contact.emailAddresses = [CNLabeledValue(label: CNLabelHome, value: address as NSString)]
-        }
-        let request = CNSaveRequest()
-        request.add(contact, toContainerWithIdentifier: nil)
-        do {
-            try store.execute(request)
-        } catch {
-            return "Could not add the contact."
-        }
-        AskContactsHistory.record(identifier: contact.identifier)
-        let saved = AskContactLine.line(name: cleaned, phone: number, email: address)
-        return AskAppleCopy.addedPrefix + saved
-    }
-
-    static func update(name: String, phone: String?, email: String?, newName: String?) async -> String {
-        let store = CNContactStore()
-        guard await allow(store) else { return AskAppleCopy.denied }
-        switch await match(store, name: name) {
-        case .none:
-            return "No matching contacts."
-        case .many:
-            return "More than one contact is named \(AskAppleCopy.plain(name, limit: 80))."
-        case .one(let contact):
-            let mutable = contact.mutableCopy() as! CNMutableContact
-            if let newName {
-                let cleaned = AskAppleCopy.plain(newName, limit: 120)
-                let parts = cleaned.split(whereSeparator: \.isWhitespace).map(String.init).filter { !$0.isEmpty }
-                if let given = parts.first {
-                    mutable.givenName = given
-                    mutable.familyName = parts.count > 1 ? parts.dropFirst().joined(separator: " ") : ""
-                }
-            }
-            if let phone {
-                let number = AskAppleCopy.plain(phone, limit: 40)
-                mutable.phoneNumbers = number.isEmpty
-                    ? []
-                    : [CNLabeledValue(label: CNLabelPhoneNumberMain, value: CNPhoneNumber(stringValue: number))]
-            }
-            if let email {
-                let address = AskAppleCopy.plain(email, limit: 120)
-                mutable.emailAddresses = address.isEmpty
-                    ? []
-                    : [CNLabeledValue(label: CNLabelHome, value: address as NSString)]
-            }
-            let request = CNSaveRequest()
-            request.update(mutable)
-            do {
-                try store.execute(request)
-            } catch {
-                return "Could not change the contact."
-            }
-            return AskAppleCopy.updatedPrefix + line(mutable)
-        }
-    }
-
-    static func remove(name: String) async -> String {
-        let store = CNContactStore()
-        guard await allow(store) else { return AskAppleCopy.denied }
-        switch await match(store, name: name) {
-        case .none:
-            return "No matching contacts."
-        case .many:
-            return "More than one contact is named \(AskAppleCopy.plain(name, limit: 80))."
-        case .one(let contact):
-            let saved = line(contact)
-            let mutable = contact.mutableCopy() as! CNMutableContact
-            let request = CNSaveRequest()
-            request.delete(mutable)
-            do {
-                try store.execute(request)
-            } catch {
-                return "Could not remove the contact."
-            }
-            return AskAppleCopy.removedPrefix + saved
-        }
-    }
-
-    private enum Match {
-        case one(CNContact)
-        case none
-        case many
-    }
-
-    private static func match(_ store: CNContactStore, name: String) async -> Match {
-        let wanted = AskAppleCopy.folded(name)
-        guard !wanted.isEmpty else { return .none }
-        let keys: [CNKeyDescriptor] = [
-            CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
-            CNContactPhoneNumbersKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-            CNContactIdentifierKey as CNKeyDescriptor
-        ]
-        let request = CNContactFetchRequest(keysToFetch: keys)
-        request.predicate = CNContact.predicateForContacts(matchingName: name)
-        var found: [CNContact] = []
-        do {
-            try store.enumerateContacts(with: request) { contact, stop in
-                let formatted = CNContactFormatter.string(from: contact, style: .fullName)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let folded = AskAppleCopy.folded(formatted)
-                if folded == wanted || AskContactLine.matches(name: formatted, query: name) {
-                    found.append(contact)
-                }
-                if found.count > 1 { stop.pointee = true }
-            }
-        } catch {
-            return .none
-        }
-        if found.count == 1, let contact = found.first { return .one(contact) }
-        return found.isEmpty ? .none : .many
-    }
-
-    static func lines(matching name: String, prefix: Bool = false) async -> String {
-        let store = CNContactStore()
-        let granted = await allow(store)
-        guard granted else { return AskAppleCopy.denied }
-        AskContactsHistory.sync(store: store)
-        let keys: [CNKeyDescriptor] = [
-            CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
-            CNContactPhoneNumbersKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor
-        ]
-        let request = CNContactFetchRequest(keysToFetch: keys)
-        // Short prefixes need a full scan. Contacts' name predicate misses many of them.
-        let scanAll = prefix && !name.isEmpty && name.count <= 2
-        if !name.isEmpty, !scanAll {
-            request.predicate = CNContact.predicateForContacts(matchingName: name)
-        }
-        let cap = name.isEmpty ? 5 : (scanAll ? 200 : 40)
-        var lines: [String] = []
-        do {
-            try store.enumerateContacts(with: request) { contact, stop in
-                lines.append(line(contact))
-                if lines.count >= cap { stop.pointee = true }
-            }
-        } catch {
-            return AskAppleCopy.denied
-        }
-        let matched = name.isEmpty ? lines : AskContactLine.filtered(lines, query: name, prefix: prefix)
-        let kept = Array(matched.prefix(name.isEmpty ? 5 : 8))
-        guard !kept.isEmpty else { return name.isEmpty ? "No contacts." : "No matching contacts." }
-        return kept.joined(separator: "\n")
-    }
-
-    static func lines(addedWithinDays days: Int) async -> String {
-        let store = CNContactStore()
-        guard await allow(store) else { return AskAppleCopy.denied }
-        AskContactsHistory.sync(store: store)
-        let ids = AskContactsHistory.identifiers(addedWithinDays: days)
-        guard !ids.isEmpty else { return "No recently added contacts." }
-        let keys: [CNKeyDescriptor] = [
-            CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
-            CNContactPhoneNumbersKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-            CNContactIdentifierKey as CNKeyDescriptor
-        ]
-        var lines: [String] = []
-        for id in ids.prefix(8) {
-            guard let contact = try? store.unifiedContact(withIdentifier: id, keysToFetch: keys) else { continue }
-            lines.append(line(contact))
-        }
-        guard !lines.isEmpty else { return "No recently added contacts." }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func allow(_ store: CNContactStore) async -> Bool {
-        switch CNContactStore.authorizationStatus(for: .contacts) {
-        case .authorized, .limited:
-            return true
-        case .notDetermined:
-            return (try? await store.requestAccess(for: .contacts)) ?? false
-        case .denied, .restricted:
-            return false
-        @unknown default:
-            return false
-        }
-    }
-
-    private static func line(_ contact: CNContact) -> String {
-        let formatted = CNContactFormatter.string(from: contact, style: .fullName)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = (formatted?.isEmpty == false) ? formatted! : "Contact"
-        let phone = contact.phoneNumbers.first?.value.stringValue
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let email = contact.emailAddresses.first.map {
-            String($0.value).trimmingCharacters(in: .whitespacesAndNewlines)
-        } ?? ""
-        return AskContactLine.line(name: name, phone: phone, email: email)
     }
 }
 
@@ -3922,42 +2745,7 @@ private final class AskLocationReader: NSObject, CLLocationManagerDelegate {
     }
 }
 
-/// One permission prompt for every health read. Parallel tool calls wait here.
-/// `authorizationStatus` is the write status. A read-only app is sharingDenied even when reading is allowed.
-private actor AskHealthAuthorization {
-    static let shared = AskHealthAuthorization()
-    private var requested = false
-
-    func prepare() async -> Bool {
-        guard HKHealthStore.isHealthDataAvailable() else { return false }
-        if requested { return true }
-        var types = Set<HKObjectType>()
-        for metric in AskHealthCatalog.Metric.allCases {
-            if let type = HKQuantityType.quantityType(forIdentifier: metric.identifier) {
-                types.insert(type)
-            }
-        }
-        // A read request for the blood pressure correlation throws.
-        // Systolic is already in the catalog; diastolic is the other half of the pair.
-        if let diastolic = HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic) {
-            types.insert(diastolic)
-        }
-        types.insert(HKWorkoutType.workoutType())
-        if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {
-            types.insert(sleep)
-        }
-        guard !types.isEmpty else { return false }
-        do {
-            try await HKHealthStore().requestAuthorization(toShare: [], read: types)
-            requested = true
-            return true
-        } catch {
-            return false
-        }
-    }
-}
-
-enum AskHealthCatalog {
+package enum AskHealthCatalog {
     /// Words the health tool accepts for `kind`. The guide uses this list.
     static let kindChoices = [
         "all", "steps", "heart", "energy", "distance", "flights", "exercise",
@@ -3973,11 +2761,11 @@ enum AskHealthCatalog {
         }
     }
 
-    enum Metric: CaseIterable, Sendable {
+    package enum Metric: CaseIterable, Sendable {
         case steps, heart, energy, distance, flights, exercise
         case weight, height, bodyFat, restingHeart, bloodPressure, glucose, oxygen, temperature, breathing, vo2
 
-        var title: String {
+        package var title: String {
             switch self {
             case .steps: "Steps"
             case .heart: "Heart rate"
@@ -4019,6 +2807,7 @@ enum AskHealthCatalog {
             }
         }
 
+#if canImport(HealthKit)
         var identifier: HKQuantityTypeIdentifier {
             switch self {
             case .steps: .stepCount
@@ -4039,6 +2828,7 @@ enum AskHealthCatalog {
             case .vo2: .vo2Max
             }
         }
+#endif
 
         /// Today's total or average. Latest is the newest sample, which is how weight is stored.
         var latestSample: Bool {
@@ -4052,7 +2842,7 @@ enum AskHealthCatalog {
 
         var percent: Bool { self == .bodyFat || self == .oxygen }
 
-        var measurement: AskHealthMeasurement {
+        package var measurement: AskHealthMeasurement {
             switch self {
             case .steps: .steps
             case .heart: .heart
@@ -4073,16 +2863,16 @@ enum AskHealthCatalog {
             }
         }
 
-        var key: String { measurement.rawValue }
+        package var key: String { measurement.rawValue }
     }
 
     /// Bars for totals. A line for heart rate and for the newest sample.
-    static func chartKind(for metric: Metric) -> AskHealthChartKind {
+    package static func chartKind(for metric: Metric) -> AskHealthChartKind {
         if metric.latestSample || metric.averageToday { return .line }
         return .bar
     }
 
-    static func axisLabel(for metric: Metric) -> String {
+    package static func axisLabel(for metric: Metric) -> String {
         let metricSystem = Locale.current.measurementSystem == .metric
         switch metric {
         case .steps: return "Steps"
@@ -4112,7 +2902,7 @@ enum AskHealthCatalog {
         }
     }
 
-    static func headline(value: String, unit: String, range: AskHealthRange) -> String {
+    package static func headline(value: String, unit: String, range: AskHealthRange) -> String {
         let base = "\(value) \(unit)"
         switch range {
         case .day: return base
@@ -4217,462 +3007,5 @@ enum AskHealthCatalog {
         }
         let spoken = line.trimmingCharacters(in: .whitespacesAndNewlines)
         return spoken.hasSuffix(".") ? spoken : spoken + "."
-    }
-}
-
-enum AskHealthRead {
-    static func lines(kind: String, span: String = "today") async -> String {
-        guard await AskHealthAuthorization.shared.prepare() else { return AskAppleCopy.denied }
-        if AskHealthCatalog.isActivity(kind) {
-            return await activity(kind: kind, span: span)
-        }
-        let metrics = AskHealthCatalog.metrics(matching: kind)
-        var lines = Array(repeating: "", count: metrics.count)
-        await withTaskGroup(of: (Int, String).self) { group in
-            for (index, metric) in metrics.enumerated() {
-                group.addTask {
-                    (index, await reading(metric, span: span))
-                }
-            }
-            for await (index, line) in group {
-                lines[index] = line
-            }
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    static func series(metric: AskHealthCatalog.Metric, range: AskHealthRange) async -> AskHealthSeriesSnapshot {
-        let axis = AskHealthCatalog.axisLabel(for: metric)
-        guard await AskHealthAuthorization.shared.prepare(),
-              let type = HKQuantityType.quantityType(forIdentifier: metric.identifier) else {
-            return .unavailable(axis)
-        }
-        let calendar = Calendar.current
-        let now = Date()
-        guard let window = AskHealthBuckets.window(range: range, now: now, calendar: calendar) else {
-            return .empty(axis)
-        }
-        let sample = HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: .strictStartDate)
-        let predicate = HKSamplePredicate.quantitySample(type: type, predicate: sample)
-        let measure = measure(for: metric)
-        do {
-            if metric.latestSample {
-                return try await samples(metric, measure: measure, axis: axis, predicate: predicate)
-            }
-            return try await buckets(
-                metric,
-                measure: measure,
-                axis: axis,
-                predicate: predicate,
-                range: range,
-                window: window,
-                now: now,
-                calendar: calendar
-            )
-        } catch {
-            return refusal(error) ? .unavailable(axis) : .empty(axis)
-        }
-    }
-
-    /// Workouts and sleep. The header is `Workouts:` or `Sleep:`, which is not a chart measurement.
-    private static func activity(kind: String, span: String) async -> String {
-        let folded = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if folded == "sleep" {
-            return await sleep(span: span)
-        }
-        return await workouts(span: span)
-    }
-
-    private static func activitySpan(_ span: String) -> String {
-        span == "month" || span == "year" ? span : "week"
-    }
-
-    private static func activityPhrase(_ span: String) -> String {
-        switch activitySpan(span) {
-        case "month": "this month"
-        case "year": "this year"
-        default: "this week"
-        }
-    }
-
-    private static func workouts(span: String) async -> String {
-        let phrase = activityPhrase(span)
-        let calendar = Calendar.current
-        let end = Date()
-        let start = AskHealthBuckets.start(span: activitySpan(span), now: end, calendar: calendar)
-        let sample = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
-        let predicate = HKSamplePredicate.workout(sample)
-        let descriptor = HKSampleQueryDescriptor<HKWorkout>(
-            predicates: [predicate],
-            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)],
-            limit: 8
-        )
-        let found: [HKWorkout]
-        do {
-            found = try await descriptor.result(for: HKHealthStore())
-        } catch {
-            return refusal(error) ? "Workouts: \(AskAppleCopy.denied)" : "Workouts: Nothing recorded \(phrase)."
-        }
-        guard !found.isEmpty else { return "Workouts: Nothing recorded \(phrase)." }
-        let rows = found.map { workoutLine($0) }
-        return (["Workouts: \(found.count) \(phrase)"] + rows).joined(separator: "\n")
-    }
-
-    private static func workoutLine(_ workout: HKWorkout) -> String {
-        let name = AskAppleCopy.plain(workoutName(workout.workoutActivityType), limit: 40)
-        let minutes = max(Int((workout.duration / 60).rounded()), 0)
-        let length = minutes == 1 ? "1 minute" : "\(minutes) minutes"
-        var parts = [name.isEmpty ? "Workout" : name, length]
-        if let distance = workoutDistance(workout) {
-            parts.append(distance)
-        }
-        parts.append(workout.startDate.formatted(date: .abbreviated, time: .omitted))
-        return parts.joined(separator: " · ")
-    }
-
-    private static func workoutDistance(_ workout: HKWorkout) -> String? {
-        let metric = Locale.current.measurementSystem == .metric
-        let unit: HKUnit = metric ? .meterUnit(with: .kilo) : .mile()
-        let label = metric ? "kilometers" : "miles"
-        let identifiers: [HKQuantityTypeIdentifier] = [.distanceWalkingRunning, .distanceCycling, .distanceSwimming]
-        for identifier in identifiers {
-            guard let type = HKQuantityType.quantityType(forIdentifier: identifier),
-                  let sum = workout.statistics(for: type)?.sumQuantity() else { continue }
-            let value = sum.doubleValue(for: unit)
-            guard value > 0.05 else { continue }
-            let number = value.formatted(.number.precision(.fractionLength(1)))
-            return "\(number) \(label)"
-        }
-        return nil
-    }
-
-    private static func workoutName(_ type: HKWorkoutActivityType) -> String {
-        switch type {
-        case .running: "Running"
-        case .walking: "Walking"
-        case .cycling: "Cycling"
-        case .swimming: "Swimming"
-        case .hiking: "Hiking"
-        case .yoga: "Yoga"
-        case .traditionalStrengthTraining, .functionalStrengthTraining: "Strength"
-        case .highIntensityIntervalTraining: "Intervals"
-        case .elliptical: "Elliptical"
-        case .rowing: "Rowing"
-        case .stairClimbing, .stairs: "Stairs"
-        case .pilates: "Pilates"
-        case .coreTraining: "Core"
-        case .cooldown: "Cooldown"
-        case .mixedCardio, .crossTraining: "Cardio"
-        case .dance, .cardioDance, .socialDance: "Dance"
-        default: "Workout"
-        }
-    }
-
-    /// Asleep stages for each night. A night with no stage falls back to time in bed.
-    private static func sleep(span: String) async -> String {
-        let phrase = activityPhrase(span)
-        guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else {
-            return "Sleep: \(AskAppleCopy.denied)"
-        }
-        let calendar = Calendar.current
-        let end = Date()
-        let start = AskHealthBuckets.start(span: activitySpan(span), now: end, calendar: calendar)
-        let sample = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
-        let predicate = HKSamplePredicate.categorySample(type: type, predicate: sample)
-        let descriptor = HKSampleQueryDescriptor<HKCategorySample>(
-            predicates: [predicate],
-            sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)],
-            limit: 400
-        )
-        let samples: [HKCategorySample]
-        do {
-            samples = try await descriptor.result(for: HKHealthStore())
-        } catch {
-            return refusal(error) ? "Sleep: \(AskAppleCopy.denied)" : "Sleep: Nothing recorded \(phrase)."
-        }
-        let asleep = HKCategoryValueSleepAnalysis.allAsleepValues
-        var staged: [Date: TimeInterval] = [:]
-        var inBed: [Date: TimeInterval] = [:]
-        for sample in samples {
-            guard let value = HKCategoryValueSleepAnalysis(rawValue: sample.value) else { continue }
-            let night = calendar.startOfDay(for: sample.endDate)
-            let length = sample.endDate.timeIntervalSince(sample.startDate)
-            guard length > 0 else { continue }
-            if asleep.contains(value) {
-                staged[night, default: 0] += length
-            } else if value == .inBed {
-                inBed[night, default: 0] += length
-            }
-        }
-        let nights = Set(staged.keys).union(inBed.keys)
-        guard !nights.isEmpty else { return "Sleep: Nothing recorded \(phrase)." }
-        let total = nights.reduce(0.0) { sum, night in
-            if let hours = staged[night], hours > 0 { return sum + hours }
-            return sum + (inBed[night] ?? 0)
-        }
-        let average = total / Double(nights.count) / 3600
-        let hours = average.formatted(.number.precision(.fractionLength(1)))
-        return "Sleep: \(hours) hours a night \(phrase)"
-    }
-
-    private static func reading(_ metric: AskHealthCatalog.Metric, span: String) async -> String {
-        if metric == .bloodPressure {
-            do {
-                return try await bloodPressure()
-            } catch {
-                let value = refusal(error) ? AskAppleCopy.denied : "Nothing recorded."
-                return "\(metric.title): \(value)"
-            }
-        }
-        guard let type = HKQuantityType.quantityType(forIdentifier: metric.identifier) else {
-            return "\(metric.title): \(AskAppleCopy.denied)"
-        }
-        let measure = measure(for: metric)
-        let covered = metric.latestSample || AskHealthCatalog.periodPhrase(span) == nil ? "today" : span
-        do {
-            if metric.latestSample {
-                return try await latest(metric, type: type, measure: measure)
-            }
-            return try await period(metric, type: type, measure: measure, span: covered)
-        } catch {
-            let value = refusal(error) ? AskAppleCopy.denied : (metric.latestSample ? "Nothing recorded." : AskHealthCatalog.missingValue(span: covered))
-            return "\(metric.title): \(value)"
-        }
-    }
-
-    private static func bloodPressure() async throws -> String {
-        guard let type = HKCorrelationType.correlationType(forIdentifier: .bloodPressure),
-              let systolicType = HKQuantityType.quantityType(forIdentifier: .bloodPressureSystolic),
-              let diastolicType = HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic) else {
-            return "Blood pressure: \(AskAppleCopy.denied)"
-        }
-        let predicate = HKSamplePredicate.correlation(type: type)
-        let descriptor = HKSampleQueryDescriptor<HKCorrelation>(
-            predicates: [predicate],
-            sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)],
-            limit: 1
-        )
-        guard let sample = try await descriptor.result(for: HKHealthStore()).first else {
-            return "Blood pressure: Nothing recorded."
-        }
-        let unit = HKUnit.millimeterOfMercury()
-        let systolic = sample.objects(for: systolicType)
-            .compactMap { ($0 as? HKQuantitySample)?.quantity.doubleValue(for: unit) }
-            .first
-        let diastolic = sample.objects(for: diastolicType)
-            .compactMap { ($0 as? HKQuantitySample)?.quantity.doubleValue(for: unit) }
-            .first
-        guard let systolic, let diastolic else {
-            return "Blood pressure: Nothing recorded."
-        }
-        let sys = formatted(systolic, fraction: 0, percent: false)
-        let dia = formatted(diastolic, fraction: 0, percent: false)
-        let when = sample.endDate.formatted(date: .abbreviated, time: .omitted)
-        return "Blood pressure: \(sys)/\(dia) mmHg · \(when)"
-    }
-
-    /// Today, or a longer range when the question asked for one. The end is now.
-    private static func period(
-        _ metric: AskHealthCatalog.Metric,
-        type: HKQuantityType,
-        measure: (unit: HKUnit, label: String, fraction: Int),
-        span: String
-    ) async throws -> String {
-        let calendar = Calendar.current
-        let end = Date()
-        let start = AskHealthBuckets.start(span: span, now: end, calendar: calendar)
-        let sample = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
-        let predicate = HKSamplePredicate.quantitySample(type: type, predicate: sample)
-        let options: HKStatisticsOptions = metric.averageToday ? .discreteAverage : .cumulativeSum
-        let descriptor = HKStatisticsQueryDescriptor(predicate: predicate, options: options)
-        let statistics = try await descriptor.result(for: HKHealthStore())
-        let quantity = metric.averageToday ? statistics?.averageQuantity() : statistics?.sumQuantity()
-        guard let quantity else {
-            return "\(metric.title): \(AskHealthCatalog.missingValue(span: span))"
-        }
-        let number = formatted(quantity.doubleValue(for: measure.unit), fraction: measure.fraction, percent: metric.percent)
-        return AskHealthCatalog.summary(title: metric.title, value: "\(number) \(measure.label)", span: span)
-    }
-
-    private static func buckets(
-        _ metric: AskHealthCatalog.Metric,
-        measure: (unit: HKUnit, label: String, fraction: Int),
-        axis: String,
-        predicate: HKSamplePredicate<HKQuantitySample>,
-        range: AskHealthRange,
-        window: AskHealthWindow,
-        now: Date,
-        calendar: Calendar
-    ) async throws -> AskHealthSeriesSnapshot {
-        let average = metric.averageToday
-        let options: HKStatisticsOptions = average ? .discreteAverage : .cumulativeSum
-        let descriptor = HKStatisticsCollectionQueryDescriptor(
-            predicate: predicate,
-            options: options,
-            anchorDate: window.start,
-            intervalComponents: range.interval
-        )
-        let collection = try await descriptor.result(for: HKHealthStore())
-        let found = PointBox()
-        let unit = measure.unit
-        let percent = metric.percent
-        collection.enumerateStatistics(from: window.start, to: window.end) { statistics, _ in
-            let quantity = average ? statistics.averageQuantity() : statistics.sumQuantity()
-            let recorded = quantity != nil
-            let raw = quantity?.doubleValue(for: unit) ?? 0
-            found.add(AskHealthPoint(
-                id: String(statistics.startDate.timeIntervalSinceReferenceDate),
-                date: statistics.startDate,
-                value: percent ? raw * 100 : raw,
-                recorded: recorded
-            ))
-        }
-        let dates = AskHealthBuckets.dates(range: range, now: now, calendar: calendar)
-        let collected = found.all()
-        let points = dates.map { date in
-            if let match = collected.first(where: { calendar.isDate($0.date, equalTo: date, toGranularity: range.bucket) }) {
-                return AskHealthPoint(id: match.id, date: date, value: match.value, recorded: match.recorded)
-            }
-            return AskHealthPoint(id: "empty-\(date.timeIntervalSinceReferenceDate)", date: date, value: 0, recorded: false)
-        }
-        let statistics = try await HKStatisticsQueryDescriptor(predicate: predicate, options: options).result(for: HKHealthStore())
-        let quantity = average ? statistics?.averageQuantity() : statistics?.sumQuantity()
-        let recorded = quantity != nil || points.contains(where: \.recorded)
-        guard let quantity else {
-            return AskHealthSeriesSnapshot(points: points, headline: "Nothing recorded.", axisLabel: axis, denied: false, recorded: recorded)
-        }
-        let number = formatted(quantity.doubleValue(for: unit), fraction: measure.fraction, percent: percent)
-        let headline = AskHealthCatalog.headline(value: number, unit: measure.label, range: range)
-        return AskHealthSeriesSnapshot(points: points, headline: headline, axisLabel: axis, denied: false, recorded: true)
-    }
-
-    private static func samples(
-        _ metric: AskHealthCatalog.Metric,
-        measure: (unit: HKUnit, label: String, fraction: Int),
-        axis: String,
-        predicate: HKSamplePredicate<HKQuantitySample>
-    ) async throws -> AskHealthSeriesSnapshot {
-        let descriptor = HKSampleQueryDescriptor<HKQuantitySample>(
-            predicates: [predicate],
-            sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)],
-            limit: 60
-        )
-        let found = try await descriptor.result(for: HKHealthStore())
-        let ordered = found.sorted { $0.endDate < $1.endDate }
-        guard let newest = ordered.last else { return .empty(axis) }
-        let points = ordered.enumerated().map { index, sample in
-            let raw = sample.quantity.doubleValue(for: measure.unit)
-            return AskHealthPoint(
-                id: "\(sample.uuid.uuidString)-\(index)",
-                date: sample.endDate,
-                value: metric.percent ? raw * 100 : raw,
-                recorded: true
-            )
-        }
-        let number = formatted(newest.quantity.doubleValue(for: measure.unit), fraction: measure.fraction, percent: metric.percent)
-        let when = newest.endDate.formatted(date: .abbreviated, time: .omitted)
-        return AskHealthSeriesSnapshot(
-            points: points,
-            headline: "\(number) \(measure.label) · \(when)",
-            axisLabel: axis,
-            denied: false,
-            recorded: true
-        )
-    }
-
-    private static func latest(
-        _ metric: AskHealthCatalog.Metric,
-        type: HKQuantityType,
-        measure: (unit: HKUnit, label: String, fraction: Int)
-    ) async throws -> String {
-        let predicate = HKSamplePredicate.quantitySample(type: type)
-        let descriptor = HKSampleQueryDescriptor<HKQuantitySample>(
-            predicates: [predicate],
-            sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)],
-            limit: 1
-        )
-        guard let sample = try await descriptor.result(for: HKHealthStore()).first else {
-            return "\(metric.title): Nothing recorded."
-        }
-        let number = formatted(sample.quantity.doubleValue(for: measure.unit), fraction: measure.fraction, percent: metric.percent)
-        let when = sample.endDate.formatted(date: .abbreviated, time: .omitted)
-        return "\(metric.title): \(number) \(measure.label) · \(when)"
-    }
-
-    private static func formatted(_ value: Double, fraction: Int, percent: Bool) -> String {
-        let number = percent ? value * 100 : value
-        return number.formatted(.number.precision(.fractionLength(fraction)))
-    }
-
-    private static func measure(for metric: AskHealthCatalog.Metric) -> (unit: HKUnit, label: String, fraction: Int) {
-        let metricSystem = Locale.current.measurementSystem == .metric
-        switch metric {
-        case .steps, .flights:
-            return (.count(), metric == .steps ? "steps" : "flights", 0)
-        case .heart, .restingHeart:
-            return (HKUnit.count().unitDivided(by: .minute()), "beats per minute", 0)
-        case .breathing:
-            return (HKUnit.count().unitDivided(by: .minute()), "breaths per minute", 0)
-        case .energy:
-            return (.kilocalorie(), "kilocalories", 0)
-        case .distance:
-            return metricSystem
-                ? (.meterUnit(with: .kilo), "kilometers", 1)
-                : (.mile(), "miles", 1)
-        case .exercise:
-            return (.minute(), "minutes", 0)
-        case .weight:
-            return metricSystem
-                ? (.gramUnit(with: .kilo), "kilograms", 1)
-                : (.pound(), "pounds", 1)
-        case .height:
-            return metricSystem
-                ? (.meterUnit(with: .centi), "centimeters", 0)
-                : (.inch(), "inches", 0)
-        case .bodyFat, .oxygen:
-            return (.percent(), "percent", 0)
-        case .bloodPressure:
-            return (.millimeterOfMercury(), "mmHg", 0)
-        case .glucose:
-            return (HKUnit(from: "mg/dL"), "milligrams per deciliter", 0)
-        case .temperature:
-            return metricSystem
-                ? (.degreeCelsius(), "degrees Celsius", 1)
-                : (.degreeFahrenheit(), "degrees Fahrenheit", 1)
-        case .vo2:
-            let unit = HKUnit.literUnit(with: .milli)
-                .unitDivided(by: HKUnit.gramUnit(with: .kilo).unitMultiplied(by: .minute()))
-            return (unit, "milliliters per kilogram per minute", 1)
-        }
-    }
-
-    private static func refusal(_ error: Error) -> Bool {
-        let ns = error as NSError
-        guard ns.domain == HKErrorDomain else { return false }
-        switch HKError.Code(rawValue: ns.code) {
-        case .errorAuthorizationDenied, .errorAuthorizationNotDetermined, .errorRequiredAuthorizationDenied,
-             .errorHealthDataUnavailable, .errorHealthDataRestricted:
-            return true
-        default:
-            return false
-        }
-    }
-}
-
-/// Collects chart buckets from a HealthKit enumeration.
-private final class PointBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var points: [AskHealthPoint] = []
-
-    func add(_ point: AskHealthPoint) {
-        lock.lock()
-        points.append(point)
-        lock.unlock()
-    }
-
-    func all() -> [AskHealthPoint] {
-        lock.lock()
-        defer { lock.unlock() }
-        return points
     }
 }

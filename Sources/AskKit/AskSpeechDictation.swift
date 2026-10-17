@@ -1,6 +1,8 @@
 import AVFoundation
-import os
+#if os(iOS) || os(macOS) || os(visionOS)
 import Speech
+#endif
+import os
 
 /// Silence after the last new word. Matches the travel-mode listen clock: unchanged text for 2.5 seconds commits.
 struct AskListenClock: Equatable {
@@ -53,14 +55,15 @@ struct AskListenClock: Equatable {
     }
 }
 
+#if os(iOS) || os(macOS) || os(visionOS)
 /// Fills a composer while the person speaks. Stop keeps the text and does not send it.
 /// `listen` is the other path: a pause commits the words so the chat can answer and speak.
 @MainActor
 @Observable
-final class AskSpeechDictation {
-    private(set) var isRecording = false
+package final class AskSpeechDictation {
+    package private(set) var isRecording = false
     /// True while a pause will send the words. Dictation leaves this false.
-    private(set) var isListening = false
+    package private(set) var isListening = false
 
     private let engine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer(locale: .current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en_US"))
@@ -82,7 +85,9 @@ final class AskSpeechDictation {
     private let requestLock = OSAllocatedUnfairLock<SpeechRequest?>(initialState: nil)
     private let session = AskDictationSession.shared
 
-    func start(
+    package init() {}
+
+    package func start(
         startingWith existing: String = "",
         onPartial: @escaping (String) -> Void,
         onUnavailable: @escaping (String) -> Void
@@ -118,7 +123,7 @@ final class AskSpeechDictation {
     }
 
     /// Listens until the words stop changing, then returns them. Stop before that keeps nothing.
-    func listen(
+    package func listen(
         onPartial: @escaping (String) -> Void,
         onUtterance: @escaping (String) -> Void,
         onUnavailable: @escaping (String) -> Void
@@ -171,16 +176,16 @@ final class AskSpeechDictation {
     }
 
     /// Smoothed loudness from 0 to 1. The closure only reads the audio-tap lock.
-    nonisolated func levelSource() -> @Sendable () -> Double {
+    package nonisolated func levelSource() -> @Sendable () -> Double {
         let meter = meter
         return { meter.read() }
     }
 
-    func stop() {
+    package func stop() {
         stop(playCue: isRecording)
     }
 
-    private func stop(playCue: Bool) {
+    package func stop(playCue: Bool) {
         guard isRecording || task != nil || engine.isRunning else { return }
         meter.reset()
         isRecording = false
@@ -219,7 +224,7 @@ final class AskSpeechDictation {
 
     /// Plays the send haptic and click once the recording session has released audio.
     /// A click played while that session is still up is silent.
-    func playSendCue() {
+    package func playSendCue() {
         session.afterIdle {
             Task { @MainActor in
                 AskCue.tap()
@@ -401,6 +406,48 @@ private final class ListenDelivery: @unchecked Sendable {
         deliver(text)
     }
 }
+#else
+/// Apple TV and Apple Watch have no speech recognizer. The mic says so and records nothing.
+@MainActor
+@Observable
+package final class AskSpeechDictation {
+    package private(set) var isRecording = false
+    package private(set) var isListening = false
+
+    static let unavailable = "Speech recognition isn't available on this device."
+
+    package init() {}
+
+    package func start(
+        startingWith existing: String = "",
+        onPartial: @escaping (String) -> Void,
+        onUnavailable: @escaping (String) -> Void
+    ) async {
+        onUnavailable(Self.unavailable)
+    }
+
+    package func listen(
+        onPartial: @escaping (String) -> Void,
+        onUtterance: @escaping (String) -> Void,
+        onUnavailable: @escaping (String) -> Void
+    ) async {
+        onUnavailable(Self.unavailable)
+    }
+
+    package nonisolated func levelSource() -> @Sendable () -> Double {
+        { 0 }
+    }
+
+    package func stop() {}
+
+    package func stop(playCue: Bool) {}
+
+    package func playSendCue() {
+        AskCue.tap()
+        AskCue.sent()
+    }
+}
+#endif
 
 /// Words already accepted, plus the phrase the recognizer is still hearing.
 /// A pause starts a new phrase. That phrase is appended. It does not replace the field.
@@ -500,6 +547,11 @@ final class AskDictationSession: @unchecked Sendable {
     private var waiters: [() -> Void] = []
 
     func activate() async throws {
+#if os(macOS) || os(tvOS) || os(watchOS)
+        // The Mac has no shared audio session, and Apple TV and Apple Watch never record.
+        // Speech plays on the app's default session there.
+        return
+#else
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             run {
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -530,10 +582,16 @@ final class AskDictationSession: @unchecked Sendable {
                 }
             }
         }
+#endif
     }
 
     /// Speaker route for a spoken answer. Listening must already be stopped.
     func activateSpoken() async throws {
+#if os(macOS) || os(tvOS) || os(watchOS)
+        // The Mac has no shared audio session, and Apple TV and Apple Watch never record.
+        // Speech plays on the app's default session there.
+        return
+#else
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             run {
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -564,11 +622,15 @@ final class AskDictationSession: @unchecked Sendable {
                 }
             }
         }
+#endif
     }
 
     /// Releases the recording session, then restores a category that can play system sounds.
     /// `.measurement` swallows those sounds until the category changes back.
     func deactivate(then completion: (@Sendable () -> Void)? = nil) {
+#if os(macOS) || os(tvOS) || os(watchOS)
+        completion?()
+#else
         run {
             let session = AVAudioSession.sharedInstance()
             session.deactivate(options: .notifyOthersOnDeactivation) { _, _ in
@@ -578,6 +640,7 @@ final class AskDictationSession: @unchecked Sendable {
                 completion?()
             }
         }
+#endif
     }
 
     /// Runs after any activate or deactivate already in flight.
@@ -686,6 +749,7 @@ final class AskVoiceMeter: Sendable {
     }
 }
 
+#if os(iOS) || os(macOS) || os(visionOS)
 private final class SpeechRequest: @unchecked Sendable {
     let request: SFSpeechAudioBufferRecognitionRequest
 
@@ -697,3 +761,4 @@ private final class SpeechRequest: @unchecked Sendable {
         request.append(buffer)
     }
 }
+#endif

@@ -183,7 +183,7 @@ public final class VoiceMeter {
     }
 
     private static func requestPermission() async -> Bool {
-        #if os(iOS)
+        #if os(iOS) || os(watchOS)
         return await AVAudioApplication.requestRecordPermission()
         #else
         return await AVCaptureDevice.requestAccess(for: .audio)
