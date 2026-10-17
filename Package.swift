@@ -27,10 +27,6 @@ let package = Package(
         .library(name: "AskKitSurface", targets: ["AskKitSurface"])
     ],
     dependencies: [
-        .package(path: "Vendor/VoiceGlowKit"),
-        .package(path: "Vendor/ThinkingOrbsKit"),
-        .package(path: "Vendor/BorderBeamKit"),
-        .package(path: "Vendor/PhotoQueryKit"),
         .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0")
     ],
     targets: [
@@ -48,12 +44,35 @@ let package = Package(
             dependencies: [],
             path: "Sources/AskKitSurface"
         ),
+        // In-tree so a host can depend on AskKit. A path dependency cannot.
+        // These kits were written as Swift 5 packages, so they stay in that language mode.
+        .target(
+            name: "PhotoQueryKit",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
+            name: "VoiceGlowKit",
+            resources: [.process("VoiceGlowShaders.metal")],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
+            name: "ThinkingOrbsKit",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
+            name: "BorderBeamKit",
+            resources: [
+                .copy("Resources/beam-spec.json"),
+                .process("BeamShaders.metal")
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .target(
             name: "AskKit",
             dependencies: [
                 "AskKitSurface",
-                .target(name: "AskContactsChangeHistory", condition: .when(platforms: [.iOS, .macOS, .macCatalyst, .watchOS, .visionOS])),
-                .product(name: "PhotoQueryKit", package: "PhotoQueryKit")
+                "PhotoQueryKit",
+                .target(name: "AskContactsChangeHistory", condition: .when(platforms: [.iOS, .macOS, .macCatalyst, .watchOS, .visionOS]))
             ],
             swiftSettings: foundationModels
         ),
@@ -71,16 +90,16 @@ let package = Package(
                 "AskKit",
                 "AskKitIntents",
                 "AskKitSurface",
-                .product(name: "VoiceGlowKit", package: "VoiceGlowKit"),
-                .product(name: "ThinkingOrbsKit", package: "ThinkingOrbsKit"),
-                .product(name: "BorderBeamKit", package: "BorderBeamKit"),
+                "VoiceGlowKit",
+                "ThinkingOrbsKit",
+                "BorderBeamKit",
                 .product(name: "Textual", package: "textual")
             ],
             swiftSettings: foundationModels
         ),
         .testTarget(
             name: "AskKitTests",
-            dependencies: ["AskKit", "AskKitUI", "AskKitIntents", "AskKitSurface"],
+            dependencies: ["AskKit", "AskKitUI", "AskKitIntents", "AskKitSurface", "PhotoQueryKit"],
             swiftSettings: foundationModels
         ),
         .testTarget(name: "AskKitEvaluations", dependencies: ["AskKit"], swiftSettings: foundationModels)
