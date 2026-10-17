@@ -1,3 +1,5 @@
+// Photos is not on Apple Watch, so this file builds empty there.
+#if canImport(Photos)
 import Foundation
 
 /// On-device snapshot of the Vision photo index. Not CloudKit — Application Support only.
@@ -76,3 +78,4 @@ struct PhotoIndexStore: Sendable {
         return decoder
     }
 }
+#endif

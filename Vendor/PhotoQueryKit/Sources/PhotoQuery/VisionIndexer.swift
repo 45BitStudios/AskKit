@@ -1,7 +1,8 @@
+// Photos is not on Apple Watch, so this file builds empty there.
+#if canImport(Photos)
 import Foundation
 import Photos
 import Vision
-import UIKit
 
 /// Lightweight on-device indexer using Vision.
 /// Stores classification labels and OCR text keyed by localIdentifier.
@@ -175,7 +176,7 @@ public actor VisionIndexer {
         guard asset.mediaType == .image else { return nil }
 
         let image = await loadThumbnail(asset: asset, size: CGSize(width: 512, height: 512))
-        guard let cgImage = image?.cgImage else { return nil }
+        guard let cgImage = image?.photoQueryCGImage else { return nil }
 
         var labels: [String] = []
         var ocr: String?
@@ -219,7 +220,7 @@ public actor VisionIndexer {
         )
     }
 
-    private func loadThumbnail(asset: PHAsset, size: CGSize) async -> UIImage? {
+    private func loadThumbnail(asset: PHAsset, size: CGSize) async -> PhotoQueryImage? {
         await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
             options.deliveryMode = .fastFormat
@@ -237,3 +238,4 @@ public actor VisionIndexer {
         }
     }
 }
+#endif

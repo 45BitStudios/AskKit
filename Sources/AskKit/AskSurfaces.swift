@@ -1,4 +1,4 @@
-import AskKitIntents
+import AskKitSurface
 import Foundation
 
 /// Publishes calendar and reminder facts the widgets already know how to show.
@@ -31,12 +31,14 @@ public enum AskSurfaces {
             return "Live Activities are turned off, so that stays in the chat."
         case .failed:
             return "I couldn't pin that on the Lock Screen."
+        case .unsupported:
+            return "This device doesn't show Live Activities, so that stays in the chat."
         }
     }
 }
 
-enum AskPinPhrase {
-    static let actionID = "ask.pin.next-event"
+package enum AskPinPhrase {
+    package static let actionID = "ask.pin.next-event"
 
     private static let phrases = [
         "pin this",

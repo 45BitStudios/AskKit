@@ -340,6 +340,10 @@ struct PulseBeamLayers: View {
         matrix: [Float],
         opacity: Double
     ) -> some View {
+        #if os(watchOS)
+        // watchOS has no SwiftUI Metal shaders. This decorative layer draws nothing there.
+        return Color.clear
+        #else
         let boxSize = CGSize(
             width: elementSize.width + boxPad * 2,
             height: elementSize.height + boxPad * 2
@@ -362,5 +366,6 @@ struct PulseBeamLayers: View {
             .colorEffect(shader)
             .frame(width: boxSize.width, height: boxSize.height)
             .position(x: elementSize.width / 2, y: elementSize.height / 2)
+        #endif
     }
 }

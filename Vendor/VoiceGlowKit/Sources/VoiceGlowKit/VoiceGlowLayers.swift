@@ -101,6 +101,10 @@ struct VoiceGlowLayers: View {
     }
 
     private func layer(kind: Int, lobes: [Float], highlight: [Float], mask: [Float], fade: Double, opacity: Double) -> some View {
+        #if os(watchOS)
+        // watchOS has no SwiftUI Metal shaders. This decorative layer draws nothing there.
+        return Color.clear
+        #else
         let c = config
         let shadow = c.theme.innerShadow
         let shadowColor = VoiceColorMatrix.apply(frame.colorMatrix, shadow.0)
@@ -118,6 +122,7 @@ struct VoiceGlowLayers: View {
             .floatArray(params)
         )
         return Rectangle().fill(Color.white).colorEffect(shader)
+        #endif
     }
 }
 

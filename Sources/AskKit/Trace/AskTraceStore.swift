@@ -6,10 +6,10 @@ import os
 /// One JSON file per turn. Newest `limit` kept.
 public struct AskTraceStore: Sendable {
     var save: @Sendable (AskTraceTurn) -> Void
-    var loadAll: @Sendable () -> [AskTraceTurn]
-    var delete: @Sendable (UUID) -> Void
-    var clear: @Sendable () -> Void
-    var exportFile: @Sendable (AskTraceTurn) -> URL?
+    package var loadAll: @Sendable () -> [AskTraceTurn]
+    package var delete: @Sendable (UUID) -> Void
+    package var clear: @Sendable () -> Void
+    package var exportFile: @Sendable (AskTraceTurn) -> URL?
 }
 
 extension AskTraceStore {
@@ -60,7 +60,7 @@ extension AskTraceStore {
     }
 
     /// The saved answer for this question closest to when the trace started.
-    static func assistantTurn(matching question: String, near date: Date, turns: [AskTranscriptTurn]) -> UUID? {
+    package static func assistantTurn(matching question: String, near date: Date, turns: [AskTranscriptTurn]) -> UUID? {
         let needle = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return nil }
         var best: (id: UUID, distance: TimeInterval)?
@@ -79,7 +79,7 @@ extension AskTraceStore {
     }
 
     /// The trace for this question closest to when the answer was saved.
-    static func match(question: String, near date: Date, turns: [AskTraceTurn]) -> UUID? {
+    package static func match(question: String, near date: Date, turns: [AskTraceTurn]) -> UUID? {
         let needle = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return nil }
         return turns

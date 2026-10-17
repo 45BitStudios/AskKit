@@ -1,6 +1,9 @@
 import PhotoQueryKit
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 final class AskCardStyleTests: XCTestCase {
     func testStylesCoverSnippetChatAndFullScreen() {

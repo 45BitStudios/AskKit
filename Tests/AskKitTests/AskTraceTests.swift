@@ -2,6 +2,9 @@ import Foundation
 import os
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 #if DEBUG
 final class AskTraceTests: XCTestCase {

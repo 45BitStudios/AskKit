@@ -1,3 +1,5 @@
+// Photos is not on Apple Watch, so this file builds empty there.
+#if canImport(Photos)
 import Foundation
 import Photos
 
@@ -320,3 +322,4 @@ public actor PhotoQuery {
         return request
     }
 }
+#endif

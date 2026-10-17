@@ -221,6 +221,10 @@ struct RotateBeamLayers: View {
         shadow: BeamRGBA,
         shadowBlur: Double
     ) -> some View {
+        #if os(watchOS)
+        // watchOS has no SwiftUI Metal shaders. This decorative layer draws nothing there.
+        return Color.clear
+        #else
         let shader = ShaderLibrary.bundle(.module).beamRotateLayer(
             .float2(size),
             .float(angle),
@@ -245,5 +249,6 @@ struct RotateBeamLayers: View {
         return Rectangle()
             .fill(Color.white)
             .colorEffect(shader)
+        #endif
     }
 }

@@ -1,3 +1,5 @@
+// Photos is not on Apple Watch, so this file builds empty there.
+#if canImport(Photos)
 import CoreLocation
 import Foundation
 import Photos
@@ -245,3 +247,4 @@ struct PhotoFilter {
     var fetchLimit: Int = 0
     var sortDescending: Bool = true
 }
+#endif

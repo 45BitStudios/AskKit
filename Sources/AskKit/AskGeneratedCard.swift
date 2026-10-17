@@ -1,26 +1,23 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 import SwiftUI
 
 /// One node in AskKit's card layout DSL.
 /// The model emits a shallow tree of these; ``AskGeneratedCardView`` maps them to SwiftUI.
 /// This is not SwiftUI source — kinds are a closed set the renderer understands.
-@Generable
+/// The model fills ``AskCardNodeDraft``, which has the same fields.
 public struct AskCardNode: Sendable, Equatable, Codable {
     /// One of: `vstack`, `hstack`, `text`, `stat`, `figure`, `quote`, `eyebrow`, `badge`, `plate`, `symbol`, `divider`, `spacer`, `row`, `action`.
-    @Guide(description: "One of: vstack, hstack, text, stat, figure, quote, eyebrow, badge, plate, symbol, divider, spacer, row, action")
     public var kind: String
     /// Primary text. Empty for pure layout nodes.
-    @Guide(description: "Primary text. Empty for layout, divider, and spacer nodes.")
     public var text: String
     /// Secondary text for `stat`, `figure`, and `row`. Empty otherwise.
-    @Guide(description: "Secondary text for stat, figure, or row. Empty otherwise.")
     public var detail: String
     /// Action id copied from ALLOWED when kind is `action`. Empty otherwise.
-    @Guide(description: "Action id copied from ALLOWED when kind is action. Empty otherwise.")
     public var actionID: String
     /// Child nodes. Prefer shallow trees. Empty for leaves.
-    @Guide(description: "Child nodes. Prefer at most two levels. Empty for leaves.")
     public var children: [AskCardNode]
 
     public init(
@@ -37,6 +34,27 @@ public struct AskCardNode: Sendable, Equatable, Codable {
         self.children = children
     }
 }
+
+#if ASK_FOUNDATION_MODELS
+/// What the model generates for one ``AskCardNode``. Kept apart so the node itself builds where Foundation Models does not.
+@Generable
+struct AskCardNodeDraft {
+    @Guide(description: "One of: vstack, hstack, text, stat, figure, quote, eyebrow, badge, plate, symbol, divider, spacer, row, action")
+    var kind: String
+    @Guide(description: "Primary text. Empty for layout, divider, and spacer nodes.")
+    var text: String
+    @Guide(description: "Secondary text for stat, figure, or row. Empty otherwise.")
+    var detail: String
+    @Guide(description: "Action id copied from ALLOWED when kind is action. Empty otherwise.")
+    var actionID: String
+    @Guide(description: "Child nodes. Prefer at most two levels. Empty for leaves.")
+    var children: [AskCardNodeDraft]
+
+    var node: AskCardNode {
+        AskCardNode(kind: kind, text: text, detail: detail, actionID: actionID, children: children.map(\.node))
+    }
+}
+#endif
 
 /// Closed layout kinds the renderer accepts.
 public enum AskCardNodeKind: String, Sendable, CaseIterable {
@@ -393,7 +411,7 @@ public enum AskGeneratedCard {
             action: matched.first ?? allowedActions.first,
             facts: facts,
             generatedRoot: tree,
-            view: AskGeneratedCardView(root: display, title: title)
+            content: .builtIn(.generated(root: display, title: title))
         )
         card.shareText = {
             let fromTree = shareText(in: display)
@@ -538,7 +556,7 @@ public enum AskGeneratedCard {
     }
 
     /// Static layouts for the Cards gallery. The toolkit scenarios describe the same shapes in words.
-    static let gallerySamples: [(title: String, root: AskCardNode)] = [
+    package static let gallerySamples: [(title: String, root: AskCardNode)] = [
         ("Next drive", nextDriveSample),
         ("Agenda", agendaSample),
         ("Forecast", forecastSample),

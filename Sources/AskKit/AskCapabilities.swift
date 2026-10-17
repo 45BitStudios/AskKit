@@ -1,5 +1,7 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 import SwiftUI
 
 /// One skill a person can ask about, grouped under its domain.
@@ -25,42 +27,6 @@ public struct AskCapabilityGroup: Sendable, Equatable, Identifiable {
         self.id = id
         self.title = title
         self.items = items
-    }
-}
-
-/// The card under a capabilities answer. The bubble above it is a separate sentence.
-/// Layout follows ``AskCardStyle`` so snippet, chat, and full screen stay one card that zooms.
-public struct AskCapabilitiesCard: View {
-    public var groups: [AskCapabilityGroup]
-
-    @Environment(\.askCardStyle) private var style
-
-    public init(groups: [AskCapabilityGroup]) {
-        self.groups = groups
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: style == .fullScreen ? 14 : 10) {
-            AskCardMark(title: "Help", symbol: "sparkles", tint: .indigo)
-            ForEach(style == .fullScreen ? groups : Array(groups.prefix(1))) { group in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(group.title)
-                        .font(.subheadline.weight(.semibold))
-                    ForEach(group.items) { item in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.title)
-                                .font(.subheadline)
-                            if !item.detail.isEmpty, style == .fullScreen {
-                                Text(item.detail)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .askCardSurface()
     }
 }
 
@@ -152,7 +118,7 @@ public enum AskCapabilities {
             title: "I can help with",
             spoken: spoken,
             facts: spoken,
-            view: AskCapabilitiesCard(groups: grouped)
+            content: .builtIn(.capabilities(grouped))
         )
         card.shareText = shareLines(groups: grouped)
         card.expands = true
@@ -243,6 +209,7 @@ enum AskModelSafety {
 
     /// Apple's on-device guardrail or a model refusal. Other failures are ordinary errors.
     static func isBlocked(_ error: Error) -> Bool {
+#if ASK_FOUNDATION_MODELS
         if let modelError = error as? LanguageModelError {
             switch modelError {
             case .guardrailViolation, .refusal:
@@ -259,6 +226,7 @@ enum AskModelSafety {
                 return false
             }
         }
+#endif
         return false
     }
 
@@ -270,6 +238,10 @@ enum AskModelSafety {
 
     /// A sentence for a failure the person can act on. Schema and guide mismatches keep the skill line unless repair can read the specialist's source.
     static func notice(_ error: Error) -> Notice? {
+        if error is AskModelUnavailable {
+            return Notice(decision: "no model", spoken: "")
+        }
+#if ASK_FOUNDATION_MODELS
         if let modelError = error as? LanguageModelError {
             switch modelError {
             case .contextSizeExceeded:
@@ -346,6 +318,7 @@ enum AskModelSafety {
                 return nil
             }
         }
+#endif
         return nil
     }
 

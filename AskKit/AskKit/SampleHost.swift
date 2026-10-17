@@ -1,6 +1,10 @@
 import AskKit
+import AskKitIntents
+import AskKitUI
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 
 struct SampleHost: View {
     let client: AskIntentClient
@@ -24,7 +28,7 @@ struct SampleHost: View {
                 feedback: AskAnswerFeedback(),
                 menu: {
                     Button("Sample projects", systemImage: "wrench.and.screwdriver") {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        SampleCue.tap()
                         showsSamples = true
                     }
                 }
@@ -57,7 +61,7 @@ private struct SampleProjectsSheet: View {
         NavigationStack {
             List(SampleProject.allCases) { project in
                 Button {
-                    UISelectionFeedbackGenerator().selectionChanged()
+                    SampleCue.selection()
                     onSelect(project)
                     dismiss()
                 } label: {
@@ -92,11 +96,11 @@ private struct SampleProjectsSheet: View {
                 .accessibilityAddTraits(project == selection ? .isSelected : [])
             }
             .navigationTitle("Samples")
-            .navigationBarTitleDisplayMode(.inline)
+            .sampleInlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        SampleCue.tap()
                         dismiss()
                     }
                 }
@@ -104,5 +108,32 @@ private struct SampleProjectsSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+}
+
+extension View {
+    /// Inline title on platforms that have one. The Mac and Apple TV keep their own title.
+    @ViewBuilder
+    fileprivate func sampleInlineTitle() -> some View {
+#if os(iOS) || os(visionOS) || os(watchOS)
+        navigationBarTitleDisplayMode(.inline)
+#else
+        self
+#endif
+    }
+}
+
+/// iPhone plays a tap. The Mac, Apple TV, and visionOS stay quiet, matching `AskCue`.
+private enum SampleCue {
+    static func tap() {
+#if os(iOS)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+#endif
+    }
+
+    static func selection() {
+#if os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+#endif
     }
 }

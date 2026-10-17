@@ -1,5 +1,7 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 
 public enum AskSessionPolicy {
     public static let maxToolsPerSession = 5
@@ -13,6 +15,7 @@ public enum AskSessionPolicy {
     }
 }
 
+#if ASK_FOUNDATION_MODELS
 enum AskTranscript {
     /// What a tool-free structured session may see. Drops tool calls, tool output,
     /// and reasoning. A reasoning signature replayed into a structured generation
@@ -28,13 +31,17 @@ enum AskTranscript {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 @Generable
 struct AskDomainChoice {
     @Guide(description: "One domain id copied from the allowed list")
     var domain: String
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 @Generable
 struct AskSlotValue {
     @Guide(description: "Slot name")
@@ -42,7 +49,9 @@ struct AskSlotValue {
     @Guide(description: "Slot value heard in the request")
     var value: String
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 @Generable
 struct AskSkillChoice {
     @Guide(description: "One skill id copied from the allowed list")
@@ -51,7 +60,9 @@ struct AskSkillChoice {
     @Guide(description: "Slots heard in the request. Leave empty when none were said.")
     var slots: [AskSlotValue]
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 @Generable
 struct AskFollowUpDraft {
     @Guide(description: "One skill id copied from ALLOWED, or none")
@@ -59,7 +70,9 @@ struct AskFollowUpDraft {
     @Guide(description: "One short question, or empty when skill is none")
     var question: String
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 extension AskCloudReasoning {
     var level: ContextOptions.ReasoningLevel {
         switch self {
@@ -69,12 +82,16 @@ extension AskCloudReasoning {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 struct AskCloudSessionOptions: Sendable {
     var reasoningLevel: ContextOptions.ReasoningLevel
     var temperature: Double?
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 enum AskModelAvailability {
     static func onDevice(_ reason: SystemLanguageModel.Availability.UnavailableReason) -> String {
         switch reason {
@@ -93,7 +110,9 @@ enum AskModelAvailability {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 enum AskComputeRuntime {
     struct Resolved {
         var model: any LanguageModel
@@ -153,6 +172,7 @@ enum AskComputeRuntime {
         }
     }
 }
+#endif
 
 enum AskProfileActivity: Sendable {
     case quiet
@@ -216,6 +236,7 @@ enum AskProfileHooks {
     }
 }
 
+#if ASK_FOUNDATION_MODELS
 struct AskRoutingProfile: LanguageModelSession.DynamicProfile {
     var instructions: String
     var model: any LanguageModel
@@ -243,10 +264,12 @@ struct AskRoutingProfile: LanguageModelSession.DynamicProfile {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 struct AskSkillProfile: LanguageModelSession.DynamicProfile {
     var instructions: String
-    var tools: [any Tool]
+    var tools: [any AskTool]
     var model: any LanguageModel
     var cloud: AskCloudSessionOptions?
     var maximumResponseTokens: Int?
@@ -288,7 +311,9 @@ struct AskSkillProfile: LanguageModelSession.DynamicProfile {
         }
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 enum AskFoundationSessions {
     /// Each route, reply, and follow-up starts empty. Earlier turns stay in the
     /// CONVERSATION prompt. Replaying them as transcript entries would carry tool
@@ -320,7 +345,7 @@ enum AskFoundationSessions {
         try await skillChoice(request, label: "route")
     }
 
-    static func writeReply(_ request: AskModelRequest, tools: [any Tool]) async throws -> AskWrittenReply {
+    static func writeReply(_ request: AskModelRequest, tools: [any AskTool]) async throws -> AskWrittenReply {
         let facts = request.facts
         let holdsUntilTool = request.requiresToolCall
         let onSnapshot: @Sendable (String) async -> Void = { text in
@@ -401,9 +426,9 @@ enum AskFoundationSessions {
             session,
             label: "composeCard",
             to: request.prompt,
-            generating: AskCardNode.self
+            generating: AskCardNodeDraft.self
         )
-        return response.content
+        return response.content.node
     }
 
     private static func skillChoice(_ request: AskModelRequest, label: String) async throws -> AskModelSkillChoice {
@@ -413,7 +438,7 @@ enum AskFoundationSessions {
         return AskModelSkillChoice(skillID: response.content.skill, slots: slots, confidence: response.content.confidence)
     }
 
-    static func fillSlots(_ request: AskModelRequest, tools: [any Tool]) async throws -> [String: String] {
+    static func fillSlots(_ request: AskModelRequest, tools: [any AskTool]) async throws -> [String: String] {
         let resolved = await AskComputeRuntime.resolve()
         let session = LanguageModelSession(
             profile: AskSkillProfile(
@@ -428,7 +453,9 @@ enum AskFoundationSessions {
         return Dictionary(response.content.slots.map { ($0.key, $0.value) }, uniquingKeysWith: { _, latest in latest })
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 enum AskToolTranscript {
     static func readings(in transcript: Transcript) -> [AskAppleReading] {
         var readings: [AskAppleReading] = []
@@ -460,6 +487,7 @@ enum AskToolTranscript {
         .joined(separator: "\n")
     }
 }
+#endif
 
 enum AskPrompts {
     static func domainInstructions(assistantName: String, domains: [AskDomain]) -> String {

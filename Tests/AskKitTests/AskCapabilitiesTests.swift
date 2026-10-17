@@ -1,6 +1,9 @@
 import FoundationModels
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 @MainActor
 final class AskCapabilitiesTests: XCTestCase {

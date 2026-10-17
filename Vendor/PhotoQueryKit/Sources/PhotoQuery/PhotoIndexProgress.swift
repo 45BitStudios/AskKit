@@ -1,3 +1,5 @@
+// Photos is not on Apple Watch, so this file builds empty there.
+#if canImport(Photos)
 import Foundation
 
 /// Progress for an on-device Vision index pass.
@@ -20,3 +22,4 @@ public struct PhotoIndexProgress: Sendable, Equatable {
         return min(1, Double(completed) / Double(total))
     }
 }
+#endif

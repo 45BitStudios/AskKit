@@ -1,6 +1,7 @@
+// Photos is not on Apple Watch, so this file builds empty there.
+#if canImport(Photos)
 import Foundation
 import Photos
-import UIKit
 
 /// Thin wrapper around PHCachingImageManager for efficient thumbnail caching.
 public final class PhotoCache: @unchecked Sendable {
@@ -31,7 +32,7 @@ public final class PhotoCache: @unchecked Sendable {
     public func requestThumbnail(
         for asset: PHAsset,
         targetSize: CGSize = CGSize(width: 300, height: 300)
-    ) async -> UIImage? {
+    ) async -> PhotoQueryImage? {
         await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
             options.deliveryMode = .opportunistic
@@ -49,3 +50,4 @@ public final class PhotoCache: @unchecked Sendable {
         }
     }
 }
+#endif

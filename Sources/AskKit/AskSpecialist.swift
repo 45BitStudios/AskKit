@@ -1,5 +1,7 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 
 /// A reply profile with its own instructions and tools.
 ///
@@ -12,7 +14,7 @@ public struct AskSpecialist: Identifiable, Sendable {
     /// Status line while this profile is active, before a tool runs.
     public var workingTitle: String
     public var instructions: String
-    public var tools: @MainActor @Sendable () -> [any Tool]
+    public var tools: @MainActor @Sendable () -> [any AskTool]
     /// True when this specialist can answer the question.
     public var matches: @Sendable (String) -> Bool
 
@@ -22,7 +24,7 @@ public struct AskSpecialist: Identifiable, Sendable {
         symbolName: String,
         workingTitle: String,
         instructions: String,
-        tools: @escaping @MainActor @Sendable () -> [any Tool],
+        tools: @escaping @MainActor @Sendable () -> [any AskTool],
         matches: @escaping @Sendable (String) -> Bool
     ) {
         self.id = id

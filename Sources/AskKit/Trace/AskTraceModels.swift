@@ -35,12 +35,12 @@ public enum AskTraceSpanKind: String, Codable, Sendable, CaseIterable {
 /// Debug builds only. Prompts and tool output can carry private context.
 public struct AskTraceTurn: Codable, Sendable, Identifiable, Equatable {
     public let id: UUID
-    var question: String
-    var entry: AskTraceEntry
-    var startedAt: Date
+    package var question: String
+    package var entry: AskTraceEntry
+    package var startedAt: Date
     /// Seconds from start to end. Nil while the turn is still running.
-    var duration: TimeInterval?
-    var spans: [AskTraceSpan]
+    package var duration: TimeInterval?
+    package var spans: [AskTraceSpan]
 }
 
 public struct AskTraceSpan: Codable, Sendable, Identifiable, Equatable {
@@ -52,27 +52,27 @@ public struct AskTraceSpan: Codable, Sendable, Identifiable, Equatable {
     }
 
     public struct Attribute: Codable, Sendable, Equatable {
-        var key: String
-        var value: String
+        package var key: String
+        package var value: String
     }
 
     public let id: UUID
-    let parentID: UUID?
-    var name: String
-    var kind: AskTraceSpanKind
-    var function: String
-    var fileID: String
-    var line: Int
+    package let parentID: UUID?
+    package var name: String
+    package var kind: AskTraceSpanKind
+    package var function: String
+    package var fileID: String
+    package var line: Int
     /// Seconds since the turn started, on the turn's monotonic clock.
-    var start: TimeInterval
-    var end: TimeInterval?
-    var status: Status
-    var attributes: [Attribute]
-    var result: String?
-    var events: [AskTraceEvent]
-    var model: AskTraceModelCall?
+    package var start: TimeInterval
+    package var end: TimeInterval?
+    package var status: Status
+    package var attributes: [Attribute]
+    package var result: String?
+    package var events: [AskTraceEvent]
+    package var model: AskTraceModelCall?
 
-    var duration: TimeInterval? {
+    package var duration: TimeInterval? {
         end.map { $0 - start }
     }
 }
@@ -83,20 +83,20 @@ public struct AskTraceEvent: Codable, Sendable, Equatable {
         case decision
     }
 
-    var offset: TimeInterval
-    var kind: Kind
-    var message: String
+    package var offset: TimeInterval
+    package var kind: Kind
+    package var message: String
 }
 
 /// Foundation Models detail for one `respond` call, read from `session.transcript` after it returns or throws.
 public struct AskTraceModelCall: Codable, Sendable, Equatable {
-    var label: String
-    var prewarmed: Bool?
-    var items: [AskTraceTranscriptItem]
-    var output: String?
-    var errorKind: String?
-    var errorDescription: String?
-    var context: AskTraceContextUsage?
+    package var label: String
+    package var prewarmed: Bool?
+    package var items: [AskTraceTranscriptItem]
+    package var output: String?
+    package var errorKind: String?
+    package var errorDescription: String?
+    package var context: AskTraceContextUsage?
 }
 
 /// Context-window use for one model call.
@@ -108,25 +108,43 @@ public struct AskTraceContextUsage: Codable, Sendable, Equatable {
         case contextExceeded
     }
 
-    var source: Source
-    var contextSize: Int
-    var usedTokens: Int
-    var inputTokens: Int?
-    var cachedInputTokens: Int?
-    var outputTokens: Int?
-    var reasoningTokens: Int?
+    package var source: Source
+    package var contextSize: Int
+    package var usedTokens: Int
+    package var inputTokens: Int?
+    package var cachedInputTokens: Int?
+    package var outputTokens: Int?
+    package var reasoningTokens: Int?
 
-    var fraction: Double {
+    package init(
+        source: Source,
+        contextSize: Int,
+        usedTokens: Int,
+        inputTokens: Int? = nil,
+        cachedInputTokens: Int? = nil,
+        outputTokens: Int? = nil,
+        reasoningTokens: Int? = nil
+    ) {
+        self.source = source
+        self.contextSize = contextSize
+        self.usedTokens = usedTokens
+        self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.outputTokens = outputTokens
+        self.reasoningTokens = reasoningTokens
+    }
+
+    package var fraction: Double {
         contextSize > 0 ? Double(usedTokens) / Double(contextSize) : 0
     }
 
-    var remainingTokens: Int {
+    package var remainingTokens: Int {
         max(0, contextSize - usedTokens)
     }
 }
 
 public struct AskTraceTranscriptItem: Codable, Sendable, Equatable {
-    enum Kind: String, Codable, Sendable {
+    package enum Kind: String, Codable, Sendable {
         case instructions
         case toolDefinitions
         case prompt
@@ -136,9 +154,9 @@ public struct AskTraceTranscriptItem: Codable, Sendable, Equatable {
         case reasoning
     }
 
-    var kind: Kind
-    var toolName: String?
-    var text: String
+    package var kind: Kind
+    package var toolName: String?
+    package var text: String
 }
 
 #endif

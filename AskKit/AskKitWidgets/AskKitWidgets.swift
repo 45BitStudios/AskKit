@@ -1,11 +1,11 @@
-import AskKitIntents
 import AppIntents
+import AskKitSurface
 import SwiftUI
 import WidgetKit
 
 nonisolated struct AskKitWidgetsIntents: AppIntentsPackage {
     static var includedPackages: [any AppIntentsPackage.Type] {
-        [AskKitIntentsPackage.self]
+        [AskKitSurfaceIntents.self]
     }
 }
 

@@ -186,7 +186,7 @@ struct AskStoredPage: Codable {
     }
 }
 
-enum AskStoredPages {
+package enum AskStoredPages {
     static func encode(_ pages: [AskPage], omitting keys: Set<String>) -> String {
         let stored = pages.map { page in
             var cardActions = page.actions.map { AskStoredAction(id: $0.id, title: $0.title) }
@@ -226,7 +226,7 @@ enum AskStoredPages {
     }
 
     /// Pages the chat can draw before card views are rebuilt. Ids match the stored pages.
-    static func display(
+    package static func display(
         json: String,
         fallbackID: UUID,
         fallbackText: String,

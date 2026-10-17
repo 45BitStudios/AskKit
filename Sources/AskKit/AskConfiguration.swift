@@ -1,5 +1,7 @@
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
+#endif
 import SwiftUI
 
 public struct AskDomain: Sendable, Identifiable, Equatable {
@@ -39,6 +41,55 @@ public struct AskAction: Sendable, Equatable, Identifiable {
     }
 }
 
+/// A card the package draws itself. The core only records what to draw; AskKitUI turns it into a view.
+package enum AskBuiltInCard {
+    case calendar(title: String, items: [AskCalendarItem.Item])
+    case reminders(title: String, items: [AskReminderItem.Item])
+    case places(title: String, places: [AskLocationPin.Place], showsCoordinates: Bool)
+    case contact(AskContactLine.Person)
+    case health(metric: AskHealthCatalog.Metric, range: AskHealthRange, lines: [String])
+    case nowPlaying(AskMusicLine.Item, playedBy: String)
+    case music(AskMusicLine.Item)
+    case alarm(AskAlarmLine.Item)
+    case weather(AskWeatherLine.Forecast)
+    case web(lines: [String])
+    case photos(title: String, photos: [AskPhotosLine.Photo], shareText: String)
+    case generated(root: AskCardNode, title: String)
+    case capabilities([AskCapabilityGroup])
+}
+
+/// What a card shows. A host view, a built-in card, or several stacked under each other.
+package indirect enum AskCardContent {
+    case view(AnyView)
+    case builtIn(AskBuiltInCard)
+    case stack([AskCardContent])
+}
+
+/// Draws built-in cards. AskKitUI installs ``render`` before it shows a card.
+/// Without it, a built-in card draws nothing.
+@MainActor
+package enum AskCardRendering {
+    package static var render: ((AskBuiltInCard) -> AnyView)?
+
+    package static func view(for content: AskCardContent) -> AnyView {
+        switch content {
+        case .view(let view):
+            return view
+        case .builtIn(let card):
+            return render?(card) ?? AnyView(EmptyView())
+        case .stack(let parts):
+            let views = parts.map { view(for: $0) }
+            return AnyView(
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(views.enumerated()), id: \.offset) { _, view in
+                        view
+                    }
+                }
+            )
+        }
+    }
+}
+
 /// The card an existing intent already knows how to draw.
 /// Ask shows this view. A bubble is added only for the sentences the card does not already show.
 /// The view is not stored. A generative card keeps its DSL tree in ``generatedRoot`` for rebuild.
@@ -58,14 +109,45 @@ public struct AskIntentCard {
     /// Button under the card. The view itself does not own the button.
     public var action: AskAction?
     /// The card holds a photo zoom source. The long-press menu stays off this view so the zoom can match.
-    var zoomTransition = false
+    package var zoomTransition = false
     /// Tapping the chat card zooms it to ``AskCardStyle/fullScreen``. Off when the card already owns a photo zoom.
     public var expands = false
     /// Plain text for the card's Copy and Share actions. The title and spoken line, unless a card replaces it.
-    var shareText: String
-    public var view: AnyView
+    package var shareText: String
+    /// What the card draws. Built-in cards are drawn by AskKitUI.
+    package var content: AskCardContent
     /// DSL tree for a generative card. Nil for host-drawn views. Stored so the transcript can rebuild the view.
     public var generatedRoot: AskCardNode?
+
+    /// The card's view. Setting it replaces a built-in card with that view.
+    @MainActor
+    public var view: AnyView {
+        get { AskCardRendering.view(for: content) }
+        set { content = .view(newValue) }
+    }
+
+    package init(
+        title: String = "",
+        spoken: String,
+        text: String? = nil,
+        coveredPhrases: [String] = [],
+        replacesBubble: Bool = false,
+        action: AskAction? = nil,
+        facts: String? = nil,
+        generatedRoot: AskCardNode? = nil,
+        content: AskCardContent
+    ) {
+        self.title = title
+        self.spoken = spoken
+        self.text = text ?? spoken
+        self.facts = facts ?? spoken
+        self.coveredPhrases = coveredPhrases
+        self.replacesBubble = replacesBubble
+        self.action = action
+        self.shareText = AskCardShareText.make(title: title, spoken: spoken)
+        self.generatedRoot = generatedRoot
+        self.content = content
+    }
 
     public init(
         title: String = "",
@@ -78,16 +160,17 @@ public struct AskIntentCard {
         generatedRoot: AskCardNode? = nil,
         view: AnyView
     ) {
-        self.title = title
-        self.spoken = spoken
-        self.text = text ?? spoken
-        self.facts = facts ?? spoken
-        self.coveredPhrases = coveredPhrases
-        self.replacesBubble = replacesBubble
-        self.action = action
-        self.shareText = AskCardShareText.make(title: title, spoken: spoken)
-        self.generatedRoot = generatedRoot
-        self.view = view
+        self.init(
+            title: title,
+            spoken: spoken,
+            text: text,
+            coveredPhrases: coveredPhrases,
+            replacesBubble: replacesBubble,
+            action: action,
+            facts: facts,
+            generatedRoot: generatedRoot,
+            content: .view(view)
+        )
     }
 
     public init<Content: View>(
@@ -101,16 +184,17 @@ public struct AskIntentCard {
         generatedRoot: AskCardNode? = nil,
         view: Content
     ) {
-        self.title = title
-        self.spoken = spoken
-        self.text = text ?? spoken
-        self.facts = facts ?? spoken
-        self.coveredPhrases = coveredPhrases
-        self.replacesBubble = replacesBubble
-        self.action = action
-        self.shareText = AskCardShareText.make(title: title, spoken: spoken)
-        self.generatedRoot = generatedRoot
-        self.view = AnyView(view)
+        self.init(
+            title: title,
+            spoken: spoken,
+            text: text,
+            coveredPhrases: coveredPhrases,
+            replacesBubble: replacesBubble,
+            action: action,
+            facts: facts,
+            generatedRoot: generatedRoot,
+            content: .view(AnyView(view))
+        )
     }
 }
 
@@ -314,7 +398,7 @@ public struct AskModelSkillChoice: Sendable, Equatable {
 public struct AskModelClient: Sendable {
     public var routeDomain: @Sendable (AskModelRequest) async throws -> String
     public var routeSkill: @Sendable (AskModelRequest) async throws -> AskModelSkillChoice
-    public var fillSlots: @Sendable (AskModelRequest, [any Tool]) async throws -> [String: String]
+    public var fillSlots: @Sendable (AskModelRequest, [any AskTool]) async throws -> [String: String]
     /// One catalog route. Used when the app supplies an `AskGuide` opening or rules.
     public var route: @Sendable (AskModelRequest) async throws -> AskModelSkillChoice
     /// Rewrites FACTS into the spoken answer. Router sessions and chip taps use this.
@@ -322,14 +406,14 @@ public struct AskModelClient: Sendable {
     /// Offers one next question.
     public var offerFollowUp: @Sendable (AskModelRequest) async throws -> AskFollowUp
     /// Reply rewrite when Apple sources or skill tools are attached. The default ignores the tools.
-    public var writeReplyUsing: @Sendable (AskModelRequest, [any Tool]) async throws -> AskWrittenReply
+    public var writeReplyUsing: @Sendable (AskModelRequest, [any AskTool]) async throws -> AskWrittenReply
     /// Composes a card DSL tree from FACTS. Failures fall back to a deterministic fact card.
     public var composeCard: @Sendable (AskModelRequest) async throws -> AskCardNode
 
     public init(
         routeDomain: @escaping @Sendable (AskModelRequest) async throws -> String,
         routeSkill: @escaping @Sendable (AskModelRequest) async throws -> AskModelSkillChoice,
-        fillSlots: @escaping @Sendable (AskModelRequest, [any Tool]) async throws -> [String: String],
+        fillSlots: @escaping @Sendable (AskModelRequest, [any AskTool]) async throws -> [String: String],
         route: @escaping @Sendable (AskModelRequest) async throws -> AskModelSkillChoice = { _ in
             AskModelSkillChoice(skillID: "")
         },
@@ -337,7 +421,7 @@ public struct AskModelClient: Sendable {
         offerFollowUp: @escaping @Sendable (AskModelRequest) async throws -> AskFollowUp = { _ in
             AskFollowUp(skillID: "none", question: "")
         },
-        writeReplyUsing: (@Sendable (AskModelRequest, [any Tool]) async throws -> AskWrittenReply)? = nil,
+        writeReplyUsing: (@Sendable (AskModelRequest, [any AskTool]) async throws -> AskWrittenReply)? = nil,
         composeCard: (@Sendable (AskModelRequest) async throws -> AskCardNode)? = nil
     ) {
         self.routeDomain = routeDomain
@@ -362,7 +446,10 @@ public struct AskModelClient: Sendable {
         }
     }
 
+    /// The on-device model, or Private Cloud Compute when the chat chose it.
+    /// Apple TV and Apple Watch have no Foundation Models, so every call there throws and routing falls back to chips and the skill list.
     public static var foundation: AskModelClient {
+#if ASK_FOUNDATION_MODELS
         AskModelClient(
             routeDomain: { request in
                 try await AskFoundationSessions.routeDomain(request)
@@ -389,11 +476,26 @@ public struct AskModelClient: Sendable {
                 try await AskFoundationSessions.composeCard(request)
             }
         )
+#else
+        AskModelClient(
+            routeDomain: { _ in throw AskModelUnavailable.noFoundationModels },
+            routeSkill: { _ in throw AskModelUnavailable.noFoundationModels },
+            fillSlots: { _, _ in throw AskModelUnavailable.noFoundationModels },
+            route: { _ in throw AskModelUnavailable.noFoundationModels },
+            writeReply: { _ in throw AskModelUnavailable.noFoundationModels },
+            offerFollowUp: { _ in throw AskModelUnavailable.noFoundationModels }
+        )
+#endif
     }
 }
 
 enum AskCardComposeError: Error {
     case unavailable
+}
+
+/// The platform has no Foundation Models. The turn keeps the skill's own line.
+enum AskModelUnavailable: Error {
+    case noFoundationModels
 }
 
 public struct AskConfiguration {
@@ -413,7 +515,7 @@ public struct AskConfiguration {
     /// Slot keys dropped before a turn is saved. The live handler still receives them.
     public var omittedSlotKeys: Set<String>
     /// Built for slot fill. On a reply they are their own specialist, in their own session.
-    public var tools: (@MainActor (String) -> [any Tool])?
+    public var tools: (@MainActor (String) -> [any AskTool])?
     /// App specialists. A match runs before any Apple specialist, in its own session.
     public var specialists: [AskSpecialist]
     /// Reads the title and summary of an https address in the question. Off until the app sets it.
@@ -438,7 +540,7 @@ public struct AskConfiguration {
         fastPath: (@MainActor (String) -> AskRoute?)? = nil,
         guide: AskGuide? = nil,
         omittedSlotKeys: Set<String> = [],
-        tools: (@MainActor (String) -> [any Tool])? = nil,
+        tools: (@MainActor (String) -> [any AskTool])? = nil,
         specialists: [AskSpecialist] = [],
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],
@@ -473,7 +575,7 @@ public struct AskConfiguration {
         fastPath: (@MainActor (String) -> AskRoute?)? = nil,
         guide: AskGuide? = nil,
         omittedSlotKeys: Set<String> = [],
-        tools: (@MainActor (String) -> [any Tool])? = nil,
+        tools: (@MainActor (String) -> [any AskTool])? = nil,
         specialists: [AskSpecialist] = [],
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],

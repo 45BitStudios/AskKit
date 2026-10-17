@@ -1,8 +1,8 @@
 import AVFoundation
 
 /// The line Ask speaks after a voice turn. The stored spoken line, then the bubble text.
-enum AskVoiceLine {
-    static func text(from result: AskTurnResult) -> String {
+package enum AskVoiceLine {
+    package static func text(from result: AskTurnResult) -> String {
         let spoken = result.pages.map(\.spoken).filter { !$0.isEmpty }.joined(separator: "\n\n")
         if !spoken.isEmpty { return spoken }
         let bubble = result.pages.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n\n")
@@ -18,8 +18,8 @@ enum AskVoiceLine {
 
 /// Speaks one answer through the shared audio session, then returns the session to ambient.
 @MainActor
-final class AskVoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
-    static let shared = AskVoiceSpeaker()
+package final class AskVoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
+    package static let shared = AskVoiceSpeaker()
 
     private let synthesizer = AVSpeechSynthesizer()
     private var onFinish: (() -> Void)?
@@ -29,10 +29,12 @@ final class AskVoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
     private override init() {
         super.init()
         synthesizer.delegate = self
+#if !os(macOS)
         synthesizer.usesApplicationAudioSession = true
+#endif
     }
 
-    func speak(_ text: String) async {
+    package func speak(_ text: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         await withTaskCancellationHandler {
@@ -48,7 +50,7 @@ final class AskVoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    func stop() {
+    package func stop() {
         interrupt()
         AskDictationSession.shared.deactivate()
     }
@@ -115,7 +117,7 @@ final class AskVoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
         AskDictationSession.shared.deactivate()
     }
 
-    nonisolated func speechSynthesizer(
+    package nonisolated func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer,
         didFinish utterance: AVSpeechUtterance
     ) {
@@ -125,7 +127,7 @@ final class AskVoiceSpeaker: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
-    nonisolated func speechSynthesizer(
+    package nonisolated func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer,
         didCancel utterance: AVSpeechUtterance
     ) {

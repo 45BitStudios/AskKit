@@ -1,6 +1,8 @@
-import AskKitIntents
 import XCTest
 @testable import AskKit
+@testable import AskKitIntents
+@testable import AskKitSurface
+@testable import AskKitUI
 
 final class AskSurfaceTests: XCTestCase {
     func testTheBoardRoundTripsAndTheQueueIsTakenOnce() {

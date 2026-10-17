@@ -1,8 +1,12 @@
 import CoreLocation
 import Foundation
+#if ASK_FOUNDATION_MODELS
 import FoundationModels
-import Photos
+#endif
+#if canImport(Photos)
 import PhotoQueryKit
+import Photos
+#endif
 import SwiftUI
 
 /// Photo library search for host specialists. Built on PhotoQueryKit.
@@ -52,7 +56,13 @@ public enum AskPhotos {
             symbolName: symbolName,
             workingTitle: workingTitle,
             instructions: note,
-            tools: { [AskPhotosTool(toolLedger: AskToolLedger())] },
+            tools: {
+#if ASK_FOUNDATION_MODELS
+                [AskPhotosTool(toolLedger: AskToolLedger())]
+#else
+                []
+#endif
+            },
             matches: matches
         )
     }
@@ -64,13 +74,21 @@ public enum AskPhotos {
 
     /// When the persisted index was last saved. Nil until the first successful save.
     public static func lastIndexDate() async -> Date? {
+#if canImport(Photos)
         await PhotoQuery.shared.lastIndexDate()
+#else
+        nil
+#endif
     }
 
     /// Writes the current in-memory index and last-index date to disk.
     @discardableResult
     public static func saveIndex() async -> Bool {
+#if canImport(Photos)
         await PhotoQuery.shared.saveIndex()
+#else
+        false
+#endif
     }
 
     /// Reloads the saved index, then indexes photos newer than ``lastIndexDate()``.
@@ -103,6 +121,7 @@ public enum AskPhotosIndexStatus: Equatable, Sendable {
     }
 }
 
+#if canImport(Photos)
 /// Status copy and indexing for the photos specialist.
 enum AskPhotosIndex {
     static let detail = "Photos"
@@ -196,6 +215,17 @@ enum AskPhotosIndex {
         AskChatActivity.show(line.title, detail: line.detail, phase: .tool)
     }
 }
+#else
+/// Apple Watch has no photo library. The index stays idle.
+enum AskPhotosIndex {
+    static let detail = "Photos"
+
+    static func status() async -> AskPhotosIndexStatus { .idle }
+
+    @discardableResult
+    static func prepareOnLaunch(limit: Int) async -> AskPhotosIndexStatus { .idle }
+}
+#endif
 
 /// Copy for the thinking orb while photos are indexed.
 enum AskPhotosIndexCopy {
@@ -252,6 +282,7 @@ final class AskPhotosIndexState: @unchecked Sendable {
         lock.unlock()
     }
 
+#if canImport(Photos)
     func update(_ progress: PhotoIndexProgress) {
         lock.lock()
         _completed = progress.completed
@@ -260,6 +291,7 @@ final class AskPhotosIndexState: @unchecked Sendable {
         lock.unlock()
     }
 
+#endif
     func finish(count: Int) {
         lock.lock()
         _isIndexing = false
@@ -349,6 +381,7 @@ enum AskPhotosQuery {
     static let placeRadiusMeters = 40_000.0
     static let maximumRadiusMeters = 50_000.0
 
+#if canImport(Photos)
     static func request(
         mediaType: String?,
         minWidth: Int?,
@@ -399,11 +432,14 @@ enum AskPhotosQuery {
         request.sortDescending = newestFirst ?? true
         return request
     }
+#endif
 
+#if canImport(Photos)
     /// A library search built only from the question. Used when the model never called the tool.
     static func fromQuestion(_ question: String) -> PhotoQueryRequest {
         enrich(PhotoQueryRequest(), question: question)
     }
+#endif
 
     /// List album titles. A photo search that names an album stays a search.
     static func listsAlbums(_ question: String) -> Bool {
@@ -415,6 +451,7 @@ enum AskPhotosQuery {
         return tokens.contains("album") || tokens.contains("albums")
     }
 
+#if canImport(Photos)
     /// Fills gaps the model left empty from the question text.
     static func enrich(_ request: PhotoQueryRequest, question: String) -> PhotoQueryRequest {
         var next = request
@@ -525,6 +562,7 @@ enum AskPhotosQuery {
         }
         return next
     }
+#endif
 
     /// Yesterday, today, tonight, or tomorrow as one calendar day. Nil for any other wording.
     static func takenDay(in question: String, now: Date = Date(), calendar: Calendar = .current) -> AskCalendarWindow? {
@@ -553,6 +591,7 @@ enum AskPhotosQuery {
         return ""
     }
 
+#if canImport(Photos)
     /// Fills coordinates for a named place. A coordinate pair already in the question is left as parsed.
     static func resolvePlace(_ request: PhotoQueryRequest, question: String) async -> PhotoQueryRequest {
         var next = request
@@ -566,6 +605,7 @@ enum AskPhotosQuery {
         }
         return next
     }
+#endif
 
     /// Latitude and longitude from text such as `37.3349, -122.0090` or `lat 37.33 lon -122.01`.
     static func coordinates(in text: String) -> (latitude: Double, longitude: Double)? {
@@ -622,6 +662,7 @@ enum AskPhotosQuery {
         return String(tail.prefix(80))
     }
 
+#if canImport(Photos)
     private static func media(_ raw: String?) -> PhotoQueryRequest.MediaType? {
         switch AskAppleCopy.folded(raw ?? "") {
         case "image", "photo", "photos", "picture", "pictures": .image
@@ -631,7 +672,9 @@ enum AskPhotosQuery {
         default: nil
         }
     }
+#endif
 
+#if canImport(Photos)
     private static func applyDates(daysAgo: Int?, throughDaysAgo: Int?, to request: inout PhotoQueryRequest) {
         let calendar = Calendar.current
         let now = Date()
@@ -644,7 +687,9 @@ enum AskPhotosQuery {
             request.endDate = end
         }
     }
+#endif
 
+#if canImport(Photos)
     private static func applyLocation(
         latitude: Double?,
         longitude: Double?,
@@ -657,6 +702,7 @@ enum AskPhotosQuery {
         let radius = radiusMeters ?? defaultRadiusMeters
         request.locationRadiusMeters = min(max(radius, 1), maximumRadiusMeters)
     }
+#endif
 
     private static func validCoordinate(latitude: Double, longitude: Double) -> Bool {
         (-90...90).contains(latitude) && (-180...180).contains(longitude)
@@ -723,7 +769,7 @@ enum AskPhotosQuery {
 }
 
 /// Lines the model and the card both read. None of them contain an equals sign.
-enum AskPhotosLine {
+package enum AskPhotosLine {
     static let denied = AskAppleCopy.denied
     static let empty = "No matching photos."
     static let maximumListed = 8
@@ -740,6 +786,7 @@ enum AskPhotosLine {
         return kept.prefix(3).joined(separator: " ")
     }
 
+#if canImport(Photos)
     static func format(
         _ results: [PhotoResult],
         request: PhotoQueryRequest,
@@ -763,6 +810,7 @@ enum AskPhotosLine {
         return rows.joined(separator: "\n")
     }
 
+#endif
     /// What the model may say. Asset ids stay on the stored line for the card.
     static func forModel(_ output: String) -> String {
         var kept: [String] = []
@@ -805,12 +853,12 @@ enum AskPhotosLine {
     }
 
     /// How many photos sit past the four shown on the card. Twelve photos leave eight.
-    static func overflow(count: Int) -> Int {
+    package static func overflow(count: Int) -> Int {
         max(count - gridCount, 0)
     }
 
     /// Zoom source for a page. A photo with no cell returns to the bottom-trailing cell.
-    static func zoomSource(prefix: String, photoID: String, ids: [String]) -> String {
+    package static func zoomSource(prefix: String, photoID: String, ids: [String]) -> String {
         let visible = ids.prefix(gridCount)
         let target = visible.contains(photoID) ? photoID : (visible.last ?? photoID)
         guard !prefix.isEmpty else { return target }
@@ -818,7 +866,7 @@ enum AskPhotosLine {
     }
 
     /// Gallery page. A swipe counts only for the open that started it. A choice from an earlier open stays off this one.
-    static func selectedID(
+    package static func selectedID(
         startID: String,
         choiceStart: String?,
         choiceID: String?,
@@ -831,11 +879,11 @@ enum AskPhotosLine {
         return ids.first ?? ""
     }
 
-    static let gridCount = 4
+    package static let gridCount = 4
 
-    struct Photo: Identifiable, Equatable, Sendable {
-        var id: String
-        var caption: String
+    package struct Photo: Identifiable, Equatable, Sendable {
+        package var id: String
+        package var caption: String
     }
 
     struct Grid: Equatable, Sendable {
@@ -872,6 +920,7 @@ enum AskPhotosLine {
         return Photo(id: id, caption: caption)
     }
 
+#if canImport(Photos)
     static func row(_ result: PhotoResult) -> String {
         var parts: [String] = []
         if let name = result.filename, !name.isEmpty {
@@ -924,6 +973,7 @@ enum AskPhotosLine {
         return parts.joined(separator: " · ")
     }
 
+#endif
     static func albums(_ titles: [String]) -> String {
         let kept = titles
             .map { AskAppleCopy.plain($0, limit: 60) }
@@ -970,6 +1020,7 @@ enum AskPhotosLine {
         return trimmed.hasPrefix("And ") && trimmed.hasSuffix(" more.")
     }
 
+#if canImport(Photos)
     private static func label(for request: PhotoQueryRequest) -> String {
         if request.mediaSubtypes?.contains(where: { $0.lowercased() == "screenshot" }) == true {
             return request.limit == 1 ? "screenshot" : "screenshots"
@@ -987,6 +1038,8 @@ enum AskPhotosLine {
         }
     }
 
+#endif
+#if canImport(Photos)
     private static func mediaName(_ type: PHAssetMediaType) -> String {
         switch type {
         case .video: "Video"
@@ -996,6 +1049,7 @@ enum AskPhotosLine {
         }
     }
 
+#endif
     private static func durationLabel(_ seconds: Double) -> String {
         let whole = Int(seconds.rounded())
         let minutes = whole / 60
@@ -1007,6 +1061,7 @@ enum AskPhotosLine {
     }
 }
 
+#if canImport(Photos)
 enum AskPhotosRead {
     static func lines(_ request: PhotoQueryRequest) async -> String {
         let allowed = await PhotoQuery.shared.ensureAuthorized()
@@ -1054,14 +1109,16 @@ enum AskPhotosRead {
         return AskPhotosLine.albums(await PhotoQuery.shared.albums())
     }
 }
+#endif
 
+#if ASK_FOUNDATION_MODELS
 struct AskPhotosTool: Tool, AskToolReadingSource {
     var toolLedger: AskToolLedger
     /// The question for this turn. Empty until the session stamps it.
     var question = ""
     let name = AskPhotos.toolName
 
-    static func stamped(_ tool: any Tool, question: String) -> any Tool {
+    static func stamped(_ tool: any AskTool, question: String) -> any AskTool {
         guard var photos = tool as? AskPhotosTool else { return tool }
         photos.question = question
         return photos
@@ -1196,3 +1253,4 @@ struct AskPhotosTool: Tool, AskToolReadingSource {
         return parts.joined(separator: " ")
     }
 }
+#endif
