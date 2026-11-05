@@ -2,7 +2,9 @@
 
 import PackageDescription
 
-/// Foundation Models runs on these platforms. Apple TV and Apple Watch build without the model.
+/// On-device Foundation Models. Apple Watch has no on-device model.
+/// `AskOnDeviceResponder` can still call Private Cloud Compute on watchOS.
+/// Apple's Private Cloud Compute type and entitlement omit tvOS, so this flag stays off there.
 let foundationModels: [SwiftSetting] = [
     .define("ASK_FOUNDATION_MODELS", .when(platforms: [.iOS, .macOS, .macCatalyst, .visionOS]))
 ]

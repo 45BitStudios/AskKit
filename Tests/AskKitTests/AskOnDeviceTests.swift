@@ -41,76 +41,106 @@ final class AskOnDeviceTests: XCTestCase {
         XCTAssertEqual(
             AskOnDeviceBoundary.availability(
                 allowModel: false,
-                platformSupportsFoundationModels: false,
+                onDeviceSupported: false,
                 operatingSystemAllows: false,
-                model: .modelNotReady
+                onDevice: .modelNotReady
             ),
             .unavailable(.turnedOff)
         )
         XCTAssertEqual(
             AskOnDeviceBoundary.availability(
                 allowModel: true,
-                platformSupportsFoundationModels: false,
+                onDeviceSupported: false,
                 operatingSystemAllows: true,
-                model: .available
+                onDevice: .available
             ),
-            .unavailable(.unsupportedPlatform)
+            .unavailable(.onDeviceUnavailable)
         )
         XCTAssertEqual(
             AskOnDeviceBoundary.availability(
                 allowModel: true,
-                platformSupportsFoundationModels: true,
+                onDeviceSupported: true,
                 operatingSystemAllows: false,
-                model: .available
+                onDevice: .available
             ),
             .unavailable(.operatingSystem)
         )
         XCTAssertEqual(
             AskOnDeviceBoundary.availability(
                 allowModel: true,
-                platformSupportsFoundationModels: true,
+                onDeviceSupported: true,
                 operatingSystemAllows: true,
-                model: .deviceNotEligible
+                onDevice: .deviceNotEligible
             ),
             .unavailable(.deviceNotEligible)
         )
         XCTAssertEqual(
             AskOnDeviceBoundary.availability(
                 allowModel: true,
-                platformSupportsFoundationModels: true,
+                onDeviceSupported: true,
                 operatingSystemAllows: true,
-                model: .appleIntelligenceNotEnabled
+                onDevice: .appleIntelligenceNotEnabled
             ),
             .unavailable(.appleIntelligenceNotEnabled)
         )
         XCTAssertEqual(
             AskOnDeviceBoundary.availability(
                 allowModel: true,
-                platformSupportsFoundationModels: true,
+                onDeviceSupported: true,
                 operatingSystemAllows: true,
-                model: .modelNotReady
+                onDevice: .modelNotReady
             ),
             .unavailable(.modelNotReady)
         )
         XCTAssertEqual(
             AskOnDeviceBoundary.availability(
                 allowModel: true,
-                platformSupportsFoundationModels: true,
+                onDeviceSupported: true,
                 operatingSystemAllows: true,
-                model: .available
+                onDevice: .available
             ),
             .available
         )
     }
 
-    func testSystemAvailabilityMapsOntoTheReport() {
-        XCTAssertEqual(AskOnDeviceBoundary.report(.available), .available)
-        XCTAssertEqual(AskOnDeviceBoundary.report(.unavailable(.deviceNotEligible)), .deviceNotEligible)
+    func testPrivateCloudAvailabilityMapsOntoTheReport() {
         XCTAssertEqual(
-            AskOnDeviceBoundary.report(.unavailable(.appleIntelligenceNotEnabled)),
+            AskOnDeviceBoundary.report(PrivateCloudComputeLanguageModel.Availability.available),
+            AskPrivateCloudReport.available
+        )
+        XCTAssertEqual(
+            AskOnDeviceBoundary.report(PrivateCloudComputeLanguageModel.Availability.unavailable(.deviceNotEligible)),
+            AskPrivateCloudReport.deviceNotEligible
+        )
+        XCTAssertEqual(
+            AskOnDeviceBoundary.report(PrivateCloudComputeLanguageModel.Availability.unavailable(.systemNotReady)),
+            AskPrivateCloudReport.systemNotReady
+        )
+    }
+
+    func testContextSizeFromTheModelWinsOverTheUsualWindow() {
+        XCTAssertEqual(AskOnDeviceBoundary.privateCloudTokenWindow, 32_768)
+        XCTAssertEqual(AskOnDeviceBoundary.resolvedContextSize(reported: 4_096, choice: .onDevice), 4_096)
+        XCTAssertEqual(AskOnDeviceBoundary.resolvedContextSize(reported: 32_768, choice: .privateCloud), 32_768)
+        XCTAssertEqual(AskOnDeviceBoundary.resolvedContextSize(reported: nil, choice: .onDevice), 8_192)
+        XCTAssertEqual(AskOnDeviceBoundary.resolvedContextSize(reported: 0, choice: .privateCloud), 32_768)
+        XCTAssertEqual(AskPrivateCloudEntitlement.key, "com.apple.developer.private-cloud-compute")
+    }
+
+    func testSystemAvailabilityMapsOntoTheReport() {
+        XCTAssertEqual(AskOnDeviceBoundary.report(SystemLanguageModel.Availability.available), .available)
+        XCTAssertEqual(
+            AskOnDeviceBoundary.report(SystemLanguageModel.Availability.unavailable(.deviceNotEligible)),
+            .deviceNotEligible
+        )
+        XCTAssertEqual(
+            AskOnDeviceBoundary.report(SystemLanguageModel.Availability.unavailable(.appleIntelligenceNotEnabled)),
             .appleIntelligenceNotEnabled
         )
-        XCTAssertEqual(AskOnDeviceBoundary.report(.unavailable(.modelNotReady)), .modelNotReady)
+        XCTAssertEqual(
+            AskOnDeviceBoundary.report(SystemLanguageModel.Availability.unavailable(.modelNotReady)),
+            .modelNotReady
+        )
     }
 
     func testTurnedOffUsesTheFallbackAndDoesNotOpenASession() async {
@@ -151,7 +181,7 @@ final class AskOnDeviceTests: XCTestCase {
         let expected: [AskOnDeviceUnavailability] = [.deviceNotEligible, .appleIntelligenceNotEnabled, .modelNotReady]
         for (model, reason) in zip(reasons, expected) {
             let script = ScriptedOnDeviceSessions()
-            let responder = makeResponder(script: script, environment: .fixed(model: model)) { _, cause in
+            let responder = makeResponder(script: script, environment: .fixed(onDevice: model)) { _, cause in
                 XCTAssertEqual(cause, .unavailable(reason))
                 return AskOnDeviceAnswer(text: "Rules.")
             }
@@ -165,9 +195,9 @@ final class AskOnDeviceTests: XCTestCase {
         let script = ScriptedOnDeviceSessions()
         let responder = makeResponder(
             script: script,
-            environment: .fixed(platformSupportsFoundationModels: false)
+            environment: .fixed(onDeviceSupported: false)
         ) { _, cause in
-            XCTAssertEqual(cause, .unavailable(.unsupportedPlatform))
+            XCTAssertEqual(cause, .unavailable(.onDeviceUnavailable))
             return AskOnDeviceAnswer(text: "Rules.")
         }
         let turn = await responder.answer("How many?")
@@ -403,9 +433,14 @@ final class AskOnDeviceTests: XCTestCase {
                 return AskOnDeviceAnswer(text: "Rules.")
             },
             environment: AskOnDeviceEnvironment(
-                platformSupportsFoundationModels: true,
+                onDeviceSupported: true,
+                privateCloudSupported: true,
                 operatingSystemAllows: { true },
-                model: { gate.ready ? .available : .modelNotReady }
+                onDevice: { gate.ready ? .available : .modelNotReady },
+                privateCloud: { .available },
+                quotaLimitReached: { false },
+                online: { true },
+                contextSize: { AskOnDeviceBoundary.onDeviceTokenWindow }
             ),
             sessions: script.factory
         )
@@ -428,6 +463,147 @@ final class AskOnDeviceTests: XCTestCase {
         XCTAssertEqual(script.sessionsMade[0].prompts, ["How many?", "And now?"])
     }
 
+    func testPrivateCloudUsesTheReportedWindowAndFallsBackOnQuotaOrOffline() async {
+        let wide = String(repeating: "a", count: 10_000 * 4)
+        XCTAssertFalse(AskOnDeviceBoundary.instructionsFit(wide, window: 8_192))
+        XCTAssertTrue(AskOnDeviceBoundary.instructionsFit(wide, window: 32_768))
+
+        let tooWide = ScriptedOnDeviceSessions()
+        let refused = AskOnDeviceResponder(
+            model: .privateCloud,
+            instructions: { wide },
+            tools: { [ShelfTool()] },
+            fallback: { _, cause in
+                XCTAssertEqual(cause, .instructionsTooLong)
+                return AskOnDeviceAnswer(text: "Rules.")
+            },
+            environment: .fixed(contextSize: 8_192),
+            sessions: tooWide.factory
+        )
+        let refusedTurn = await refused.answer("How many?")
+        XCTAssertEqual(refusedTurn.engine, .fallback)
+        XCTAssertTrue(tooWide.sessionsMade.isEmpty)
+
+        let cloud = ScriptedOnDeviceSessions()
+        cloud.handler = { _ in
+            AskOnDeviceAnswerDraft(text: "Four tins.", citedIDs: ["tomatoes"], reason: "shelf")
+        }
+        let responder = AskOnDeviceResponder(
+            model: .privateCloud,
+            instructions: { wide },
+            tools: { [ShelfTool()] },
+            fallback: { _, _ in AskOnDeviceAnswer(text: "Rules.") },
+            environment: .fixed(contextSize: 32_768),
+            sessions: cloud.factory
+        )
+        let turn = await responder.answer("How many?")
+        XCTAssertEqual(turn.engine, .foundationModels)
+        XCTAssertEqual(turn.answer.text, "Four tins.")
+        XCTAssertEqual(cloud.models, [.privateCloud])
+        XCTAssertEqual(responder.modelChoice, .privateCloud)
+
+        let quota = ScriptedOnDeviceSessions()
+        let capped = AskOnDeviceResponder(
+            model: .privateCloud,
+            instructions: { "Use the shelf tool." },
+            fallback: { _, cause in
+                XCTAssertEqual(cause, .quotaReached)
+                return AskOnDeviceAnswer(text: "Daily limit.")
+            },
+            environment: .fixed(quotaLimitReached: true),
+            sessions: quota.factory
+        )
+        XCTAssertEqual(capped.availability, .unavailable(.quotaReached))
+        let cappedTurn = await capped.answer("How many?")
+        XCTAssertEqual(cappedTurn.engine, .fallback)
+        XCTAssertEqual(cappedTurn.answer.text, "Daily limit.")
+        XCTAssertTrue(quota.sessionsMade.isEmpty)
+
+        let offline = ScriptedOnDeviceSessions()
+        let disconnected = AskOnDeviceResponder(
+            model: .privateCloud,
+            instructions: { "Use the shelf tool." },
+            fallback: { _, cause in
+                XCTAssertEqual(cause, .offline)
+                return AskOnDeviceAnswer(text: "Offline.")
+            },
+            environment: .fixed(online: false),
+            sessions: offline.factory
+        )
+        let offlineTurn = await disconnected.answer("How many?")
+        XCTAssertEqual(offlineTurn.answer.text, "Offline.")
+        XCTAssertTrue(offline.sessionsMade.isEmpty)
+    }
+
+    func testAWatchShapedDeviceUsesPrivateCloudAndRefusesTheOnDeviceModel() async {
+        let onDevice = ScriptedOnDeviceSessions()
+        let local = AskOnDeviceResponder(
+            model: .onDevice,
+            instructions: { "Use the shelf tool." },
+            fallback: { _, cause in
+                XCTAssertEqual(cause, .unavailable(.onDeviceUnavailable))
+                return AskOnDeviceAnswer(text: "No local model.")
+            },
+            environment: .fixed(onDeviceSupported: false, privateCloudSupported: true),
+            sessions: onDevice.factory
+        )
+        let localTurn = await local.answer("How many?")
+        XCTAssertEqual(localTurn.answer.text, "No local model.")
+        XCTAssertTrue(onDevice.sessionsMade.isEmpty)
+
+        let cloud = ScriptedOnDeviceSessions()
+        cloud.handler = { _ in
+            AskOnDeviceAnswerDraft(text: "Four tins.", citedIDs: [], reason: "shelf")
+        }
+        let responder = AskOnDeviceResponder(
+            model: .privateCloud,
+            instructions: { "Use the shelf tool." },
+            tools: { [ShelfTool()] },
+            fallback: { _, _ in AskOnDeviceAnswer(text: "Rules.") },
+            environment: .fixed(onDeviceSupported: false, privateCloudSupported: true, contextSize: 32_768),
+            sessions: cloud.factory
+        )
+        let turn = await responder.answer("How many?")
+        XCTAssertEqual(turn.engine, .foundationModels)
+        XCTAssertEqual(cloud.models, [.privateCloud])
+    }
+
+    func testAppleTVDoesNotOfferPrivateCloudCompute() async {
+        let script = ScriptedOnDeviceSessions()
+        let responder = AskOnDeviceResponder(
+            model: .privateCloud,
+            instructions: { "Use the shelf tool." },
+            fallback: { _, cause in
+                XCTAssertEqual(cause, .unavailable(.privateCloudUnavailable))
+                return AskOnDeviceAnswer(text: "Rules.")
+            },
+            environment: .fixed(onDeviceSupported: false, privateCloudSupported: false),
+            sessions: script.factory
+        )
+        XCTAssertEqual(responder.availability, .unavailable(.privateCloudUnavailable))
+        let turn = await responder.answer("How many?")
+        XCTAssertEqual(turn.engine, .fallback)
+        XCTAssertTrue(script.sessionsMade.isEmpty)
+    }
+
+    func testAQuotaErrorUsesTheQuotaFallback() async {
+        let script = ScriptedOnDeviceSessions()
+        script.handler = { _ in
+            throw PrivateCloudComputeLanguageModel.Error.quotaLimitReached(
+                PrivateCloudComputeLanguageModel.Error.QuotaLimitReached(debugDescription: "secret")
+            )
+        }
+        let responder = makeResponder(script: script, model: .privateCloud) { _, cause in
+            XCTAssertEqual(cause, .quotaReached)
+            return AskOnDeviceAnswer(text: "Daily limit.")
+        }
+        let turn = await responder.answer("How many?")
+        XCTAssertEqual(turn.engine, .fallback)
+        XCTAssertEqual(turn.answer.text, "Daily limit.")
+        XCTAssertFalse(turn.answer.text.contains("secret"))
+        XCTAssertEqual(script.models, [.privateCloud])
+    }
+
     func testShelfLookupIsPure() {
         XCTAssertEqual(ShelfTool.lookup("tomato", stock: ["tomatoes": "4"]), "tomato: 4")
         XCTAssertEqual(ShelfTool.lookup("  ", stock: ["tomatoes": "4"]), "Which item?")
@@ -436,11 +612,13 @@ final class AskOnDeviceTests: XCTestCase {
 
     private func makeResponder(
         script: ScriptedOnDeviceSessions,
+        model: AskAnswerModel = .onDevice,
         allowModel: Bool = true,
         environment: AskOnDeviceEnvironment = .fixed(),
         fallback: @escaping @MainActor (String, AskOnDeviceFallbackCause) -> AskOnDeviceAnswer
     ) -> AskOnDeviceResponder {
         AskOnDeviceResponder(
+            model: model,
             allowModel: allowModel,
             instructions: { "Use the shelf tool." },
             tools: { [ShelfTool()] },
@@ -527,6 +705,7 @@ private final class ScriptedOnDeviceSession: AskOnDeviceGenerating {
 private final class ScriptedOnDeviceSessions {
     var instructions: [String] = []
     var toolNames: [[String]] = []
+    var models: [AskAnswerModel] = []
     var sessionsMade: [ScriptedOnDeviceSession] = []
     var handler: (String) async throws -> Any = { _ in
         AskOnDeviceAnswerDraft(text: "ok", citedIDs: [], reason: "")
@@ -536,9 +715,10 @@ private final class ScriptedOnDeviceSessions {
 
     var factory: AskOnDeviceSessions {
         if let storedFactory { return storedFactory }
-        let made = AskOnDeviceSessions { [self] instructions, tools in
+        let made = AskOnDeviceSessions { [self] instructions, tools, model in
             self.instructions.append(instructions)
             self.toolNames.append(tools.map(\.name))
+            self.models.append(model)
             let session = ScriptedOnDeviceSession()
             session.handler = { [self] prompt in
                 try await self.handler(prompt)

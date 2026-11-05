@@ -1,27 +1,55 @@
 import Foundation
-#if ASK_FOUNDATION_MODELS
+#if ASK_FOUNDATION_MODELS || os(watchOS)
 import FoundationModels
 #endif
 
-/// Where an on-device answer came from.
+/// Where an answer came from.
 public enum AskOnDeviceEngine: String, Sendable, Equatable {
-    /// The persistent on-device `LanguageModelSession` produced the structured answer.
+    /// The persistent `LanguageModelSession` produced the structured answer.
     case foundationModels
     /// The app's fallback ran.
     case fallback
 }
 
-/// Why this layer will not open an on-device session.
+/// Which model a responder keeps for the life of its session.
+///
+/// `.onDevice` is the default. `.privateCloud` uses `PrivateCloudComputeLanguageModel`.
+/// Apple Watch has no on-device model and does not borrow the paired iPhone's. A watch app passes `.privateCloud`.
+public enum AskAnswerModel: String, Sendable, Equatable, CaseIterable {
+    case onDevice
+    case privateCloud
+}
+
+/// The managed entitlement a host app adds before Private Cloud Compute will answer.
+///
+/// Apple's page for this key lists iOS, iPadOS, macOS, visionOS, and watchOS 27.0 and later.
+/// It does not list tvOS. Adding the key does not grant access. Apple assigns the managed entitlement
+/// to the developer account. See Accessing Private Cloud Compute.
+public enum AskPrivateCloudEntitlement {
+    public static let key = "com.apple.developer.private-cloud-compute"
+}
+
+/// Why this layer will not open a session.
 public enum AskOnDeviceUnavailability: String, Sendable, Equatable {
-    /// Apple TV, Apple Watch, or a build compiled without Foundation Models.
+    /// This build has neither the on-device model nor Private Cloud Compute.
     case unsupportedPlatform
     /// The operating system is older than 27.3.
     case operatingSystem
     case deviceNotEligible
     case appleIntelligenceNotEnabled
     case modelNotReady
+    /// Private Cloud Compute is installed but not ready.
+    case systemNotReady
     /// The caller set `allowModel` to false.
     case turnedOff
+    /// The chosen model is the on-device system model, and this platform has none. Apple Watch is this case.
+    case onDeviceUnavailable
+    /// Private Cloud Compute is not part of this build. Apple's docs omit tvOS.
+    case privateCloudUnavailable
+    /// `quotaUsage.isLimitReached` is true, or the model threw `quotaLimitReached`.
+    case quotaReached
+    /// Private Cloud Compute needs a network path.
+    case offline
 }
 
 /// Whether the next question may open, or continue, an on-device session.
@@ -43,6 +71,13 @@ public enum AskOnDeviceModelReport: Sendable, Equatable {
     case modelNotReady
 }
 
+/// Private Cloud Compute availability, detached from the system type so tests can supply it.
+public enum AskPrivateCloudReport: Sendable, Equatable {
+    case available
+    case deviceNotEligible
+    case systemNotReady
+}
+
 /// Why the fallback answered this turn.
 public enum AskOnDeviceFallbackCause: Sendable, Equatable {
     /// The 27.3 session was out of bounds, or the caller turned the model off.
@@ -53,10 +88,14 @@ public enum AskOnDeviceFallbackCause: Sendable, Equatable {
     case modelFailed
     /// The model returned a structured answer with an empty sentence.
     case emptyAnswer
-    /// The instructions alone are larger than the 8,192-token on-device window.
+    /// The instructions alone are larger than the model's context window.
     case instructionsTooLong
     /// Another turn is already using this responder's session.
     case busy
+    /// The person's Private Cloud Compute quota is used up.
+    case quotaReached
+    /// Private Cloud Compute needs a network path.
+    case offline
 }
 
 /// The structured answer a person reads.
@@ -92,21 +131,26 @@ public struct AskOnDeviceTurn<Answer: Sendable>: Sendable {
 
 extension AskOnDeviceTurn: Equatable where Answer: Equatable {}
 
-/// The 27.3 line for a persistent on-device answer session.
+/// The 27.3 line for a persistent answer session.
 ///
 /// Foundation Models exists on earlier 27 releases. This layer opens a session on iOS 27.3,
-/// macOS 27.3, Mac Catalyst 27.3, and visionOS 27.3, and only when the system model reports
-/// itself available. Every other case uses the app's fallback.
+/// macOS 27.3, Mac Catalyst 27.3, visionOS 27.3, and watchOS 27.3. The watch session is
+/// Private Cloud Compute. Apple's Private Cloud Compute pages do not list tvOS, so Apple TV
+/// stays on the fallback. Every other miss uses the app's fallback.
 public enum AskOnDeviceBoundary {
     public static let major = 27
     public static let minor = 3
 
-    /// On-device context window this layer plans for, in tokens.
-    /// 27.3 raised it from 4,096 to 8,192 on most devices. Read the live `contextSize` when a session is open;
-    /// this constant is the budget an app can check before it sends a prompt.
+    /// Usual on-device window, in tokens, used only when `contextSize` cannot be read.
+    /// A 27.3 device may report 8,192. Apple's Private Cloud Compute article still lists the on-device model at 4K.
+    /// The responder uses the value the model reports.
     public static let onDeviceTokenWindow = 8_192
 
-    /// The on-device window from before that increase. Instructions that fit here also fit on 27.3.
+    /// Usual Private Cloud Compute window, in tokens, used only when `contextSize` throws or returns nothing.
+    /// Apple documents this model at 32K. The responder uses the value the model reports.
+    public static let privateCloudTokenWindow = 32_768
+
+    /// The on-device window from before the later increase. Instructions that fit here also fit in a larger window.
     public static let legacyOnDeviceTokenWindow = 4_096
 
     /// Share of ``onDeviceTokenWindow`` that instructions should stay under so tool results still fit.
@@ -128,8 +172,17 @@ public enum AskOnDeviceBoundary {
         AskReplyBudget.estimatedTokens(for: text)
     }
 
-    /// True when the instructions fit in the whole on-device window.
-    /// The responder uses the fallback when this is false. Data belongs in tools, not in this string.
+    /// The window a session should budget against. A positive `contextSize` wins. Zero or a failed read uses the usual size for that model.
+    public static func resolvedContextSize(reported: Int?, choice: AskAnswerModel) -> Int {
+        if let reported, reported > 0 { return reported }
+        switch choice {
+        case .onDevice: return onDeviceTokenWindow
+        case .privateCloud: return privateCloudTokenWindow
+        }
+    }
+
+    /// True when the instructions fit in `window`.
+    /// The responder passes the model's `contextSize`. Data belongs in tools, not in this string.
     public static func instructionsFit(_ text: String, window: Int = onDeviceTokenWindow) -> Bool {
         estimatedTokens(in: text) <= max(window, 0)
     }
@@ -142,27 +195,63 @@ public enum AskOnDeviceBoundary {
 
     public static func availability(
         allowModel: Bool,
-        platformSupportsFoundationModels: Bool,
+        choice: AskAnswerModel = .onDevice,
+        onDeviceSupported: Bool,
+        privateCloudSupported: Bool = true,
         operatingSystemAllows: Bool,
-        model: AskOnDeviceModelReport
+        onDevice: AskOnDeviceModelReport = .available,
+        privateCloud: AskPrivateCloudReport = .available,
+        quotaLimitReached: Bool = false,
+        online: Bool = true
     ) -> AskOnDeviceAvailability {
         guard allowModel else { return .unavailable(.turnedOff) }
-        guard platformSupportsFoundationModels else { return .unavailable(.unsupportedPlatform) }
+        switch choice {
+        case .onDevice:
+            guard onDeviceSupported else { return .unavailable(.onDeviceUnavailable) }
+        case .privateCloud:
+            guard privateCloudSupported else { return .unavailable(.privateCloudUnavailable) }
+        }
         guard operatingSystemAllows else { return .unavailable(.operatingSystem) }
-        switch model {
-        case .available:
-            return .available
-        case .deviceNotEligible:
-            return .unavailable(.deviceNotEligible)
-        case .appleIntelligenceNotEnabled:
-            return .unavailable(.appleIntelligenceNotEnabled)
-        case .modelNotReady:
-            return .unavailable(.modelNotReady)
+        switch choice {
+        case .onDevice:
+            switch onDevice {
+            case .available:
+                return .available
+            case .deviceNotEligible:
+                return .unavailable(.deviceNotEligible)
+            case .appleIntelligenceNotEnabled:
+                return .unavailable(.appleIntelligenceNotEnabled)
+            case .modelNotReady:
+                return .unavailable(.modelNotReady)
+            }
+        case .privateCloud:
+            guard online else { return .unavailable(.offline) }
+            guard !quotaLimitReached else { return .unavailable(.quotaReached) }
+            switch privateCloud {
+            case .available:
+                return .available
+            case .deviceNotEligible:
+                return .unavailable(.deviceNotEligible)
+            case .systemNotReady:
+                return .unavailable(.systemNotReady)
+            }
         }
     }
 
-    static var platformSupportsFoundationModels: Bool {
+    /// The on-device system model is compiled in. Apple Watch and Apple TV are not in this set.
+    /// `SystemLanguageModel` lists tvOS 27.3 as beta and does not list watchOS. This package still
+    /// leaves the on-device session off tvOS, with the rest of the receptionist.
+    static var onDeviceSupported: Bool {
         #if ASK_FOUNDATION_MODELS
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Private Cloud Compute is compiled in. Apple's type lists watchOS and omits tvOS.
+    static var privateCloudSupported: Bool {
+        #if ASK_FOUNDATION_MODELS || os(watchOS)
         true
         #else
         false
@@ -176,17 +265,56 @@ public enum AskOnDeviceBoundary {
             return false
         }
         return allows(ProcessInfo.processInfo.operatingSystemVersion)
+        #elseif os(watchOS)
+        guard #available(watchOS 27.3, *) else {
+            return false
+        }
+        return allows(ProcessInfo.processInfo.operatingSystemVersion)
         #else
         return false
         #endif
     }
 
-    static func liveModelReport() -> AskOnDeviceModelReport {
+    static func liveOnDeviceReport() -> AskOnDeviceModelReport {
         #if ASK_FOUNDATION_MODELS
         report(SystemLanguageModel.default.availability)
         #else
         .modelNotReady
         #endif
+    }
+
+    static func livePrivateCloudReport() -> AskPrivateCloudReport {
+        #if ASK_FOUNDATION_MODELS || os(watchOS)
+        report(PrivateCloudComputeLanguageModel().availability)
+        #else
+        .systemNotReady
+        #endif
+    }
+
+    static func liveQuotaLimitReached() -> Bool {
+        #if ASK_FOUNDATION_MODELS || os(watchOS)
+        PrivateCloudComputeLanguageModel().quotaUsage.isLimitReached
+        #else
+        false
+        #endif
+    }
+
+    static func liveContextSize(_ choice: AskAnswerModel) async -> Int {
+        switch choice {
+        case .onDevice:
+            #if ASK_FOUNDATION_MODELS
+            return resolvedContextSize(reported: SystemLanguageModel.default.contextSize, choice: .onDevice)
+            #else
+            return onDeviceTokenWindow
+            #endif
+        case .privateCloud:
+            #if ASK_FOUNDATION_MODELS || os(watchOS)
+            let reported = try? await PrivateCloudComputeLanguageModel().contextSize
+            return resolvedContextSize(reported: reported, choice: .privateCloud)
+            #else
+            return privateCloudTokenWindow
+            #endif
+        }
     }
 
     #if ASK_FOUNDATION_MODELS
@@ -208,35 +336,80 @@ public enum AskOnDeviceBoundary {
         }
     }
     #endif
+
+    #if ASK_FOUNDATION_MODELS || os(watchOS)
+    static func report(_ availability: PrivateCloudComputeLanguageModel.Availability) -> AskPrivateCloudReport {
+        switch availability {
+        case .available:
+            return .available
+        case .unavailable(let reason):
+            switch reason {
+            case .deviceNotEligible:
+                return .deviceNotEligible
+            case .systemNotReady:
+                return .systemNotReady
+            @unknown default:
+                return .systemNotReady
+            }
+        }
+    }
+    #endif
 }
 
 struct AskOnDeviceEnvironment: Sendable {
-    var platformSupportsFoundationModels: Bool
+    var onDeviceSupported: Bool
+    var privateCloudSupported: Bool
     var operatingSystemAllows: @Sendable () -> Bool
-    var model: @Sendable () -> AskOnDeviceModelReport
+    var onDevice: @Sendable () -> AskOnDeviceModelReport
+    var privateCloud: @Sendable () -> AskPrivateCloudReport
+    var quotaLimitReached: @Sendable () -> Bool
+    var online: @Sendable () -> Bool
+    var contextSize: @Sendable () async -> Int
 
-    static var live: AskOnDeviceEnvironment {
+    static func live(choice: AskAnswerModel) -> AskOnDeviceEnvironment {
         AskOnDeviceEnvironment(
-            platformSupportsFoundationModels: AskOnDeviceBoundary.platformSupportsFoundationModels,
+            onDeviceSupported: AskOnDeviceBoundary.onDeviceSupported,
+            privateCloudSupported: AskOnDeviceBoundary.privateCloudSupported,
             operatingSystemAllows: { AskOnDeviceBoundary.liveOperatingSystemAllows() },
-            model: { AskOnDeviceBoundary.liveModelReport() }
+            onDevice: { AskOnDeviceBoundary.liveOnDeviceReport() },
+            privateCloud: { AskOnDeviceBoundary.livePrivateCloudReport() },
+            quotaLimitReached: { AskOnDeviceBoundary.liveQuotaLimitReached() },
+            online: { AskNetwork.isOnline },
+            contextSize: { await AskOnDeviceBoundary.liveContextSize(choice) }
         )
     }
 
     static func fixed(
-        platformSupportsFoundationModels: Bool = true,
+        onDeviceSupported: Bool = true,
+        privateCloudSupported: Bool = true,
         operatingSystemAllows: Bool = true,
-        model: AskOnDeviceModelReport = .available
+        onDevice: AskOnDeviceModelReport = .available,
+        privateCloud: AskPrivateCloudReport = .available,
+        quotaLimitReached: Bool = false,
+        online: Bool = true,
+        contextSize: Int = AskOnDeviceBoundary.onDeviceTokenWindow
     ) -> AskOnDeviceEnvironment {
         AskOnDeviceEnvironment(
-            platformSupportsFoundationModels: platformSupportsFoundationModels,
+            onDeviceSupported: onDeviceSupported,
+            privateCloudSupported: privateCloudSupported,
             operatingSystemAllows: { operatingSystemAllows },
-            model: { model }
+            onDevice: { onDevice },
+            privateCloud: { privateCloud },
+            quotaLimitReached: { quotaLimitReached },
+            online: { online },
+            contextSize: { contextSize }
         )
     }
 }
 
-#if ASK_FOUNDATION_MODELS
+#if os(watchOS)
+/// Apple Watch tools are Foundation Models tools. The receptionist still uses the name-only `AskTool` stub.
+public typealias AskAnswerTool = Tool
+#else
+public typealias AskAnswerTool = AskTool
+#endif
+
+#if ASK_FOUNDATION_MODELS || os(watchOS)
 /// The model's copy of ``AskOnDeviceAnswer``. Cited ids are filtered after generation.
 @Generable
 struct AskOnDeviceAnswerDraft: Sendable {
@@ -257,11 +430,11 @@ protocol AskOnDeviceGenerating: AnyObject {
 }
 
 struct AskOnDeviceSessions {
-    var make: @MainActor (_ instructions: String, _ tools: [any AskTool]) -> any AskOnDeviceGenerating
+    var make: @MainActor (_ instructions: String, _ tools: [any AskAnswerTool], _ model: AskAnswerModel) -> any AskOnDeviceGenerating
 
     static var live: AskOnDeviceSessions {
-        AskOnDeviceSessions { instructions, tools in
-            AskOnDeviceLiveSession(instructions: instructions, tools: tools)
+        AskOnDeviceSessions { instructions, tools, model in
+            AskOnDeviceLiveSession(instructions: instructions, tools: tools, model: model)
         }
     }
 }
@@ -270,10 +443,28 @@ struct AskOnDeviceSessions {
 final class AskOnDeviceLiveSession: AskOnDeviceGenerating {
     private let session: LanguageModelSession
 
-    init(instructions: String, tools: [any AskTool]) {
+    init(instructions: String, tools: [any AskAnswerTool], model: AskAnswerModel) {
         session = LanguageModelSession(
-            profile: AskOnDeviceProfile(instructions: instructions, tools: tools)
+            profile: AskOnDeviceProfile(
+                instructions: instructions,
+                tools: tools,
+                model: Self.languageModel(for: model)
+            )
         )
+    }
+
+    private static func languageModel(for choice: AskAnswerModel) -> any LanguageModel {
+        switch choice {
+        case .privateCloud:
+            return PrivateCloudComputeLanguageModel()
+        case .onDevice:
+            #if ASK_FOUNDATION_MODELS
+            return SystemLanguageModel.default
+            #else
+            // Apple Watch has no on-device model. Availability rejects this choice before a session opens.
+            preconditionFailure("Apple Watch has no on-device Foundation Model.")
+            #endif
+        }
     }
 
     func respond<Answer: Generable & Sendable>(
@@ -286,7 +477,8 @@ final class AskOnDeviceLiveSession: AskOnDeviceGenerating {
 
 struct AskOnDeviceProfile: LanguageModelSession.DynamicProfile {
     var instructions: String
-    var tools: [any AskTool]
+    var tools: [any AskAnswerTool]
+    var model: any LanguageModel
 
     /// A failed turn rolls the transcript back, so the next question still sees the earlier ones.
     var body: some LanguageModelSession.DynamicProfile {
@@ -294,7 +486,7 @@ struct AskOnDeviceProfile: LanguageModelSession.DynamicProfile {
             Instructions(instructions)
             tools
         }
-        .model(SystemLanguageModel.default)
+        .model(model)
         .toolCallingMode(.allowed)
         .transcriptErrorHandlingPolicy(.revertTranscript)
     }
@@ -305,62 +497,77 @@ struct AskOnDeviceSessions {
 }
 #endif
 
-/// A persistent on-device answer session for an app that supplies its own tools and prompts.
+/// A persistent answer session for an app that supplies its own tools and prompts.
 ///
 /// One responder keeps one `LanguageModelSession`. A follow-up is another turn in that transcript.
 /// `reset()` drops the session. Instructions and tools are read when the session opens, so call
 /// `reset()` when the instructions should change. A tool reads the app's data at call time.
 ///
-/// Facts stay in the tools. The instructions are the prompt. ``AskOnDeviceBoundary/onDeviceTokenWindow``
-/// is 8,192 tokens, the 27.3 on-device window on most devices.
+/// `model` chooses the on-device system model or `PrivateCloudComputeLanguageModel`. The default is
+/// on-device. Apple Watch passes `.privateCloud`. The watch has no on-device model and does not use
+/// the paired iPhone's. Apple TV stays on the fallback: Private Cloud Compute's type and entitlement
+/// omit tvOS.
 ///
-/// The session opens when `allowModel` is true, the platform has Foundation Models, the OS is 27.3
-/// or later, and the system model is available. Otherwise `fallback` answers. A thrown model error,
-/// an empty sentence, or instructions that do not fit the window do the same.
+/// Facts stay in the tools. The instructions are the prompt. The fit check reads the model's
+/// `contextSize`. ``AskOnDeviceBoundary/onDeviceTokenWindow`` and ``AskOnDeviceBoundary/privateCloudTokenWindow``
+/// are the usual sizes when that read fails.
+///
+/// The session opens when `allowModel` is true, the OS is 27.3 or later, the chosen model is
+/// supported here, and that model reports itself available. Private Cloud Compute also needs a
+/// network path, the managed entitlement, and `quotaUsage.isLimitReached == false`. Otherwise
+/// `fallback` answers. A thrown model error, an empty sentence, or instructions that do not fit
+/// the reported window do the same.
 @MainActor
 public final class AskOnDeviceResponder {
+    private let model: AskAnswerModel
     private let allowModel: Bool
     private let instructions: @MainActor () -> String
-    private let tools: @MainActor () -> [any AskTool]
+    private let tools: @MainActor () -> [any AskAnswerTool]
     private let acceptCitation: @Sendable (String) -> Bool
     private let fallback: @MainActor (String, AskOnDeviceFallbackCause) -> AskOnDeviceAnswer
     private let environment: AskOnDeviceEnvironment
     private let sessions: AskOnDeviceSessions
     private var responding = false
-    #if ASK_FOUNDATION_MODELS
+    #if ASK_FOUNDATION_MODELS || os(watchOS)
     private var session: (any AskOnDeviceGenerating)?
     #endif
 
     /// `instructions` and `tools` run on the turn that opens the session.
     /// `acceptCitation` drops identifiers the app does not have. It runs on the built-in schema only.
     /// `fallback` answers when the model does not.
+    /// `model` is fixed for the life of the responder. `.onDevice` is the default.
+    /// On Apple Watch, pass `.privateCloud`.
     public init(
+        model: AskAnswerModel = .onDevice,
         allowModel: Bool = true,
         instructions: @escaping @MainActor () -> String,
-        tools: @escaping @MainActor () -> [any AskTool] = { [] },
+        tools: @escaping @MainActor () -> [any AskAnswerTool] = { [] },
         acceptCitation: @escaping @Sendable (String) -> Bool = { _ in true },
         fallback: @escaping @MainActor (_ utterance: String, _ cause: AskOnDeviceFallbackCause) -> AskOnDeviceAnswer
     ) {
         self.init(
+            model: model,
             allowModel: allowModel,
             instructions: instructions,
             tools: tools,
             acceptCitation: acceptCitation,
             fallback: fallback,
-            environment: .live,
+            environment: .live(choice: model),
             sessions: .live
         )
     }
 
     init(
+        model: AskAnswerModel = .onDevice,
         allowModel: Bool = true,
         instructions: @escaping @MainActor () -> String,
-        tools: @escaping @MainActor () -> [any AskTool] = { [] },
+        tools: @escaping @MainActor () -> [any AskAnswerTool] = { [] },
         acceptCitation: @escaping @Sendable (String) -> Bool = { _ in true },
         fallback: @escaping @MainActor (String, AskOnDeviceFallbackCause) -> AskOnDeviceAnswer,
         environment: AskOnDeviceEnvironment,
         sessions: AskOnDeviceSessions
     ) {
+        self.model = model
         self.allowModel = allowModel
         self.instructions = instructions
         self.tools = tools
@@ -370,12 +577,19 @@ public final class AskOnDeviceResponder {
         self.sessions = sessions
     }
 
+    public var modelChoice: AskAnswerModel { model }
+
     public var availability: AskOnDeviceAvailability {
         AskOnDeviceBoundary.availability(
             allowModel: allowModel,
-            platformSupportsFoundationModels: environment.platformSupportsFoundationModels,
+            choice: model,
+            onDeviceSupported: environment.onDeviceSupported,
+            privateCloudSupported: environment.privateCloudSupported,
             operatingSystemAllows: environment.operatingSystemAllows(),
-            model: environment.model()
+            onDevice: environment.onDevice(),
+            privateCloud: environment.privateCloud(),
+            quotaLimitReached: environment.quotaLimitReached(),
+            online: environment.online()
         )
     }
 
@@ -384,7 +598,7 @@ public final class AskOnDeviceResponder {
     /// Drops the session. The next question that reaches the model opens a new one,
     /// with whatever `instructions` and `tools` return then.
     public func reset() {
-        #if ASK_FOUNDATION_MODELS
+        #if ASK_FOUNDATION_MODELS || os(watchOS)
         session = nil
         #endif
     }
@@ -404,7 +618,7 @@ public final class AskOnDeviceResponder {
         }
     }
 
-    #if ASK_FOUNDATION_MODELS
+    #if ASK_FOUNDATION_MODELS || os(watchOS)
     /// Answers with the app's `@Generable` type. Use one answer type for the life of the responder.
     /// The built-in citation filter does not run on this type. The app checks identifiers itself.
     public func answer<Answer: Generable & Sendable>(
@@ -434,8 +648,8 @@ public final class AskOnDeviceResponder {
     }
 
     private func answerBuiltIn(_ utterance: String) async -> AskOnDeviceTurn<AskOnDeviceAnswer> {
-        #if ASK_FOUNDATION_MODELS
-        switch openSession() {
+        #if ASK_FOUNDATION_MODELS || os(watchOS)
+        switch await openSession() {
         case .failure(let cause):
             return finish(fallback(utterance, cause), engine: .fallback, continuedSession: false, cause: cause)
         case .success(let opened):
@@ -461,7 +675,7 @@ public final class AskOnDeviceResponder {
                 )
                 return finish(answer, engine: .foundationModels, continuedSession: opened.continuedSession, cause: nil)
             } catch {
-                let cause: AskOnDeviceFallbackCause = AskModelSafety.isBlocked(error) ? .blocked : .modelFailed
+                let cause = Self.failureCause(error)
                 return finish(
                     fallback(utterance, cause),
                     engine: .fallback,
@@ -471,20 +685,20 @@ public final class AskOnDeviceResponder {
             }
         }
         #else
-        // The session factory is unused where Foundation Models is not compiled in.
+        // Apple TV, and any build without Foundation Models, never opens a session.
         _ = sessions
-        let cause = unavailableCause(availability)
+        let cause = failureCause(for: availability)
         return finish(fallback(utterance, cause), engine: .fallback, continuedSession: false, cause: cause)
         #endif
     }
 
-    #if ASK_FOUNDATION_MODELS
+    #if ASK_FOUNDATION_MODELS || os(watchOS)
     private func answerGenerated<Answer: Generable & Sendable>(
         _ utterance: String,
         generating type: Answer.Type,
         fallback: @escaping @MainActor (String, AskOnDeviceFallbackCause) -> Answer
     ) async -> AskOnDeviceTurn<Answer> {
-        switch openSession() {
+        switch await openSession() {
         case .failure(let cause):
             return finish(fallback(utterance, cause), engine: .fallback, continuedSession: false, cause: cause)
         case .success(let opened):
@@ -492,7 +706,7 @@ public final class AskOnDeviceResponder {
                 let answer = try await opened.session.respond(to: utterance, generating: type)
                 return finish(answer, engine: .foundationModels, continuedSession: opened.continuedSession, cause: nil)
             } catch {
-                let cause: AskOnDeviceFallbackCause = AskModelSafety.isBlocked(error) ? .blocked : .modelFailed
+                let cause = Self.failureCause(error)
                 return finish(
                     fallback(utterance, cause),
                     engine: .fallback,
@@ -508,33 +722,63 @@ public final class AskOnDeviceResponder {
         var continuedSession: Bool
     }
 
-    private func openSession() -> Result<OpenedSession, AskOnDeviceFallbackCause> {
+    private func openSession() async -> Result<OpenedSession, AskOnDeviceFallbackCause> {
         let availability = self.availability
         guard availability.isAvailable else {
-            return .failure(unavailableCause(availability))
+            return .failure(failureCause(for: availability))
         }
         if let session {
             return .success(OpenedSession(session: session, continuedSession: true))
         }
+        let reported = await environment.contextSize()
+        let window = AskOnDeviceBoundary.resolvedContextSize(reported: reported, choice: model)
+        AskTrace.attribute("contextSize", String(window))
+        AskTrace.attribute("model", model.rawValue)
         let text = instructions()
-        guard AskOnDeviceBoundary.instructionsFit(text) else {
+        guard AskOnDeviceBoundary.instructionsFit(text, window: window) else {
             return .failure(.instructionsTooLong)
         }
         let toolList = tools()
         AskTrace.attribute("tools", toolList.map(\.name).joined(separator: ", "))
-        let made = sessions.make(text, toolList)
+        let made = sessions.make(text, toolList, model)
         session = made
         return .success(OpenedSession(session: made, continuedSession: false))
     }
     #endif
 
-    private func unavailableCause(_ availability: AskOnDeviceAvailability) -> AskOnDeviceFallbackCause {
+    private func failureCause(for availability: AskOnDeviceAvailability) -> AskOnDeviceFallbackCause {
         switch availability {
         case .available:
             return .unavailable(.unsupportedPlatform)
         case .unavailable(let reason):
-            return .unavailable(reason)
+            switch reason {
+            case .quotaReached:
+                return .quotaReached
+            case .offline:
+                return .offline
+            default:
+                return .unavailable(reason)
+            }
         }
+    }
+
+    private static func failureCause(_ error: Error) -> AskOnDeviceFallbackCause {
+        if AskModelSafety.isBlocked(error) { return .blocked }
+        #if ASK_FOUNDATION_MODELS || os(watchOS)
+        if let cloud = error as? PrivateCloudComputeLanguageModel.Error {
+            switch cloud {
+            case .quotaLimitReached:
+                return .quotaReached
+            case .networkFailure:
+                return .offline
+            case .serviceUnavailable:
+                return .modelFailed
+            @unknown default:
+                return .modelFailed
+            }
+        }
+        #endif
+        return .modelFailed
     }
 
     private func finish<Answer: Sendable>(
@@ -578,6 +822,10 @@ public final class AskOnDeviceResponder {
             return "instructionsTooLong"
         case .busy:
             return "busy"
+        case .quotaReached:
+            return "quotaReached"
+        case .offline:
+            return "offline"
         }
     }
 }

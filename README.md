@@ -11,7 +11,7 @@ AskKit is a receptionist for iOS 27. An app registers domains and skills. A pers
 
 The package does not know about a particular app's screens, accounts, or catalogs. United's Ask United app is not this package.
 
-An app that wants one lasting on-device conversation supplies its own tools and prompt to `AskOnDeviceResponder`. The receptionist starts a fresh session for each hop. See [On-device answer](#on-device-answer).
+An app that wants one lasting conversation supplies its own tools and prompt to `AskOnDeviceResponder`. The default model is on-device. Apple Watch uses Private Cloud Compute. The receptionist starts a fresh session for each hop. See [On-device answer](#on-device-answer).
 
 Add the library product `AskKit` and `import AskKit`. The package is iOS 27.
 
@@ -45,11 +45,17 @@ Operational facts come from the app's tools and from the skill handler. They do 
 
 ## On-device answer
 
-`AskOnDeviceResponder` keeps one `LanguageModelSession` for the whole conversation. A follow-up is another turn in that transcript, so "and the one after that?" can see the earlier question. `reset()` drops the session. The next question opens a new one and reads the instructions and tools again. The session uses `SystemLanguageModel.default`. The chat menu's Private Cloud choice stays with the receptionist.
+`AskOnDeviceResponder` keeps one `LanguageModelSession` for the whole conversation. A follow-up is another turn in that transcript, so "and the one after that?" can see the earlier question. `reset()` drops the session. The next question opens a new one and reads the instructions and tools again. `model` chooses the model for that session. The default is `.onDevice` (`SystemLanguageModel.default`). `.privateCloud` uses `PrivateCloudComputeLanguageModel`. The chat menu's Private Cloud choice stays with the receptionist. This responder uses the model you pass.
 
-The session opens when four checks pass. `allowModel` is left on. The build includes Foundation Models, which is iOS, macOS, Mac Catalyst, and visionOS. The operating system is 27.3 or later (`iOS 27.3`, `macOS 27.3`, `macCatalyst 27.3`, `visionOS 27.3`). `SystemLanguageModel.default.availability` is `.available`. Apple TV and Apple Watch have no model, so they stay on the fallback. A 27.0, 27.1, or 27.2 device stays on the fallback too. Apple Intelligence off, a device that is not eligible, and a model that is not ready stay on the fallback. `allowModel: false` forces the fallback, which is how a test or a setting skips the model. `availability` reports which of those it was. `AskOnDeviceBoundary.allows(major:minor:)` is the same 27.3 line as a plain version check.
+The session opens when the checks for that model pass. `allowModel` is left on. The operating system is 27.3 or later (`iOS 27.3`, `macOS 27.3`, `macCatalyst 27.3`, `visionOS 27.3`, and `watchOS 27.3` for Private Cloud Compute). The chosen model reports itself available. `allowModel: false` forces the fallback, which is how a test or a setting skips the model. `availability` reports which check failed. `AskOnDeviceBoundary.allows(major:minor:)` is the same 27.3 line as a plain version check.
 
-The app supplies the prompt, the tools, and the fallback. Instructions are read once, when the session opens. Tools are read then too. Each tool reads the app's current data when the model calls it, so a record saved after the session opened is still visible. Put the catalog in the tool, and keep the instructions to how to call the tools. 27.3 gives most devices an 8,192-token on-device window, up from 4,096. `AskOnDeviceBoundary.onDeviceTokenWindow` is 8,192, and `legacyOnDeviceTokenWindow` is 4,096. `instructionsFit` checks the whole 8,192-token window. A prompt that does not fit uses the fallback and does not open a session. `instructionsFitComfortably` is a quarter of that window, which leaves room for the tool results. Call `reset()` when the instructions should change, such as when the day changes.
+Apple Watch has no on-device system model. A watch request does not run on the paired iPhone. Pass `.privateCloud`. Private Cloud Compute on watchOS 27 goes over the network. It needs a network path. Offline is `cause` `.offline`. The host app adds the managed entitlement `com.apple.developer.private-cloud-compute` (`AskPrivateCloudEntitlement.key`). Apple assigns that entitlement to the developer account. The key alone does not grant access. Apple's entitlement page lists iOS, iPadOS, macOS, visionOS, and watchOS 27.0 and later.
+
+Apple's `PrivateCloudComputeLanguageModel` page lists those same platforms and does not list tvOS. The entitlement page does not list tvOS either. This layer does not call Private Cloud Compute on Apple TV. `SystemLanguageModel` lists tvOS 27.3 as beta and does not list watchOS. The on-device session in this package stays on iOS, macOS, Mac Catalyst, and visionOS, with the rest of the receptionist. An Apple TV question uses the fallback.
+
+Private Cloud Compute is for Apple Intelligence devices. Each person has an iCloud quota. Before a cloud turn, the responder reads `quotaUsage.isLimitReached`. When that is true, or the model throws `quotaLimitReached`, the cause is `.quotaReached` and the fallback answers. A network failure while the call is running is `.offline`.
+
+The app supplies the prompt, the tools, and the fallback. Instructions are read once, when the session opens. Tools are read then too. Each tool reads the app's current data when the model calls it, so a record saved after the session opened is still visible. Put the catalog in the tool, and keep the instructions to how to call the tools. The fit check reads that model's `contextSize`. A positive read is the window. A failed or empty read uses `AskOnDeviceBoundary.onDeviceTokenWindow` (8,192) or `privateCloudTokenWindow` (32,768). Apple's Private Cloud Compute article lists the on-device model at 4K and Private Cloud Compute at 32K. A later on-device model may report 8,192. `legacyOnDeviceTokenWindow` is 4,096. `instructionsFitComfortably` is a quarter of whichever window you pass, which leaves room for the tool results. A prompt that does not fit uses the fallback and does not open a session. Call `reset()` when the instructions should change, such as when the day changes.
 
 `answer(_:)` asks the model for a sentence, the identifiers the tools returned, and a short reason. Pass `acceptCitation` with the ids the app actually has. Any other id is dropped, and a blank id is dropped. An empty sentence uses the fallback. A thrown error uses the fallback. A guardrail or a refusal passes `cause` `.blocked`, and the fallback should answer without repeating the person's words. The live session uses `transcriptErrorHandlingPolicy(.revertTranscript)`, so a failed turn rolls back and the next turn still has the earlier ones. A second call that arrives while a turn is running gets `cause` `.busy` and does not call the model.
 
@@ -104,6 +110,28 @@ let responder = AskOnDeviceResponder(
     }
 )
 let turn = await responder.answer("How many tomatoes?")
+
+// Apple Watch. Same tools and fallback. The session is Private Cloud Compute.
+let watch = AskOnDeviceResponder(
+    model: .privateCloud,
+    instructions: {
+        "You answer questions about what is on the shelf. Use the shelf tool for every count. Do not invent one."
+    },
+    tools: { [ShelfTool(shelf: shelf)] },
+    acceptCitation: { shelf.items.keys.contains($0) },
+    fallback: { _, cause in
+        if cause == .quotaReached {
+            return AskOnDeviceAnswer(text: "The daily Private Cloud Compute limit is used up.")
+        }
+        if cause == .offline {
+            return AskOnDeviceAnswer(text: "Private Cloud Compute needs a network connection.")
+        }
+        let lines = shelf.items.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }
+        let text = lines.isEmpty ? "The shelf is empty." : lines.joined(separator: ", ")
+        return AskOnDeviceAnswer(text: text)
+    }
+)
+let watched = await watch.answer("How many tomatoes?")
 ```
 
 An app that wants different fields uses its own `@Generable` type for every turn on that responder.
@@ -603,7 +631,7 @@ Share from a turn includes a picture of the question, the answer, and the cards,
 
 ## Tests
 
-The package tests use a scripted model, so they do not need Apple Intelligence. `AskOnDeviceTests` scripts the persistent session the same way. It checks the 27.3 version line, the instruction budget, fallback causes, and that a follow-up reuses one session. It does not call `SystemLanguageModel.default` or `LanguageModelSession`. Run the package tests on an iOS 27 simulator:
+The package tests use a scripted model, so they do not need Apple Intelligence. `AskOnDeviceTests` scripts the persistent session the same way. It checks the 27.3 version line, a reported `contextSize` against the usual 8,192 and 32,768 windows, quota and offline fallbacks, a watch-shaped device that can use Private Cloud Compute and has no on-device model, and an Apple TV-shaped device that is not offered Private Cloud Compute. It does not call `SystemLanguageModel.default`, `PrivateCloudComputeLanguageModel()`, or `LanguageModelSession`. Run the package tests on an iOS 27 simulator:
 
 ```sh
 xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'
