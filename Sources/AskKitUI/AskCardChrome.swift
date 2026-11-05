@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AppIntents
 import AskKit
 import AskKitIntents
@@ -199,3 +200,4 @@ extension EnvironmentValues {
     @Entry var cardExpansion: AskCardExpansion?
     @Entry var cardZoomNamespace: Namespace.ID?
 }
+#endif

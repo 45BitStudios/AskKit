@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import AskKitSurface
@@ -3233,3 +3234,4 @@ private final class AskChatScrollKeyboardDismissView: UIView {
 }
 #endif
 
+#endif

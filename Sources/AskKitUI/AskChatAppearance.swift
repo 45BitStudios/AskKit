@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import SwiftUI
@@ -210,3 +211,4 @@ private extension Array where Element == Color {
         indices.contains(index) ? self[index] : fallback
     }
 }
+#endif

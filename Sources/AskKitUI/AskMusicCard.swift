@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AppIntents
 import AskKit
 import AskKitIntents
@@ -334,3 +335,4 @@ struct AskMusicCard: View {
         [item.title, item.artist, item.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 }
+#endif

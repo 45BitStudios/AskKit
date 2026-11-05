@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import Foundation
@@ -308,3 +309,4 @@ private struct AskWeatherHourColumn: View {
         return "\(digits)% rain"
     }
 }
+#endif

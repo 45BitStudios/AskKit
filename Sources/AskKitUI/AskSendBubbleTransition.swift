@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import SwiftUI
@@ -54,3 +55,4 @@ struct AskSendMorphBubble: View {
             .background(appearance.userBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
+#endif

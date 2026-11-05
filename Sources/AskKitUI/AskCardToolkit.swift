@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -333,4 +334,5 @@ struct AskCardToolkitExample: Identifiable {
         )
     ]
 }
+#endif
 #endif

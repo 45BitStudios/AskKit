@@ -86,6 +86,8 @@ let package = Package(
             ],
             swiftSettings: foundationModels
         ),
+        // Compiled out on watchOS. The views use SwiftUI that watchOS does not provide.
+        // Sources/AskKitUI/AskKitUIWatch.swift is the only file that builds there.
         .target(
             name: "AskKitUI",
             dependencies: [

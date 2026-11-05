@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import SwiftUI
@@ -536,4 +537,5 @@ private struct AskOrbGallerySection: View {
         return "Working, then connecting, then searching."
     }
 }
+#endif
 #endif

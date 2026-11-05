@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -175,4 +176,5 @@ struct AskTraceSpanDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+#endif
 #endif

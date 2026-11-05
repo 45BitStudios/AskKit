@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -138,4 +139,5 @@ private struct AskTraceTurnRow: View {
         .padding(.vertical, 2)
     }
 }
+#endif
 #endif

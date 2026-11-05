@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -22,4 +23,5 @@ enum AskTraceImport {
         return nil
     }
 }
+#endif
 #endif

@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import Foundation
@@ -68,3 +69,4 @@ struct AskAlarmCard: View {
         .accessibilityElement(children: .combine)
     }
 }
+#endif

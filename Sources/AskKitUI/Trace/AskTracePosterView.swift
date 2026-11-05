@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -83,4 +84,5 @@ private struct AskTracePosterView: View {
         .frame(maxWidth: .infinity, alignment: leading ? .leading : .trailing)
     }
 }
+#endif
 #endif

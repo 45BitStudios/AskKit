@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 #if canImport(Photos)
@@ -726,4 +727,5 @@ private final class AskPhotoResume: @unchecked Sendable {
         continuation.resume(returning: image)
     }
 }
+#endif
 #endif

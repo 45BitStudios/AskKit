@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import SwiftUI
@@ -45,3 +46,4 @@ public enum AskCardRenderer {
         }
     }
 }
+#endif

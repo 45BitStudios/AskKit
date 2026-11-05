@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -377,4 +378,5 @@ extension AskTraceViewModel {
         return summary
     }
 }
+#endif
 #endif
