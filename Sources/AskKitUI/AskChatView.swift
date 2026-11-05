@@ -5,8 +5,12 @@ import BorderBeamKit
 #if ASK_FOUNDATION_MODELS
 import FoundationModels
 #endif
+#if canImport(Photos)
 import Photos
+#endif
+#if canImport(PhotosUI)
 import PhotosUI
+#endif
 import SwiftData
 import SwiftUI
 import Textual
@@ -1324,6 +1328,7 @@ struct AskCardActions: ViewModifier {
     }
 
     private func save(_ image: AskPlatformImage) async {
+#if canImport(Photos)
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
             note("AskKit doesn't have permission to add photos.")
@@ -1336,6 +1341,10 @@ struct AskCardActions: ViewModifier {
         } catch {
             note("The card could not be saved.")
         }
+#else
+        _ = image
+        note("Photos isn't available on this device.")
+#endif
     }
 
     private func renderedImage() -> AskPlatformImage? {
@@ -2017,6 +2026,7 @@ enum AskImageActions {
 
     /// Nil when the photo is in the library. A string is the reason it was not saved.
     static func save(_ picture: AskPlatformImage) async -> String? {
+#if canImport(Photos)
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
             return "AskKit doesn't have permission to add photos."
@@ -2029,6 +2039,10 @@ enum AskImageActions {
         } catch {
             return "The photo could not be saved."
         }
+#else
+        _ = picture
+        return "Photos isn't available on this device."
+#endif
     }
 }
 

@@ -1,6 +1,8 @@
 import AskKit
 import AskKitIntents
+#if canImport(Photos)
 import Photos
+#endif
 import SwiftUI
 
 /// Opens the library gallery from a photo card. The chat screen owns the zoom namespace.
@@ -681,6 +683,7 @@ enum AskPhotoLibraryImage {
     ) async -> AskPlatformImage? {
         let trimmed = localIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+#if canImport(Photos)
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [trimmed], options: nil)
         guard let asset = assets.firstObject else { return nil }
         let cap: CGFloat = quality == .thumbnail ? 480 : 2400
@@ -703,9 +706,13 @@ enum AskPhotoLibraryImage {
                 once.finish(continuation, image: cancelled ? nil : image)
             }
         }
+#else
+        return nil
+#endif
     }
 }
 
+#if canImport(Photos)
 private final class AskPhotoResume: @unchecked Sendable {
     private let lock = NSLock()
     private var finished = false
@@ -719,3 +726,4 @@ private final class AskPhotoResume: @unchecked Sendable {
         continuation.resume(returning: image)
     }
 }
+#endif
