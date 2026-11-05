@@ -76,8 +76,8 @@ struct AskTraceSpanDetailView: View {
 
     private func engineering(_ span: AskTraceSpan) -> some View {
         Section {
-#if os(tvOS)
-            // Apple TV has no disclosure group, so the section shows these rows open.
+#if os(tvOS) || os(watchOS)
+            // Apple TV and Apple Watch have no disclosure group, so the section shows these rows open.
             engineeringRows(span)
 #else
             DisclosureGroup("For engineering") {
@@ -85,7 +85,7 @@ struct AskTraceSpanDetailView: View {
             }
 #endif
         } header: {
-#if os(tvOS)
+#if os(tvOS) || os(watchOS)
             Text("For engineering")
 #endif
         }

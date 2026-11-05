@@ -17,7 +17,11 @@ struct AskTraceTurnView: View {
                         Text(tab.rawValue).tag(tab)
                     }
                 }
+#if os(watchOS)
+                .pickerStyle(.wheel)
+#else
                 .pickerStyle(.segmented)
+#endif
                 .padding(.horizontal)
                 .padding(.vertical, 8)
                 switch viewModel.tab {
@@ -33,6 +37,10 @@ struct AskTraceTurnView: View {
         .askInlineTitle()
         .toolbar {
             ToolbarItemGroup(placement: .askTrailing) {
+#if os(watchOS)
+                Button("Expand all") { viewModel.onExpandAll(turnID) }
+                Button("Collapse all") { viewModel.onCollapseAll(turnID) }
+#else
                 Menu {
                     Button("Expand all") { viewModel.onExpandAll(turnID) }
                     Button("Collapse all") { viewModel.onCollapseAll(turnID) }
@@ -40,6 +48,7 @@ struct AskTraceTurnView: View {
                     Image(systemName: "list.bullet.indent")
                 }
                 .accessibilityLabel("Expand or collapse")
+#endif
                 Button { viewModel.onShareTapped(turnID) } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
