@@ -79,7 +79,7 @@ public enum AskPrivateCloudReport: Sendable, Equatable {
 }
 
 /// Why the fallback answered this turn.
-public enum AskOnDeviceFallbackCause: Sendable, Equatable {
+public enum AskOnDeviceFallbackCause: Error, Sendable, Equatable {
     /// The 27.3 session was out of bounds, or the caller turned the model off.
     case unavailable(AskOnDeviceUnavailability)
     /// The model refused the input. The fallback should not repeat the person's words.
@@ -537,7 +537,7 @@ public final class AskOnDeviceResponder {
     /// `fallback` answers when the model does not.
     /// `model` is fixed for the life of the responder. `.onDevice` is the default.
     /// On Apple Watch, pass `.privateCloud`.
-    public init(
+    public convenience init(
         model: AskAnswerModel = .onDevice,
         allowModel: Bool = true,
         instructions: @escaping @MainActor () -> String,
@@ -666,7 +666,7 @@ public final class AskOnDeviceResponder {
                 }
                 let answer = AskOnDeviceAnswer(
                     text: text,
-                    citedIDs: draft.citedIDs.compactMap { raw in
+                    citedIDs: draft.citedIDs.compactMap { raw -> String? in
                         let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !id.isEmpty, acceptCitation(id) else { return nil }
                         return id
