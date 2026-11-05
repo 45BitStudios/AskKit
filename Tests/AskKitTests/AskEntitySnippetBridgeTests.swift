@@ -41,10 +41,18 @@ public struct FixturePantryQuery: EntityQuery {
     }
 }
 
-@available(iOS 27.3, macCatalyst 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *)
 @Suite("Entity snippet bridge")
 struct AskEntitySnippetBridgeTests {
     @Test func theBridgeStampsTheTypeNameAndIdentifier() {
+        guard #available(iOS 27.3, macCatalyst 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *) else {
+            return
+        }
+        verifyTheBridgeStampsTheTypeNameAndIdentifier()
+    }
+
+    /// Swift Testing rejects `@available` on `@Suite` and `@Test`. The 27.3 types stay on the fixture.
+    @available(iOS 27.3, macCatalyst 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *)
+    private func verifyTheBridgeStampsTheTypeNameAndIdentifier() {
         let entity = FixturePantryEntity(id: "pasta", name: "Pasta")
         let standard = FixturePantryEntity.card(for: entity, isStandardFamily: true)
         #expect(standard.entityID == "pasta")
