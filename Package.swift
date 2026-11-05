@@ -9,6 +9,14 @@ let foundationModels: [SwiftSetting] = [
     .define("ASK_FOUNDATION_MODELS", .when(platforms: [.iOS, .macOS, .macCatalyst, .visionOS]))
 ]
 
+/// `SnippetRepresentableEntity` and `CardSnippet` shipped in the 27.3 SDK.
+/// The bridge compiles on iOS, macOS, Mac Catalyst, tvOS, and visionOS.
+/// watchOS does not build it. AskKitUI is already left out of that build, and the entity card follows it.
+/// Xcode 27.2 does not have these symbols, so that SDK cannot compile AskEntitySnippetBridge.swift.
+let entitySnippets: [SwiftSetting] = [
+    .define("ASK_ENTITY_SNIPPETS", .when(platforms: [.iOS, .macOS, .macCatalyst, .tvOS, .visionOS]))
+]
+
 let package = Package(
     name: "AskKit",
     platforms: [
@@ -23,7 +31,7 @@ let package = Package(
         .library(name: "AskKit", targets: ["AskKit"]),
         /// The chat, the built-in cards, the card gallery, and the trace viewer.
         .library(name: "AskKitUI", targets: ["AskKitUI"]),
-        /// App Intents: Ask, the answer snippet, and the intents the cards' buttons run.
+        /// App Intents: Ask, the answer snippet, entity cards, and the intents the cards' buttons run.
         .library(name: "AskKitIntents", targets: ["AskKitIntents"]),
         /// What widgets and Live Activities read. Small enough for an extension.
         .library(name: "AskKitSurface", targets: ["AskKitSurface"])
@@ -84,7 +92,7 @@ let package = Package(
                 "AskKit",
                 "AskKitSurface"
             ],
-            swiftSettings: foundationModels
+            swiftSettings: foundationModels + entitySnippets
         ),
         // Compiled out on watchOS. The views use SwiftUI that watchOS does not provide.
         // Sources/AskKitUI/AskKitUIWatch.swift is the only file that builds there.
@@ -104,7 +112,7 @@ let package = Package(
         .testTarget(
             name: "AskKitTests",
             dependencies: ["AskKit", "AskKitUI", "AskKitIntents", "AskKitSurface", "PhotoQueryKit"],
-            swiftSettings: foundationModels
+            swiftSettings: foundationModels + entitySnippets
         ),
         .testTarget(name: "AskKitEvaluations", dependencies: ["AskKit"], swiftSettings: foundationModels)
     ],

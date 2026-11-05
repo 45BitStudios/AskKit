@@ -572,6 +572,65 @@ case .askAgain(_, let prompt):
 }
 ```
 
+## Entity snippets
+
+An app's `AppEntity` can show a Siri card without writing a `CardSnippet` closure. The app fills in an `AskEntitySnippet`. AskKit maps that onto a detail card, a list card, or a compact row, then the 27.3 SDK archives it. The closure only reads the entity. A button runs later, through `AskSnippetActionCenter`, and Siri archives the card again after the handler returns.
+
+The bridge needs the 27.3 SDK (`SnippetRepresentableEntity`, `CardSnippet`). It compiles for iOS, macOS, Mac Catalyst, tvOS, and visionOS. watchOS does not compile the card. `AskKitUI` is already left out of that build, and this card follows it. The conformance is marked available on iOS 27.3, macOS 27.3, Mac Catalyst 27.3, tvOS 27.3, and visionOS 27.3. An older system keeps the entity's display representation. Xcode 27.2 does not have the symbols.
+
+Import `AskKit` and `AskKitIntents`. Register the handler in `App.init`, next to the ask client. Leave `entityType` and `entityID` empty. The bridge uses `String(reflecting:)` of the entity type and `String(describing:)` of its id, which matches `String`, `Int`, and `UUID`. Set `entityID` when a custom identifier's description is not the id the handler should see. `register(PantryItemEntity.self)` uses that same type name.
+
+A detail card is a title, a subtitle, primary and secondary fields, an optional SF Symbol or asset image, an accent, and up to three actions. A fourth action is dropped. A blank title or a repeated id is dropped. A compact family keeps two primary fields and hides the image, the secondary lines, and the buttons. A list card is a heading plus rows, such as My Schedule. Compact keeps two rows. A row is one line and never shows buttons. Favorite and remind call `AskSnippetButtonIntent` and stay on the card. Open calls `AskSnippetOpenIntent` and brings the app forward. None of these intents are in the Shortcuts list, and they do not speak a second dialog.
+
+```swift
+@available(iOS 27.3, macCatalyst 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *)
+extension PantryItemEntity: AskSnippetEntity {
+    public static func askEntitySnippet(for entity: Self) -> AskEntitySnippet {
+        .detail(
+            title: entity.name,
+            subtitle: entity.aisle,
+            fields: [
+                AskSnippetField(id: "qty", title: "On hand", value: entity.quantity, rank: .primary)
+            ],
+            symbolName: "fork.knife",
+            accent: .orange,
+            actions: [.favorite(), .remind(), .open(title: "Open")]
+        )
+    }
+}
+
+if #available(iOS 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *) {
+    AskSnippetActionCenter.shared.register(PantryItemEntity.self) { request in
+        switch request.role {
+        case .favorite:
+            await PantryStore.shared.toggleFavorite(id: request.entityID)
+        case .remind:
+            await PantryStore.shared.remind(id: request.entityID)
+        case .open:
+            await PantryStore.shared.show(id: request.entityID)
+        case .custom:
+            break
+        }
+    }
+}
+```
+
+A schedule is a list. A single line in a larger result is a row.
+
+```swift
+AskEntitySnippet.list(
+    title: "My Schedule",
+    subtitle: titles.isEmpty ? "Nothing saved yet." : "Saved sessions",
+    rows: titles.map { AskSnippetRow(id: $0, title: $0) },
+    symbolName: "star.fill",
+    actions: [.open(id: "calendar", title: "Add to Calendar", symbolName: "calendar.badge.plus")]
+)
+
+AskEntitySnippet.row(title: item.name, subtitle: item.aisle, symbolName: "fork.knife")
+```
+
+`AskSnippetCard.make(from:density:)` is the mapping the card view draws. `AskSnippetFamily(isStandardFamily:)` is how `.standard` becomes the full card and any other `CardSnippetFamily` becomes compact. The same rules are covered by `AskEntitySnippetTests` without a Siri runtime.
+
 ## Store
 
 ```swift
@@ -631,7 +690,7 @@ Share from a turn includes a picture of the question, the answer, and the cards,
 
 ## Tests
 
-The package tests use a scripted model, so they do not need Apple Intelligence. `AskOnDeviceTests` scripts the persistent session the same way. It checks the 27.3 version line, a reported `contextSize` against the usual 8,192 and 32,768 windows, quota and offline fallbacks, a watch-shaped device that can use Private Cloud Compute and has no on-device model, and an Apple TV-shaped device that is not offered Private Cloud Compute. It does not call `SystemLanguageModel.default`, `PrivateCloudComputeLanguageModel()`, or `LanguageModelSession`. Run the package tests on an iOS 27 simulator:
+The package tests use a scripted model, so they do not need Apple Intelligence. `AskEntitySnippetTests` checks the descriptor, the three card shapes, and the action center. It does not render a Siri card. `AskOnDeviceTests` scripts the persistent session the same way. It checks the 27.3 version line, a reported `contextSize` against the usual 8,192 and 32,768 windows, quota and offline fallbacks, a watch-shaped device that can use Private Cloud Compute and has no on-device model, and an Apple TV-shaped device that is not offered Private Cloud Compute. It does not call `SystemLanguageModel.default`, `PrivateCloudComputeLanguageModel()`, or `LanguageModelSession`. Run the package tests on an iOS 27 simulator:
 
 ```sh
 xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'
