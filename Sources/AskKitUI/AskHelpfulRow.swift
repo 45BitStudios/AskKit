@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import SwiftUI
@@ -85,3 +86,4 @@ private struct AskThumbButton: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
+#endif

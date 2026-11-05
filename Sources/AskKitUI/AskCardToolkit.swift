@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -198,7 +199,11 @@ private struct AskCardToolkitResult: View {
                 Text("Chat").tag(AskCardStyle.chat)
                 Text("Snippet").tag(AskCardStyle.snippet)
             }
+#if os(watchOS)
+            .pickerStyle(.wheel)
+#else
             .pickerStyle(.segmented)
+#endif
             result.card.view
                 .environment(\.askCardStyle, style)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -329,4 +334,5 @@ struct AskCardToolkitExample: Identifiable {
         )
     ]
 }
+#endif
 #endif

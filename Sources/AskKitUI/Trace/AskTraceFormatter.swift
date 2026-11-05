@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -417,4 +418,5 @@ enum AskTraceFormatter {
         }
     }
 }
+#endif
 #endif

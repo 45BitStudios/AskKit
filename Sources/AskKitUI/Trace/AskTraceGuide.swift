@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -88,4 +89,5 @@ enum AskTraceGuide {
         AskTraceContextUsage(source: .responseUsage, contextSize: 4_096, usedTokens: used)
     }
 }
+#endif
 #endif

@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -289,4 +290,5 @@ struct AskCardActivityView: View {
         }
     }
 }
+#endif
 #endif

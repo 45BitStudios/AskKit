@@ -1,6 +1,9 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
+#if canImport(Photos)
 import Photos
+#endif
 import SwiftUI
 
 /// Opens the library gallery from a photo card. The chat screen owns the zoom namespace.
@@ -630,7 +633,7 @@ private struct AskPhotosPage: View {
                     .resizable()
                     .scaledToFit()
                     .scaleEffect(scale)
-#if !os(tvOS)
+#if !os(tvOS) && !os(watchOS)
                     .gesture(zoom)
 #endif
                     .onTapGesture(count: 2) {
@@ -651,7 +654,7 @@ private struct AskPhotosPage: View {
         .accessibilityLabel(count > 1 ? "\(photo.caption), \(position) of \(count)" : photo.caption)
     }
 
-#if !os(tvOS)
+#if !os(tvOS) && !os(watchOS)
     private var zoom: some Gesture {
         MagnifyGesture()
             .onChanged { value in
@@ -681,6 +684,7 @@ enum AskPhotoLibraryImage {
     ) async -> AskPlatformImage? {
         let trimmed = localIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+#if canImport(Photos)
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [trimmed], options: nil)
         guard let asset = assets.firstObject else { return nil }
         let cap: CGFloat = quality == .thumbnail ? 480 : 2400
@@ -703,9 +707,13 @@ enum AskPhotoLibraryImage {
                 once.finish(continuation, image: cancelled ? nil : image)
             }
         }
+#else
+        return nil
+#endif
     }
 }
 
+#if canImport(Photos)
 private final class AskPhotoResume: @unchecked Sendable {
     private let lock = NSLock()
     private var finished = false
@@ -719,3 +727,5 @@ private final class AskPhotoResume: @unchecked Sendable {
         continuation.resume(returning: image)
     }
 }
+#endif
+#endif

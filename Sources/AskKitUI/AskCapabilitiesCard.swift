@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import Foundation
@@ -38,3 +39,4 @@ public struct AskCapabilitiesCard: View {
         .askCardSurface()
     }
 }
+#endif

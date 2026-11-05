@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import SwiftUI
@@ -92,4 +93,5 @@ public struct AskTraceScreen: View {
         }
     }
 }
+#endif
 #endif

@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import Foundation
@@ -89,3 +90,4 @@ struct AskWebCard: View {
         return url
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AppIntents
 import AskKit
 import AskKitIntents
@@ -676,3 +677,4 @@ private struct AskHealthTrend: Shape {
         }
     }
 }
+#endif

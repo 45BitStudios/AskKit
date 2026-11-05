@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AppIntents
 import AskKit
 import AskKitIntents
@@ -337,3 +338,4 @@ private struct AskStrike: View {
             .accessibilityHidden(true)
     }
 }
+#endif

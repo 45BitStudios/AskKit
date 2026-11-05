@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -95,4 +96,5 @@ private struct AskTraceTimelineRow: View {
         .accessibilityElement(children: .combine)
     }
 }
+#endif
 #endif

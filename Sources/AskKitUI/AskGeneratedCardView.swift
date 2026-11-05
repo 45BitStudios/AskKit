@@ -1,3 +1,4 @@
+#if !os(watchOS)
 import AskKit
 import AskKitIntents
 import SwiftUI
@@ -278,3 +279,4 @@ private struct AskGeneratedText: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+#endif

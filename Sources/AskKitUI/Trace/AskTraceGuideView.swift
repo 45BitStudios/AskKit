@@ -1,3 +1,4 @@
+#if !os(watchOS)
 #if DEBUG
 import AskKit
 import AskKitIntents
@@ -92,4 +93,5 @@ private struct AskTraceGuideSymbol: View {
         }
     }
 }
+#endif
 #endif
