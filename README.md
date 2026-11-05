@@ -11,6 +11,8 @@ AskKit is a receptionist for iOS 27. An app registers domains and skills. A pers
 
 The package does not know about a particular app's screens, accounts, or catalogs. United's Ask United app is not this package.
 
+An app that wants one lasting on-device conversation supplies its own tools and prompt to `AskOnDeviceResponder`. The receptionist starts a fresh session for each hop. See [On-device answer](#on-device-answer).
+
 Add the library product `AskKit` and `import AskKit`. The package is iOS 27.
 
 ```swift
@@ -40,6 +42,83 @@ targets: [
 A message that asks two or three different things is split on `?`, `;`, `!`, or on `and`, `also`, or `plus`. Those parts become one turn when they resolve to different skills. The answer text stays in one speech bubble. The cards sit under that bubble and page sideways, with the next card left in view. One card has no page dots. `AskTurnResult.pages` lists each page. The saved turn keeps the first skill id and joins the page text.
 
 Operational facts come from the app's tools and from the skill handler. They do not come from model weights.
+
+## On-device answer
+
+`AskOnDeviceResponder` keeps one `LanguageModelSession` for the whole conversation. A follow-up is another turn in that transcript, so "and the one after that?" can see the earlier question. `reset()` drops the session. The next question opens a new one and reads the instructions and tools again. The session uses `SystemLanguageModel.default`. The chat menu's Private Cloud choice stays with the receptionist.
+
+The session opens when four checks pass. `allowModel` is left on. The build includes Foundation Models, which is iOS, macOS, Mac Catalyst, and visionOS. The operating system is 27.3 or later (`iOS 27.3`, `macOS 27.3`, `macCatalyst 27.3`, `visionOS 27.3`). `SystemLanguageModel.default.availability` is `.available`. Apple TV and Apple Watch have no model, so they stay on the fallback. A 27.0, 27.1, or 27.2 device stays on the fallback too. Apple Intelligence off, a device that is not eligible, and a model that is not ready stay on the fallback. `allowModel: false` forces the fallback, which is how a test or a setting skips the model. `availability` reports which of those it was. `AskOnDeviceBoundary.allows(major:minor:)` is the same 27.3 line as a plain version check.
+
+The app supplies the prompt, the tools, and the fallback. Instructions are read once, when the session opens. Tools are read then too. Each tool reads the app's current data when the model calls it, so a record saved after the session opened is still visible. Put the catalog in the tool, and keep the instructions to how to call the tools. 27.3 gives most devices an 8,192-token on-device window, up from 4,096. `AskOnDeviceBoundary.onDeviceTokenWindow` is 8,192, and `legacyOnDeviceTokenWindow` is 4,096. `instructionsFit` checks the whole 8,192-token window. A prompt that does not fit uses the fallback and does not open a session. `instructionsFitComfortably` is a quarter of that window, which leaves room for the tool results. Call `reset()` when the instructions should change, such as when the day changes.
+
+`answer(_:)` asks the model for a sentence, the identifiers the tools returned, and a short reason. Pass `acceptCitation` with the ids the app actually has. Any other id is dropped, and a blank id is dropped. An empty sentence uses the fallback. A thrown error uses the fallback. A guardrail or a refusal passes `cause` `.blocked`, and the fallback should answer without repeating the person's words. The live session uses `transcriptErrorHandlingPolicy(.revertTranscript)`, so a failed turn rolls back and the next turn still has the earlier ones. A second call that arrives while a turn is running gets `cause` `.busy` and does not call the model.
+
+`turn.engine` is `.foundationModels` or `.fallback`. `turn.continuedSession` is true when this question was sent to the session an earlier turn opened. `turn.answer.citedIDs` is the filtered list.
+
+An app with a different shape passes its own `@Generable` type to `answer(_:generating:fallback:)`. One responder is one conversation and one answer type. That overload leaves citation filtering to the app, because the package does not know the fields. The method is available in builds that include Foundation Models.
+
+```swift
+final class Shelf {
+    var items: [String: String] = ["tomatoes": "4"]
+}
+
+struct ShelfTool: Tool {
+    var shelf: Shelf
+    let name = "shelfLookup"
+    let description = "Looks up how many of one item are on the shelf. Pass the item name."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "The item name, such as tomatoes.")
+        var item: String
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        Self.lookup(arguments.item, stock: shelf.items)
+    }
+
+    /// Pure, so a test can call it without a model session.
+    static func lookup(_ item: String, stock: [String: String]) -> String {
+        let name = item.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let count = stock.first(where: { $0.key.localizedStandardContains(name) })?.value else {
+            return name.isEmpty ? "Which item?" : "Nothing named \(name) is on the shelf."
+        }
+        return "\(name): \(count)"
+    }
+}
+
+let shelf = Shelf()
+let responder = AskOnDeviceResponder(
+    instructions: {
+        "You answer questions about what is on the shelf. Use the shelf tool for every count. Do not invent one."
+    },
+    tools: { [ShelfTool(shelf: shelf)] },
+    acceptCitation: { shelf.items.keys.contains($0) },
+    fallback: { _, cause in
+        if cause == .blocked {
+            return AskOnDeviceAnswer(text: "Sorry, this feature isn't designed to handle that kind of input.")
+        }
+        let lines = shelf.items.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }
+        let text = lines.isEmpty ? "The shelf is empty." : lines.joined(separator: ", ")
+        return AskOnDeviceAnswer(text: text)
+    }
+)
+let turn = await responder.answer("How many tomatoes?")
+```
+
+An app that wants different fields uses its own `@Generable` type for every turn on that responder.
+
+```swift
+@Generable
+struct StockLine: Sendable {
+    @Guide(description: "One sentence, using only the shelf tool.")
+    var text: String
+}
+
+let counted = await responder.answer("How many tomatoes?", generating: StockLine.self) { _, _ in
+    StockLine(text: "The shelf is empty.")
+}
+```
 
 ## What you can ask
 
@@ -524,7 +603,7 @@ Share from a turn includes a picture of the question, the answer, and the cards,
 
 ## Tests
 
-The package tests use a scripted model, so they do not need Apple Intelligence. Run them on an iOS 27 simulator:
+The package tests use a scripted model, so they do not need Apple Intelligence. `AskOnDeviceTests` scripts the persistent session the same way. It checks the 27.3 version line, the instruction budget, fallback causes, and that a follow-up reuses one session. It does not call `SystemLanguageModel.default` or `LanguageModelSession`. Run the package tests on an iOS 27 simulator:
 
 ```sh
 xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'
