@@ -1990,7 +1990,7 @@ private struct AskImagePageView: View {
             .resizable()
             .scaledToFit()
             .scaleEffect(scale)
-#if !os(tvOS)
+#if !os(tvOS) && !os(watchOS)
             .gesture(zoom)
 #endif
             .onTapGesture(count: 2) {
@@ -2003,7 +2003,7 @@ private struct AskImagePageView: View {
             .accessibilityLabel(count > 1 ? "\(page.name), \(position) of \(count)" : page.name)
     }
 
-#if !os(tvOS)
+#if !os(tvOS) && !os(watchOS)
     private var zoom: some Gesture {
         MagnifyGesture()
             .onChanged { value in

@@ -632,7 +632,7 @@ private struct AskPhotosPage: View {
                     .resizable()
                     .scaledToFit()
                     .scaleEffect(scale)
-#if !os(tvOS)
+#if !os(tvOS) && !os(watchOS)
                     .gesture(zoom)
 #endif
                     .onTapGesture(count: 2) {
@@ -653,7 +653,7 @@ private struct AskPhotosPage: View {
         .accessibilityLabel(count > 1 ? "\(photo.caption), \(position) of \(count)" : photo.caption)
     }
 
-#if !os(tvOS)
+#if !os(tvOS) && !os(watchOS)
     private var zoom: some Gesture {
         MagnifyGesture()
             .onChanged { value in
