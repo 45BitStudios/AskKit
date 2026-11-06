@@ -17,29 +17,35 @@ struct AskSampleSiriSkillTests {
 
         let folders = try FileManager.default.contentsOfDirectory(at: skillsRoot, includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent != ".DS_Store" }
-        #expect(folders.map(\.lastPathComponent).sorted() == Self.skillNames.sorted())
-        #expect(folders.allSatisfy({ url in
-            let files = ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? [])
+        let folderNames = folders.map(\.lastPathComponent).sorted()
+        let expectedNames = Self.skillNames.sorted()
+        #expect(folderNames == expectedNames)
+        for url in folders {
+            let files = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
                 .map(\.lastPathComponent)
                 .filter { $0 != ".DS_Store" }
-            return files == ["SKILL.md"]
-        }))
+            #expect(files == ["SKILL.md"])
+        }
     }
 
     @Test func frontMatterIsOnlyNameAndDescription() throws {
         let skills = try Self.loadSkills()
-        #expect(skills.map(\.name).sorted() == Self.skillNames.sorted())
-        #expect(skills.allSatisfy({ skill in
-            skill.name == skill.folder
-                && skill.name.count >= 1
-                && skill.name.count <= 64
-                && skill.name.range(of: #"^[a-z0-9]+(-[a-z0-9]+)*$"#, options: .regularExpression) != nil
-                && !skill.description.isEmpty
-                && !skill.description.contains("\n")
-                && skill.description.count <= 1024
-                && skill.body.count <= 10_000
-                && skill.extraKeys.isEmpty
-        }))
+        let names = skills.map(\.name).sorted()
+        let expected = Self.skillNames.sorted()
+        #expect(names == expected)
+        let pattern = #"^[a-z0-9]+(-[a-z0-9]+)*$"#
+        for skill in skills {
+            #expect(skill.name == skill.folder)
+            #expect(skill.name.count >= 1)
+            #expect(skill.name.count <= 64)
+            let nameMatches = skill.name.range(of: pattern, options: .regularExpression) != nil
+            #expect(nameMatches)
+            #expect(skill.description.isEmpty == false)
+            #expect(skill.description.contains("\n") == false)
+            #expect(skill.description.count <= 1024)
+            #expect(skill.body.count <= 10_000)
+            #expect(skill.extraKeys.isEmpty)
+        }
     }
 
     @Test func theDriveSkillCallsChargeThenRangeAndTheChargerOnlyWhenAsked() throws {
@@ -55,10 +61,12 @@ struct AskSampleSiriSkillTests {
         #expect(cabin.body.contains("not available from Siri"))
         #expect(cabin.body.contains("Ask Garage chat"))
         let forbidden = ["Intent", "AskSkill", "ToolIntent", "GarageSample", "chargeStatus", "rangeLeft", "findCharger"]
-        #expect(Self.skillNames.allSatisfy({ name in
-            let text = (try? Self.skill(name).raw) ?? ""
-            return forbidden.allSatisfy({ !text.contains($0) })
-        }))
+        for name in Self.skillNames {
+            let text = try Self.skill(name).raw
+            for word in forbidden {
+                #expect(text.contains(word) == false)
+            }
+        }
     }
 
     @Test func theHostCopiesTheBundleAndGatesToolIntent() throws {
@@ -79,7 +87,9 @@ struct AskSampleSiriSkillTests {
 
         let work = try String(contentsOf: Self.repoRoot().appendingPathComponent("AskKit/AskKit/Siri/GarageSiriWork.swift"), encoding: .utf8)
         let fields = ["GarageSample.vehicle", "GarageSample.battery", "GarageSample.chargeRate", "GarageSample.minutesTo80", "GarageSample.chargeLimit", "GarageSample.range", "GarageSample.chargerName", "GarageSample.chargerDistance", "GarageSample.openStalls", "GarageSample.cabin", "GarageSample.departure", "GarageSample.seatHeat", "GarageSample.defrost"]
-        #expect(fields.allSatisfy({ work.contains($0) }))
+        for field in fields {
+            #expect(work.contains(field))
+        }
         #expect(work.contains("AskKit.selectedSample") == false)
         #expect(work.contains("SampleProject.selected"))
         #expect(!work.contains("68 percent"))
