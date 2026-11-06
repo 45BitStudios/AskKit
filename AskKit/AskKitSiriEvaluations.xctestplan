@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+      "name" : "Signed device",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:AskKit.xcodeproj",
+      "identifier" : "A10000000000000000000059",
+      "name" : "AskKitSiriEvaluations"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:AskKit.xcodeproj",
+        "identifier" : "A10000000000000000000059",
+        "name" : "AskKitSiriEvaluations"
+      }
+    }
+  ],
+  "version" : 1
+}
