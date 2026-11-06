@@ -627,6 +627,7 @@ package enum AskContactLine {
             guard !folded.isEmpty else { return false }
             let status = [
                 "no matching contacts.", "no matching contacts", "no contacts.", "no contacts",
+                "no recently added contacts.", "no recently added contacts",
                 "not allowed.", "not allowed", "contact"
             ]
             return !status.contains(folded)
