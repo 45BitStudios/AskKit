@@ -187,7 +187,11 @@ public enum AskCapabilities {
         "what do you know how to do",
         "what are my options",
         "what can this do",
-        "what can this app do"
+        "what can this app do",
+        "what can i do with this app",
+        "what can i do with the app",
+        "what can you do with this app",
+        "what can i ask this app"
     ]
 }
 

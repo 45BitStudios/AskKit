@@ -131,7 +131,7 @@ enum AskReplyBudget {
 
     private static func liveWindow() -> LiveWindow {
 #if !ASK_FOUNDATION_MODELS
-        // No model here. Budget against the usual on-device window so text limits stay the same.
+        // No model here. Budget against the smaller on-device window. A live device uses the size it reports.
         return LiveWindow(compute: .onDevice, contextSize: 4_096, cloudMaximumResponseTokens: nil)
 #else
         let onDevice = SystemLanguageModel.default

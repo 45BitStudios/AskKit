@@ -33,7 +33,7 @@ public struct FixturePantryQuery: EntityQuery {
     public init() {}
 
     public func entities(for identifiers: [FixturePantryEntity.ID]) async throws -> [FixturePantryEntity] {
-        identifiers.map { FixturePantryEntity(id: $0, name: $0) }
+        identifiers.filter { $0 == "pasta" }.map { FixturePantryEntity(id: $0, name: "Pasta") }
     }
 
     public func suggestedEntities() async throws -> [FixturePantryEntity] {
@@ -43,16 +43,16 @@ public struct FixturePantryQuery: EntityQuery {
 
 @Suite("Entity snippet bridge")
 struct AskEntitySnippetBridgeTests {
-    @Test func theBridgeStampsTheTypeNameAndIdentifier() {
+    @Test func theBridgeStampsTheTypeNameAndIdentifier() async throws {
         guard #available(iOS 27.3, macCatalyst 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *) else {
             return
         }
-        verifyTheBridgeStampsTheTypeNameAndIdentifier()
+        try await verifyTheBridgeStampsTheTypeNameAndIdentifier()
     }
 
     /// Swift Testing rejects `@available` on `@Suite` and `@Test`. The 27.3 types stay on the fixture.
     @available(iOS 27.3, macCatalyst 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *)
-    private func verifyTheBridgeStampsTheTypeNameAndIdentifier() {
+    private func verifyTheBridgeStampsTheTypeNameAndIdentifier() async throws {
         let entity = FixturePantryEntity(id: "pasta", name: "Pasta")
         let standard = FixturePantryEntity.card(for: entity, isStandardFamily: true)
         #expect(standard.entityID == "pasta")
@@ -77,6 +77,11 @@ struct AskEntitySnippetBridgeTests {
         )
         #expect(card.entityType == "Shelf")
         #expect(card.entityID == "kept")
+
+        let found = try await FixturePantryQuery().entities(for: ["pasta", "gone"])
+        #expect(found.map(\.id) == ["pasta"])
+        let none = try await FixturePantryQuery().entities(for: [])
+        #expect(none.isEmpty)
     }
 }
 #endif
