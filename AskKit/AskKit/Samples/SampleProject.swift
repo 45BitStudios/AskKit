@@ -91,12 +91,15 @@ enum SampleProject: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The running app. One local file, a separate thread per sample name. Not CloudKit.
+    /// `GarageSample.assistant()` and the others stay in memory unless this passes the file.
     func assistant() throws -> AskAssistant {
+        let persistence = try AskLocalStore.applicationSupportPersistence()
         switch self {
-        case .garage: return try GarageSample.assistant()
-        case .pantry: return try PantrySample.assistant()
-        case .desk: return try DeskSample.assistant()
-        case .open: return try OpenSample.assistant()
+        case .garage: return try GarageSample.assistant(persistence: persistence)
+        case .pantry: return try PantrySample.assistant(persistence: persistence)
+        case .desk: return try DeskSample.assistant(persistence: persistence)
+        case .open: return try OpenSample.assistant(persistence: persistence)
         }
     }
 
