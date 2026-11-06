@@ -607,7 +607,6 @@
 		A1000000000000000000005B /* Debug configuration for PBXNativeTarget "AskKitSiriEvaluations" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AskKitSiriEvaluations/Info.plist;
@@ -625,7 +624,6 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AskKit.app/AskKit";
 				TEST_TARGET_NAME = AskKit;
 			};
 			name = Debug;
@@ -633,7 +631,6 @@
 		A1000000000000000000005C /* Release configuration for PBXNativeTarget "AskKitSiriEvaluations" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AskKitSiriEvaluations/Info.plist;
@@ -651,7 +648,6 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AskKit.app/AskKit";
 				TEST_TARGET_NAME = AskKit;
 			};
 			name = Release;
