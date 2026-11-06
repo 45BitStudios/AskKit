@@ -44,10 +44,10 @@ enum DeskSample {
         followUpInstructions: .append("Do not invent names or times.")
     )
 
-    static func assistant() throws -> AskAssistant {
+    static func assistant(persistence: AskPersistence = .memory) throws -> AskAssistant {
         try AskAssistant(AskConfiguration(
             assistantName: "Ask Desk",
-            persistence: .memory,
+            persistence: persistence,
             domains: [
                 AskDomain(
                     id: "visit",

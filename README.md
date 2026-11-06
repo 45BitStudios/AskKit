@@ -660,7 +660,7 @@ public enum AskPersistence {
 }
 ```
 
-`memory` is an in-memory SwiftData store. `swiftData` is local only (`cloudKitDatabase: .none`). `privateCloud` uses `cloudKitDatabase: .private(containerIdentifier)`. There is no public database and no shared database.
+`memory` is an in-memory SwiftData store. It is the default, including for tests and for `GarageSample.assistant()` when no store is passed. `swiftData` is local only (`cloudKitDatabase: .none`). `privateCloud` uses `cloudKitDatabase: .private(containerIdentifier)`. There is no public database and no shared database. The sample app opts into one local file with `AskLocalStore.applicationSupportPersistence()`, under Application Support/`AskKitSample`. Ask Garage, Ask Pantry, Ask Desk, and Open ended share that file and keep separate threads. Clear deletes only the thread for the assistant that is open. A test passes `AskLocalStore.persistence(directory:)` its own directory and does not call the Application Support helper.
 
 For private CloudKit the app turns on iCloud and CloudKit, registers that container identifier, and adds the remote-notification background mode. A signed-out or offline device still reads and writes the local store.
 

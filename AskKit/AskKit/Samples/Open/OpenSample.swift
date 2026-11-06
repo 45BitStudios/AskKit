@@ -41,7 +41,7 @@ enum OpenSample {
         followUpInstructions: .replace("")
     )
 
-    static func assistant() throws -> AskAssistant {
+    static func assistant(persistence: AskPersistence = .memory) throws -> AskAssistant {
         AskAppleSelection.rememberIfNeeded(
             [.calendar, .reminders, .contacts, .location, .health],
             allowed: appleAccess,
@@ -49,7 +49,7 @@ enum OpenSample {
         )
         return try AskAssistant(AskConfiguration(
             assistantName: assistantName,
-            persistence: .memory,
+            persistence: persistence,
             domains: [
                 AskDomain(
                     id: "open",

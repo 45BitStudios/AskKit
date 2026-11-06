@@ -42,10 +42,10 @@ enum PantrySample {
         followUpInstructions: .append("Do not invent ingredients or stores.")
     )
 
-    static func assistant() throws -> AskAssistant {
+    static func assistant(persistence: AskPersistence = .memory) throws -> AskAssistant {
         try AskAssistant(AskConfiguration(
             assistantName: "Ask Pantry",
-            persistence: .memory,
+            persistence: persistence,
             domains: [
                 AskDomain(
                     id: "meals",

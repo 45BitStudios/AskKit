@@ -59,7 +59,7 @@ enum GarageSample {
 
     static let appleAccess: AskAppleAccess = [.calendar, .reminders, .contacts, .location, .health, .music, .weather, .alarms]
 
-    static func assistant() throws -> AskAssistant {
+    static func assistant(persistence: AskPersistence = .memory) throws -> AskAssistant {
         AskAppleSelection.rememberIfNeeded(
             [.calendar, .reminders, .contacts, .location, .health],
             allowed: appleAccess,
@@ -67,7 +67,7 @@ enum GarageSample {
         )
         return try AskAssistant(AskConfiguration(
             assistantName: "Ask Garage",
-            persistence: .memory,
+            persistence: persistence,
             domains: [
                 AskDomain(
                     id: "battery",
