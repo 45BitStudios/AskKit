@@ -124,6 +124,11 @@ final class AskOnDeviceTests: XCTestCase {
         XCTAssertEqual(AskOnDeviceBoundary.resolvedContextSize(reported: 32_768, choice: .privateCloud), 32_768)
         XCTAssertEqual(AskOnDeviceBoundary.resolvedContextSize(reported: nil, choice: .onDevice), 8_192)
         XCTAssertEqual(AskOnDeviceBoundary.resolvedContextSize(reported: 0, choice: .privateCloud), 32_768)
+        XCTAssertEqual(AskOnDeviceBoundary.instructionWindow(reported: nil, choice: .onDevice), 4_096)
+        XCTAssertEqual(AskOnDeviceBoundary.instructionWindow(reported: 0, choice: .onDevice), 4_096)
+        XCTAssertEqual(AskOnDeviceBoundary.instructionWindow(reported: 8_192, choice: .onDevice), 8_192)
+        XCTAssertEqual(AskOnDeviceBoundary.instructionWindow(reported: 4_096, choice: .onDevice), 4_096)
+        XCTAssertEqual(AskOnDeviceBoundary.instructionWindow(reported: nil, choice: .privateCloud), 32_768)
         XCTAssertEqual(AskPrivateCloudEntitlement.key, "com.apple.developer.private-cloud-compute")
     }
 
@@ -232,6 +237,41 @@ final class AskOnDeviceTests: XCTestCase {
         XCTAssertTrue(script.sessionsMade.isEmpty)
     }
 
+    func testAMissingReadStillOpensWhenThePromptFitsTheSmallerWindow() async {
+        let script = ScriptedOnDeviceSessions()
+        let responder = AskOnDeviceResponder(
+            instructions: { "Use the shelf tool." },
+            fallback: { _, cause in
+                XCTFail("Unexpected \(cause)")
+                return AskOnDeviceAnswer(text: "Rules.")
+            },
+            environment: .fixed(contextSize: 0),
+            sessions: script.factory
+        )
+        let turn = await responder.answer("How many?")
+        XCTAssertEqual(turn.engine, .foundationModels)
+        XCTAssertEqual(script.sessionsMade.first?.prewarmCount, 1)
+    }
+
+    func testAMissingOnDeviceReadUsesTheSmallerWindow() async {
+        let script = ScriptedOnDeviceSessions()
+        let responder = AskOnDeviceResponder(
+            instructions: { String(repeating: "a", count: 20_000) },
+            tools: { [ShelfTool()] },
+            fallback: { _, cause in
+                XCTAssertEqual(cause, .instructionsTooLong)
+                return AskOnDeviceAnswer(text: "Rules.")
+            },
+            environment: .fixed(contextSize: 0),
+            sessions: script.factory
+        )
+        let turn = await responder.answer("How many tomatoes?")
+        XCTAssertEqual(turn.engine, .fallback)
+        XCTAssertTrue(AskOnDeviceBoundary.instructionsFit(String(repeating: "a", count: 20_000), window: 8_192))
+        XCTAssertFalse(AskOnDeviceBoundary.instructionsFit(String(repeating: "a", count: 20_000), window: 4_096))
+        XCTAssertTrue(script.sessionsMade.isEmpty)
+    }
+
     func testTheModelTurnUsesTheAppToolsPromptAndCitations() async {
         let script = ScriptedOnDeviceSessions()
         script.handler = { prompt in
@@ -323,6 +363,7 @@ final class AskOnDeviceTests: XCTestCase {
         XCTAssertEqual(followUp.answer.text, "Still four.")
         XCTAssertEqual(prompts, ["How many tomatoes?", "And basil?"])
         XCTAssertEqual(script.sessionsMade.count, 1)
+        XCTAssertEqual(script.sessionsMade[0].prewarmCount, 1)
         XCTAssertEqual(instructionReads, 1)
 
         responder.reset()
@@ -332,6 +373,7 @@ final class AskOnDeviceTests: XCTestCase {
         XCTAssertEqual(script.sessionsMade.count, 2)
         XCTAssertEqual(instructionReads, 2)
         XCTAssertEqual(script.sessionsMade[1].prompts, ["How many now?"])
+        XCTAssertEqual(script.sessionsMade[1].prewarmCount, 1)
     }
 
     func testAGuardrailUsesTheBlockedFallback() async {
@@ -684,8 +726,13 @@ struct NoteTool: Tool {
 @MainActor
 private final class ScriptedOnDeviceSession: AskOnDeviceGenerating {
     var prompts: [String] = []
+    var prewarmCount = 0
     var handler: (String) async throws -> Any = { _ in
         AskOnDeviceAnswerDraft(text: "ok", citedIDs: [], reason: "")
+    }
+
+    func prewarm() async {
+        prewarmCount += 1
     }
 
     func respond<Answer: Generable & Sendable>(

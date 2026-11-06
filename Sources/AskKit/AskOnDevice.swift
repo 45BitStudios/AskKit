@@ -172,11 +172,27 @@ public enum AskOnDeviceBoundary {
         AskReplyBudget.estimatedTokens(for: text)
     }
 
-    /// The window a session should budget against. A positive `contextSize` wins. Zero or a failed read uses the usual size for that model.
+    /// The usual newer window when a caller wants a single stand-in and no read is available.
+    /// A positive `contextSize` wins. Zero or a failed read uses 8,192 on device and 32,768 on Private Cloud Compute.
+    /// Opening a session does not use this for on-device instructions. See ``instructionWindow(reported:choice:)``.
     public static func resolvedContextSize(reported: Int?, choice: AskAnswerModel) -> Int {
         if let reported, reported > 0 { return reported }
         switch choice {
         case .onDevice: return onDeviceTokenWindow
+        case .privateCloud: return privateCloudTokenWindow
+        }
+    }
+
+    /// The window that decides whether instructions may open a session.
+    ///
+    /// A positive `contextSize` is kept, whether the device reports 4,096 or 8,192.
+    /// A missing on-device read uses ``legacyOnDeviceTokenWindow``. Newer devices are often 8,192.
+    /// Older ones stay at 4,096. Assuming 8,192 would send a prompt the older device cannot hold.
+    /// Private Cloud Compute stays at its documented 32,768 when that read fails.
+    public static func instructionWindow(reported: Int?, choice: AskAnswerModel) -> Int {
+        if let reported, reported > 0 { return reported }
+        switch choice {
+        case .onDevice: return legacyOnDeviceTokenWindow
         case .privateCloud: return privateCloudTokenWindow
         }
     }
@@ -299,20 +315,21 @@ public enum AskOnDeviceBoundary {
         #endif
     }
 
+    /// The raw `contextSize`. Zero means the read failed or this build has no such model.
+    /// ``instructionWindow(reported:choice:)`` turns that zero into a fit window.
     static func liveContextSize(_ choice: AskAnswerModel) async -> Int {
         switch choice {
         case .onDevice:
             #if ASK_FOUNDATION_MODELS
-            return resolvedContextSize(reported: SystemLanguageModel.default.contextSize, choice: .onDevice)
+            return SystemLanguageModel.default.contextSize
             #else
-            return onDeviceTokenWindow
+            return 0
             #endif
         case .privateCloud:
             #if ASK_FOUNDATION_MODELS || os(watchOS)
-            let reported = try? await PrivateCloudComputeLanguageModel().contextSize
-            return resolvedContextSize(reported: reported, choice: .privateCloud)
+            return (try? await PrivateCloudComputeLanguageModel().contextSize) ?? 0
             #else
-            return privateCloudTokenWindow
+            return 0
             #endif
         }
     }
@@ -423,6 +440,7 @@ struct AskOnDeviceAnswerDraft: Sendable {
 
 @MainActor
 protocol AskOnDeviceGenerating: AnyObject {
+    func prewarm() async
     func respond<Answer: Generable & Sendable>(
         to prompt: String,
         generating type: Answer.Type
@@ -467,6 +485,10 @@ final class AskOnDeviceLiveSession: AskOnDeviceGenerating {
         }
     }
 
+    func prewarm() async {
+        session.prewarm()
+    }
+
     func respond<Answer: Generable & Sendable>(
         to prompt: String,
         generating type: Answer.Type
@@ -509,8 +531,12 @@ struct AskOnDeviceSessions {
 /// omit tvOS.
 ///
 /// Facts stay in the tools. The instructions are the prompt. The fit check reads the model's
-/// `contextSize`. ``AskOnDeviceBoundary/onDeviceTokenWindow`` and ``AskOnDeviceBoundary/privateCloudTokenWindow``
-/// are the usual sizes when that read fails.
+/// `contextSize`. A missing on-device read uses the 4,096 window. 8,192 is the usual newer
+/// on-device size, not a size every device reports. Private Cloud Compute uses 32,768 when its
+/// read fails. The system model is not a coding model. This session does not load a custom one.
+///
+/// A new session is prewarmed once. A follow-up reuses that session and does not prewarm again.
+/// These tools are Foundation Models tools. They are not Siri `ToolIntent`s. See ``AskSiriBoundary``.
 ///
 /// The session opens when `allowModel` is true, the OS is 27.3 or later, the chosen model is
 /// supported here, and that model reports itself available. Private Cloud Compute also needs a
@@ -731,7 +757,7 @@ public final class AskOnDeviceResponder {
             return .success(OpenedSession(session: session, continuedSession: true))
         }
         let reported = await environment.contextSize()
-        let window = AskOnDeviceBoundary.resolvedContextSize(reported: reported, choice: model)
+        let window = AskOnDeviceBoundary.instructionWindow(reported: reported > 0 ? reported : nil, choice: model)
         AskTrace.attribute("contextSize", String(window))
         AskTrace.attribute("model", model.rawValue)
         let text = instructions()
@@ -741,6 +767,8 @@ public final class AskOnDeviceResponder {
         let toolList = tools()
         AskTrace.attribute("tools", toolList.map(\.name).joined(separator: ", "))
         let made = sessions.make(text, toolList, model)
+        await made.prewarm()
+        AskTrace.attribute("prewarmed", "true")
         session = made
         return .success(OpenedSession(session: made, continuedSession: false))
     }

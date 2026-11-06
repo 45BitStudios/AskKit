@@ -55,7 +55,7 @@ Apple's `PrivateCloudComputeLanguageModel` page lists those same platforms and d
 
 Private Cloud Compute is for Apple Intelligence devices. Each person has an iCloud quota. Before a cloud turn, the responder reads `quotaUsage.isLimitReached`. When that is true, or the model throws `quotaLimitReached`, the cause is `.quotaReached` and the fallback answers. A network failure while the call is running is `.offline`.
 
-The app supplies the prompt, the tools, and the fallback. Instructions are read once, when the session opens. Tools are read then too. Each tool reads the app's current data when the model calls it, so a record saved after the session opened is still visible. Put the catalog in the tool, and keep the instructions to how to call the tools. The fit check reads that model's `contextSize`. A positive read is the window. A failed or empty read uses `AskOnDeviceBoundary.onDeviceTokenWindow` (8,192) or `privateCloudTokenWindow` (32,768). Apple's Private Cloud Compute article lists the on-device model at 4K and Private Cloud Compute at 32K. A later on-device model may report 8,192. `legacyOnDeviceTokenWindow` is 4,096. `instructionsFitComfortably` is a quarter of whichever window you pass, which leaves room for the tool results. A prompt that does not fit uses the fallback and does not open a session. Call `reset()` when the instructions should change, such as when the day changes.
+The app supplies the prompt, the tools, and the fallback. Instructions are read once, when the session opens. Tools are read then too. Each tool reads the app's current data when the model calls it, so a record saved after the session opened is still visible. Put the catalog in the tool, and keep the instructions to how to call the tools. The fit check reads that model's `contextSize`. A positive read is the window, including 4,096 on an older on-device model and 8,192 on a newer one. A failed or empty on-device read uses `legacyOnDeviceTokenWindow` (4,096) so a prompt sized for 8,192 is not sent to a device that cannot hold it. `onDeviceTokenWindow` (8,192) remains the usual newer size when a caller wants one stand-in and no read. Private Cloud Compute uses `privateCloudTokenWindow` (32,768) when its read fails. `instructionsFitComfortably` is a quarter of whichever window you pass, which leaves room for the tool results. A prompt that does not fit uses the fallback and does not open a session. A new session is prewarmed once. A follow-up reuses it and does not prewarm again. Call `reset()` when the instructions should change, such as when the day changes. The system model is not a coding model. This package does not add a custom-model backend.
 
 `answer(_:)` asks the model for a sentence, the identifiers the tools returned, and a short reason. Pass `acceptCitation` with the ids the app actually has. Any other id is dropped, and a blank id is dropped. An empty sentence uses the fallback. A thrown error uses the fallback. A guardrail or a refusal passes `cause` `.blocked`, and the fallback should answer without repeating the person's words. The live session uses `transcriptErrorHandlingPolicy(.revertTranscript)`, so a failed turn rolls back and the next turn still has the earlier ones. A second call that arrives while a turn is running gets `cause` `.busy` and does not call the model.
 
@@ -572,6 +572,79 @@ case .askAgain(_, let prompt):
 }
 ```
 
+## Siri tools and on-device answers
+
+These are different paths. `AskOnDeviceResponder` with `.onDevice` is an on-device Foundation Models session. It does not need the network, and its tools are session tools, not Siri tools. `.privateCloud` is `PrivateCloudComputeLanguageModel`. It needs a network. Apple Watch uses that lane and has no on-device system model. Apple TV gets neither. A Siri custom tool is a `ToolIntent` (`@AppIntent(.tool)` on a 27.3 SDK). The group lab says that loop runs with Siri on the server, so it needs Private Cloud Compute connectivity. An ordinary App Intent, including the buttons on an AskKit card, still runs without that loop. Offline custom tools fail with a network message and do not pretend the on-device model failed. The lab did not announce `ToolIntent` on watchOS and did not announce a relay to the paired iPhone.
+
+A custom tool is in scope when the app is named, the app is in the foreground, a Live Activity is up, or one of the app's entities is already in the conversation. The same four signals apply to a Siri app skill. Schemas are eligible more broadly. If a schema matches the app, adopt it, and add a custom tool only for the extra behavior. The 27.3 preview takes 40 custom tools. A lab remark that Siri can do about 30 to 32 calls was about calls inside one skill. AskKit does not treat that as a cap. A skill is optional guidance. The tool still has to perform when no skill is loaded. Order, authorization, and rollback belong in the app. A skill does not provide them. Refer to a tool with ordinary words, not the Swift type name.
+
+`EntityCollection` is for a batch whose `perform` only needs identifiers. One entity, or a list whose fields are read, stays a resolved entity. `IntentAuthenticationPolicy` is the lock-screen policy on an intent, entity, or property (`.alwaysAllowed`, `.requiresAuthentication`, `.requiresLocalDeviceAuthentication`). `visibility: .internal` on `@Property` or `@ComputedProperty` keeps a value for the app and its widgets. Consent is a third switch. None of the three replaces a check in `perform()`. A disruptive or physical action calls `requestConfirmation` there. AskKit does not put a lock on every field. A field stays visible and allowed while locked until the app tightens that one field.
+
+An intent that lives in a shared framework runs in a process that is already up. If nothing is up, the system prefers the extension. There is no automatic handoff from iPhone to Mac. Each app ships its own intents. `LongRunningIntent` is not adopted. AskKit's intents answer, change one reminder, or run a card button. The lab did not promise that Siri waits without a limit.
+
+`AskCapabilities` answers "What can I do with this app?" from the registered chips and skills, before a model call. That is the in-app form of the discovery question. It is not a Siri tool trace.
+
+SiriEvaluations (`SiriScenario`, `UserTurn`, `SiriService`) runs on a signed device build. It is not in the simulator SDK, it does not use an LLM judge, and it is not an Instruments latency trace. Foundation Models evaluations are the ones that can use a judge. AppIntentsTesting runs in a UI-test bundle against a host app. This package's unit tests call the policy and `AskSnippetButtonIntent.perform()` directly. They do not start Siri. Indexing, view annotations, and a live Siri scenario remain device checks.
+
+## Entity snippets
+
+An app's `AppEntity` can show a Siri card without writing a `CardSnippet` closure. The app fills in an `AskEntitySnippet`. AskKit maps that onto a detail card, a list card, or a compact row, then the 27.3 SDK archives it. The closure only reads the entity. A button runs later, through `AskSnippetActionCenter`, and Siri archives the card again after the handler returns.
+
+The bridge needs the 27.3 SDK (`SnippetRepresentableEntity`, `CardSnippet`). It compiles for iOS, macOS, Mac Catalyst, tvOS, and visionOS. watchOS does not compile the card. `AskKitUI` is already left out of that build, and this card follows it. The conformance is marked available on iOS 27.3, macOS 27.3, Mac Catalyst 27.3, tvOS 27.3, and visionOS 27.3. An older system keeps the entity's display representation. Xcode 27.2 does not have the symbols.
+
+Import `AskKit` and `AskKitIntents`. Register the handler in `App.init`, next to the ask client. Leave `entityType` and `entityID` empty. The bridge uses `String(reflecting:)` of the entity type and `String(describing:)` of its id, which matches `String`, `Int`, and `UUID`. Set `entityID` when a custom identifier's description is not the id the handler should see. `register(PantryItemEntity.self)` uses that same type name.
+
+A detail card is a title, a subtitle, primary and secondary fields, an optional SF Symbol or asset image, an accent, and up to three actions. A fourth action is dropped. A blank title or a repeated id is dropped. A compact family keeps two primary fields and hides the image, the secondary lines, and the buttons. A list card is a heading plus rows, such as My Schedule. Compact keeps two rows. A row is one line and never shows buttons. Favorite and remind call `AskSnippetButtonIntent` and stay on the card. Open calls `AskSnippetOpenIntent` and brings the app forward. None of these intents are in the Shortcuts list, and they do not speak a second dialog.
+
+```swift
+@available(iOS 27.3, macCatalyst 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *)
+extension PantryItemEntity: AskSnippetEntity {
+    public static func askEntitySnippet(for entity: Self) -> AskEntitySnippet {
+        .detail(
+            title: entity.name,
+            subtitle: entity.aisle,
+            fields: [
+                AskSnippetField(id: "qty", title: "On hand", value: entity.quantity, rank: .primary)
+            ],
+            symbolName: "fork.knife",
+            accent: .orange,
+            actions: [.favorite(), .remind(), .open(title: "Open")]
+        )
+    }
+}
+
+if #available(iOS 27.3, macOS 27.3, tvOS 27.3, visionOS 27.3, *) {
+    AskSnippetActionCenter.shared.register(PantryItemEntity.self) { request in
+        switch request.role {
+        case .favorite:
+            await PantryStore.shared.toggleFavorite(id: request.entityID)
+        case .remind:
+            await PantryStore.shared.remind(id: request.entityID)
+        case .open:
+            await PantryStore.shared.show(id: request.entityID)
+        case .custom:
+            break
+        }
+    }
+}
+```
+
+A schedule is a list. A single line in a larger result is a row.
+
+```swift
+AskEntitySnippet.list(
+    title: "My Schedule",
+    subtitle: titles.isEmpty ? "Nothing saved yet." : "Saved sessions",
+    rows: titles.map { AskSnippetRow(id: $0, title: $0) },
+    symbolName: "star.fill",
+    actions: [.open(id: "calendar", title: "Add to Calendar", symbolName: "calendar.badge.plus")]
+)
+
+AskEntitySnippet.row(title: item.name, subtitle: item.aisle, symbolName: "fork.knife")
+```
+
+`AskSnippetCard.make(from:density:)` is the mapping the card view draws. `AskSnippetFamily(isStandardFamily:)` is how `.standard` becomes the full card and any other `CardSnippetFamily` becomes compact. The same rules are covered by `AskEntitySnippetTests` without a Siri runtime.
+
 ## Store
 
 ```swift
@@ -631,7 +704,7 @@ Share from a turn includes a picture of the question, the answer, and the cards,
 
 ## Tests
 
-The package tests use a scripted model, so they do not need Apple Intelligence. `AskOnDeviceTests` scripts the persistent session the same way. It checks the 27.3 version line, a reported `contextSize` against the usual 8,192 and 32,768 windows, quota and offline fallbacks, a watch-shaped device that can use Private Cloud Compute and has no on-device model, and an Apple TV-shaped device that is not offered Private Cloud Compute. It does not call `SystemLanguageModel.default`, `PrivateCloudComputeLanguageModel()`, or `LanguageModelSession`. Run the package tests on an iOS 27 simulator:
+The package tests use a scripted model, so they do not need Apple Intelligence. `AskEntitySnippetTests` checks the descriptor, the three card shapes, and the action center. It does not render a Siri card. `AskOnDeviceTests` scripts the persistent session the same way. It checks the 27.3 version line, a reported `contextSize` against the usual 8,192 and 32,768 windows, quota and offline fallbacks, a watch-shaped device that can use Private Cloud Compute and has no on-device model, and an Apple TV-shaped device that is not offered Private Cloud Compute. It does not call `SystemLanguageModel.default`, `PrivateCloudComputeLanguageModel()`, or `LanguageModelSession`. Run the package tests on an iOS 27 simulator:
 
 ```sh
 xcodebuild test -scheme AskKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'
