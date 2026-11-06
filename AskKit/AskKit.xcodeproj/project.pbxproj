@@ -13,6 +13,8 @@
 		A10000000000000000000022 /* AskKitSurface in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000030 /* AskKitSurface */; };
 		A10000000000000000000031 /* AskKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000032 /* AskKitUI */; };
 		A10000000000000000000040 /* Skills.skillsbundle in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000041 /* Skills.skillsbundle */; };
+		A10000000000000000000054 /* AskGarageSiriEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000052 /* AskGarageSiriEvaluation.swift */; };
+		A10000000000000000000055 /* GarageSiriEvalCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000053 /* GarageSiriEvalCatalog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -22,6 +24,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A10000000000000000000029;
 			remoteInfo = AskKitWidgets;
+		};
+		A1000000000000000000005D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000019 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000015;
+			remoteInfo = AskKit;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -41,6 +50,10 @@
 		A10000000000000000000010 /* AskKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AskKit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000023 /* AskKitWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AskKitWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000041 /* Skills.skillsbundle */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AskKit/Skills.skillsbundle; sourceTree = "<group>"; };
+		A10000000000000000000050 /* AskKitSiriEvaluations.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AskKitSiriEvaluations.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000051 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000052 /* AskGarageSiriEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskGarageSiriEvaluation.swift; sourceTree = "<group>"; };
+		A10000000000000000000053 /* GarageSiriEvalCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GarageSiriEvalCatalog.swift; path = ../Tests/AskKitTests/GarageSiriEvalCatalog.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -84,6 +97,11 @@
 				A10000000000000000000022 /* AskKitSurface in Frameworks */,
 			);
 		};
+		A10000000000000000000057 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -92,6 +110,8 @@
 			children = (
 				A10000000000000000000011 /* AskKit */,
 				A10000000000000000000041 /* Skills.skillsbundle */,
+				A1000000000000000000005F /* AskKitSiriEvaluations */,
+				A10000000000000000000053 /* GarageSiriEvalCatalog.swift */,
 				A10000000000000000000024 /* AskKitWidgets */,
 				A10000000000000000000014 /* Products */,
 			);
@@ -102,8 +122,18 @@
 			children = (
 				A10000000000000000000010 /* AskKit.app */,
 				A10000000000000000000023 /* AskKitWidgets.appex */,
+				A10000000000000000000050 /* AskKitSiriEvaluations.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A1000000000000000000005F /* AskKitSiriEvaluations */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000052 /* AskGarageSiriEvaluation.swift */,
+				A10000000000000000000051 /* Info.plist */,
+			);
+			path = AskKitSiriEvaluations;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -157,6 +187,24 @@
 			productReference = A10000000000000000000023 /* AskKitWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		A10000000000000000000059 /* AskKitSiriEvaluations */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000000000000000000005A /* Build configuration list for PBXNativeTarget "AskKitSiriEvaluations" */;
+			buildPhases = (
+				A10000000000000000000056 /* Sources */,
+				A10000000000000000000057 /* Frameworks */,
+				A10000000000000000000058 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000005E /* PBXTargetDependency */,
+			);
+			name = AskKitSiriEvaluations;
+			productName = AskKitSiriEvaluations;
+			productReference = A10000000000000000000050 /* AskKitSiriEvaluations.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -172,6 +220,10 @@
 					};
 					A10000000000000000000029 = {
 						CreatedOnToolsVersion = 27.0;
+					};
+					A10000000000000000000059 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = A10000000000000000000015;
 					};
 				};
 			};
@@ -194,6 +246,7 @@
 			targets = (
 				A10000000000000000000015 /* AskKit */,
 				A10000000000000000000029 /* AskKitWidgets */,
+				A10000000000000000000059 /* AskKitSiriEvaluations */,
 			);
 		};
 /* End PBXProject section */
@@ -206,6 +259,11 @@
 			);
 		};
 		A10000000000000000000027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		A10000000000000000000058 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -223,6 +281,13 @@
 			files = (
 			);
 		};
+		A10000000000000000000056 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+				A10000000000000000000054 /* AskGarageSiriEvaluation.swift in Sources */,
+				A10000000000000000000055 /* GarageSiriEvalCatalog.swift in Sources */,
+			);
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -233,6 +298,11 @@
 			);
 			target = A10000000000000000000029 /* AskKitWidgets */;
 			targetProxy = A1000000000000000000002B /* PBXContainerItemProxy */;
+		};
+		A1000000000000000000005E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000015 /* AskKit */;
+			targetProxy = A1000000000000000000005D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -534,6 +604,58 @@
 			};
 			name = Release;
 		};
+		A1000000000000000000005B /* Debug configuration for PBXNativeTarget "AskKitSiriEvaluations" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AskKitSiriEvaluations/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.45bitstudios.askkitapp.SiriEvaluations;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ASK_SAMPLE_SIRI_TOOLS";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AskKit.app/AskKit";
+				TEST_TARGET_NAME = AskKit;
+			};
+			name = Debug;
+		};
+		A1000000000000000000005C /* Release configuration for PBXNativeTarget "AskKitSiriEvaluations" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AskKitSiriEvaluations/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.45bitstudios.askkitapp.SiriEvaluations;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) ASK_SAMPLE_SIRI_TOOLS";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AskKit.app/AskKit";
+				TEST_TARGET_NAME = AskKit;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -558,6 +680,14 @@
 			buildConfigurations = (
 				A1000000000000000000002C /* Debug configuration for PBXNativeTarget "AskKitWidgets" */,
 				A1000000000000000000002D /* Release configuration for PBXNativeTarget "AskKitWidgets" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		A1000000000000000000005A /* Build configuration list for PBXNativeTarget "AskKitSiriEvaluations" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000000000000000000005B /* Debug configuration for PBXNativeTarget "AskKitSiriEvaluations" */,
+				A1000000000000000000005C /* Release configuration for PBXNativeTarget "AskKitSiriEvaluations" */,
 			);
 			defaultConfigurationName = Release;
 		};
