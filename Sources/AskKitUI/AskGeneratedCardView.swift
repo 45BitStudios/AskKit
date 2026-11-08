@@ -266,6 +266,17 @@ private enum AskGeneratedGlyphInk {
     }
 }
 
+/// Kinds ``AskGeneratedNodeView`` has a case for.
+/// The primitive test fails when a ``AskCardNodeKind`` is missing here.
+enum AskGeneratedCardRender {
+    static func draws(_ kind: AskCardNodeKind) -> Bool {
+        switch kind {
+        case .vstack, .hstack, .text, .eyebrow, .stat, .figure, .quote, .badge, .plate, .symbol, .divider, .spacer, .row, .action:
+            true
+        }
+    }
+}
+
 private struct AskGeneratedText: View {
     var text: String
     var font: Font

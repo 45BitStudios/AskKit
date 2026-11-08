@@ -9,7 +9,7 @@ import SwiftUI
 /// This is not SwiftUI source — kinds are a closed set the renderer understands.
 /// The model fills ``AskCardNodeDraft``, which has the same fields.
 public struct AskCardNode: Sendable, Equatable, Codable {
-    /// One of: `vstack`, `hstack`, `text`, `stat`, `figure`, `quote`, `eyebrow`, `badge`, `plate`, `symbol`, `divider`, `spacer`, `row`, `action`.
+    /// Raw value of an ``AskCardNodeKind``. Meaning, prompt text, and sanitizer rules live on ``AskCardPrimitive``.
     public var kind: String
     /// Primary text. Empty for pure layout nodes.
     public var text: String
@@ -37,6 +37,7 @@ public struct AskCardNode: Sendable, Equatable, Codable {
 
 #if ASK_FOUNDATION_MODELS
 /// What the model generates for one ``AskCardNode``. Kept apart so the node itself builds where Foundation Models does not.
+/// `@Guide` needs a string literal. The words are ``AskCardPrimitive``'s draft guides. A test fails when they drift.
 @Generable
 struct AskCardNodeDraft {
     @Guide(description: "One of: vstack, hstack, text, stat, figure, quote, eyebrow, badge, plate, symbol, divider, spacer, row, action")
@@ -186,35 +187,9 @@ public enum AskGeneratedCard {
     public static let maxDepth = 3
     public static let maxNodes = 24
 
-    /// Prompt block describing the card DSL for a compose session.
+    /// Prompt block describing the card DSL for a compose session. Built from ``AskCardPrimitive``.
     public static var libraryPrompt: String {
-        """
-        CARD DSL
-        Compose one root AskCardNode tree from FACTS only. Do not invent numbers or names.
-        Kinds:
-        - vstack / hstack: layout. Put content in children.
-        - text: secondary line in text.
-        - eyebrow: a short label above the hero, in text. Smaller than the stat.
-        - stat: the one large value in text, optional caption in detail.
-        - figure: a peer value in text, short caption in detail. Use beside other figures, not as the hero.
-        - quote: one primary sentence in text when FACTS have no number. Larger than body text.
-        - badge: short label in text.
-        - plate: one rounded image. Put an SF Symbol name in text, such as car.fill or music.note.
-        - symbol: an SF Symbol name in text, such as cloud.sun.fill or clock. Set detail to mini beside a row or above a figure.
-        - divider / spacer: no text.
-        - row: title in text, short meta in detail. For an agenda, the event title is text and the time is detail.
-        - action: actionID copied from ALLOWED, title in text. At most one action.
-        Rules:
-        - Root is usually a vstack.
-        - Open with a plate or a hero symbol, then an eyebrow, then one stat. Put the domain in a badge.
-        - Peer numbers are figure nodes in one hstack, not more stats. A symbol with detail mini can sit above each figure.
-        - A day of events is a stat plus rows. A mini symbol can sit beside each row.
-        - A sentence with no number is a quote next to a plate.
-        - At most one plate and six symbols, taken from FACTS or a known label.
-        - Prefer a shallow tree (at most two levels of children).
-        - Leave unused fields empty.
-        - If FACTS are thin, use a plate, one stat, and one text line.
-        """
+        AskCardPrimitive.libraryPrompt
     }
 
     public static func composeInstructions(
@@ -456,28 +431,31 @@ public enum AskGeneratedCard {
     ) -> AskCardNode? {
         guard depth <= maxDepth, count < maxNodes else { return nil }
         guard let kind = AskCardNodeKind.parse(node.kind) else { return nil }
-        if kind == .action {
-            let id = node.actionID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty, allowedActionIDs.contains(id.lowercased()) else { return nil }
+        let rule = AskCardPrimitive.definition(for: kind)
+        let text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let actionID = node.actionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if rule.requiresAllowedAction {
+            guard !actionID.isEmpty, allowedActionIDs.contains(actionID.lowercased()) else { return nil }
         }
-        if kind == .symbol {
-            let label = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard symbolCount < 8, AskCardSymbol.systemName(for: label) != nil else { return nil }
-            symbolCount += 1
+        if let image = rule.image {
+            let used = image.slot == .symbol ? symbolCount : plateCount
+            guard used < image.maximum, AskCardSymbol.systemName(for: text) != nil else { return nil }
+            if image.slot == .symbol {
+                symbolCount += 1
+            } else {
+                plateCount += 1
+            }
         }
-        if kind == .plate {
-            let label = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard plateCount < 1, AskCardSymbol.systemName(for: label) != nil else { return nil }
-            plateCount += 1
-        }
+        // A blank leaf still spends a slot. Rolling the count back would keep more nodes than before.
         count += 1
         var copy = node
         copy.kind = kind.rawValue
-        copy.text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        copy.detail = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        copy.actionID = node.actionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch kind {
-        case .vstack, .hstack:
+        copy.text = rule.text.stored(text)
+        copy.detail = rule.detail.stored(detail)
+        copy.actionID = rule.actionID.stored(actionID)
+        switch rule.children {
+        case .required:
             copy.children = node.children.compactMap {
                 sanitize(
                     $0,
@@ -489,34 +467,13 @@ public enum AskGeneratedCard {
                 )
             }
             if copy.children.isEmpty { return nil }
-        case .text, .stat, .badge, .eyebrow:
-            if copy.text.isEmpty { return nil }
+        case .forbidden:
             copy.children = []
-        case .quote:
-            if copy.text.isEmpty { return nil }
-            copy.detail = ""
-            copy.children = []
-        case .figure:
-            if copy.text.isEmpty { return nil }
-            copy.children = []
-        case .plate:
-            copy.detail = ""
-            copy.actionID = ""
-            copy.children = []
-        case .symbol:
-            if copy.detail.lowercased() != "mini" { copy.detail = "" }
-            copy.actionID = ""
-            copy.children = []
-        case .row:
+        }
+        if rule.requiresTextOrDetail {
             if copy.text.isEmpty, copy.detail.isEmpty { return nil }
-            copy.children = []
-        case .divider, .spacer:
-            copy.text = ""
-            copy.detail = ""
-            copy.actionID = ""
-            copy.children = []
-        case .action:
-            copy.children = []
+        } else if rule.text == .required, copy.text.isEmpty {
+            return nil
         }
         return copy
     }
