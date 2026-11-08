@@ -648,11 +648,19 @@ public struct AskAssistant {
             return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false, layout: .skill)
         }
         let specialist = configuration.cardSpecialist
+        let preset = AskCardLayoutPreset.resolved(
+            title: blueprint.title,
+            facts: blueprint.facts,
+            spoken: blueprint.spoken,
+            layoutNotes: blueprint.layoutNotes,
+            layoutPresetID: blueprint.layoutPresetID,
+            specialistPresetID: specialist.layoutPresetID
+        )
         let request = AskModelRequest(
             instructions: AskGeneratedCard.composeInstructions(
                 specialist: specialist,
                 allowedActions: blueprint.actions,
-                layoutNotes: blueprint.layoutNotes
+                layoutNotes: AskCardLayoutPreset.notes(from: preset, layoutNotes: blueprint.layoutNotes)
             ),
             prompt: AskGeneratedCard.composePrompt(
                 facts: blueprint.facts,
@@ -668,6 +676,9 @@ public struct AskAssistant {
         do {
             let root = try await AskTrace.span("composeCard") {
                 AskTrace.attribute("specialist", specialist.id)
+                if let preset {
+                    AskTrace.attribute("cardPreset", preset.id)
+                }
                 return try await model.composeCard(request)
             }
             noteGeneratedCard(.model)

@@ -92,19 +92,23 @@ public struct AskCardSpecialist: Sendable, Equatable {
     /// App layout rules. A string appends after AskKit's built-in CARD DSL instructions.
     /// `.replace` uses only the app's text for that block.
     public var instructions: AskGuideText
+    /// ``AskCardLayoutPreset`` id used when a blueprint does not name one. Empty leaves inference to the blueprint.
+    public var layoutPresetID: String
 
     public init(
         id: String = "ask.card",
         title: String = "Card layout",
         symbolName: String = "rectangle.3.group",
         workingTitle: String = "Laying out the card",
-        instructions: AskGuideText = .append("")
+        instructions: AskGuideText = .append(""),
+        layoutPresetID: String = ""
     ) {
         self.id = id
         self.title = title
         self.symbolName = symbolName
         self.workingTitle = workingTitle
         self.instructions = instructions
+        self.layoutPresetID = layoutPresetID
     }
 
     /// AskKit defaults with no app lines.
@@ -157,6 +161,8 @@ public struct AskGeneratedBlueprint: Sendable {
     public var expands: Bool
     /// Extra layout rules for this skill only. Appended after the card specialist instructions.
     public var layoutNotes: String
+    /// ``AskCardLayoutPreset`` id for this card. Empty infers a preset when `layoutNotes` is also empty.
+    public var layoutPresetID: String
 
     public init(
         title: String,
@@ -167,7 +173,8 @@ public struct AskGeneratedBlueprint: Sendable {
         actions: [AskAction] = [],
         root: AskCardNode? = nil,
         expands: Bool = true,
-        layoutNotes: String = ""
+        layoutNotes: String = "",
+        layoutPresetID: String = ""
     ) {
         self.title = title
         self.spoken = spoken
@@ -178,6 +185,7 @@ public struct AskGeneratedBlueprint: Sendable {
         self.root = root
         self.expands = expands
         self.layoutNotes = layoutNotes
+        self.layoutPresetID = layoutPresetID
     }
 }
 
