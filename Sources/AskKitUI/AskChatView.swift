@@ -1546,7 +1546,7 @@ private struct AskActionButton: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(AskTintChrome.capsule(tint, scheme: colorScheme), in: Capsule())
-            .accessibilityLabel(action.title)
+            .accessibilityLabel(AskGeneratedCardAccessibility.action(action.title))
     }
 }
 

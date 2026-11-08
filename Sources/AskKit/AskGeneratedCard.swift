@@ -185,6 +185,13 @@ public struct AskGeneratedBlueprint: Sendable {
 public enum AskGeneratedCard {
     public static let maxDepth = 3
     public static let maxNodes = 24
+    /// Text and detail are cut here. A model can emit a paragraph into one leaf.
+    public static let maxTextLength = 500
+    /// Decode refuses a payload larger than this before it walks the tree.
+    public static let maxEncodedLength = 48_000
+    /// Decode keeps a few levels past ``maxDepth`` so sanitize can drop them. Deeper input is cut, not recursed.
+    package static let maxParseDepth = maxDepth + 5
+    package static let maxParseNodes = 256
 
     /// Prompt block describing the card DSL for a compose session.
     public static var libraryPrompt: String {
@@ -382,8 +389,13 @@ public enum AskGeneratedCard {
 
     public static func decode(_ json: String) -> AskCardNode? {
         let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(AskCardNode.self, from: data)
+        guard !trimmed.isEmpty, trimmed.count <= maxEncodedLength else { return nil }
+        guard let data = trimmed.data(using: .utf8) else { return nil }
+        // A hand walk, not JSONDecoder. Missing fields become empty, and a deep chain stops at maxParseDepth
+        // instead of recursing for every wrapper a saved transcript might contain.
+        guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        var budget = maxParseNodes
+        return node(parsing: object, depth: 0, budget: &budget)
     }
 
     /// Wraps a tree in ``AskIntentCard``. Action nodes become the card button; they are not drawn inside the view.
@@ -473,8 +485,8 @@ public enum AskGeneratedCard {
         count += 1
         var copy = node
         copy.kind = kind.rawValue
-        copy.text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        copy.detail = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.text = clamped(node.text)
+        copy.detail = clamped(node.detail)
         copy.actionID = node.actionID.trimmingCharacters(in: .whitespacesAndNewlines)
         switch kind {
         case .vstack, .hstack:
@@ -530,7 +542,8 @@ public enum AskGeneratedCard {
                 return strippingActions(child)
             }
             if copy.children.isEmpty {
-                return AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: " ")
+                // A stack of only actions used to become a stat of one space, which read as a blank value.
+                return AskCardNode(kind: AskCardNodeKind.spacer.rawValue)
             }
         }
         return copy
@@ -763,10 +776,100 @@ public enum AskGeneratedCard {
         )
     }
 
+    /// Trims, drops control characters and bidi overrides, then caps the length.
+    /// Newlines stay. Emoji joiners stay, so a glyph is not split.
+    static func clamped(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var scalars = String.UnicodeScalarView()
+        for scalar in trimmed.unicodeScalars where isKeptScalar(scalar) {
+            scalars.append(scalar)
+        }
+        let text = String(scalars)
+        guard text.count > maxTextLength else { return text }
+        return String(text.prefix(maxTextLength))
+    }
+
+    private static func isKeptScalar(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar == "\n" || scalar == "\t" { return true }
+        if CharacterSet.controlCharacters.contains(scalar) { return false }
+        switch scalar.value {
+        case 0x202A...0x202E, 0x2066...0x2069:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func node(parsing object: Any, depth: Int, budget: inout Int) -> AskCardNode? {
+        guard depth <= maxParseDepth, budget > 0 else { return nil }
+        guard let dictionary = object as? [String: Any] else { return nil }
+        budget -= 1
+        func field(_ key: String) -> String {
+            dictionary[key] as? String ?? ""
+        }
+        var children: [AskCardNode] = []
+        if depth < maxParseDepth, let rawChildren = dictionary["children"] as? [Any] {
+            for child in rawChildren {
+                guard budget > 0 else { break }
+                if let parsed = node(parsing: child, depth: depth + 1, budget: &budget) {
+                    children.append(parsed)
+                }
+            }
+        }
+        return AskCardNode(
+            kind: field("kind"),
+            text: field("text"),
+            detail: field("detail"),
+            actionID: field("actionID"),
+            children: children
+        )
+    }
+
     private static func walk(_ node: AskCardNode, visit: (AskCardNode) -> Void) {
         visit(node)
         for child in node.children {
             walk(child, visit: visit)
         }
+    }
+}
+
+/// Spoken labels for a generated card. The renderer uses these so VoiceOver hears the value and its caption together.
+public enum AskGeneratedCardAccessibility {
+    public static func stat(text: String, detail: String) -> String {
+        joined(text, detail, separator: ", ")
+    }
+
+    public static func figure(text: String, detail: String) -> String {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let caption = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if caption.isEmpty { return value }
+        if value.isEmpty { return caption }
+        return "\(caption): \(value)"
+    }
+
+    public static func row(text: String, detail: String) -> String {
+        joined(text, detail, separator: ", ")
+    }
+
+    /// Badge text when the tree has one. Otherwise the card title, or "Card".
+    public static func badge(_ text: String, title: String) -> String {
+        let badge = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !badge.isEmpty { return badge }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Card" : name
+    }
+
+    /// The button under the card. An empty title still has a name.
+    public static func action(_ title: String) -> String {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Action" : name
+    }
+
+    private static func joined(_ text: String, _ detail: String, separator: String) -> String {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let caption = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty { return caption }
+        if caption.isEmpty { return value }
+        return value + separator + caption
     }
 }

@@ -53,12 +53,30 @@ public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
     }
 
     /// Hero number. Rounded and a step above the title so a stat does not look like body text.
+    /// The generated card scales this with ``displayMetric`` so Dynamic Type can grow it. The point size here is the default content size.
     public var displayFont: Font {
+        .system(size: displayMetric.base, weight: .semibold, design: .rounded)
+    }
+
+    /// Default point size for the hero, and the text style it scales against.
+    package var displayMetric: AskCardDynamicMetric {
         switch self {
-        case .snippet: .system(size: 34, weight: .semibold, design: .rounded)
-        case .chat: .system(size: 44, weight: .semibold, design: .rounded)
-        case .fullScreen: .system(size: 64, weight: .semibold, design: .rounded)
+        case .snippet: AskCardDynamicMetric(base: 34, relativeTo: .title)
+        case .chat: AskCardDynamicMetric(base: 44, relativeTo: .largeTitle)
+        case .fullScreen: AskCardDynamicMetric(base: 64, relativeTo: .largeTitle)
         }
+    }
+
+    package var heroMetric: AskCardDynamicMetric {
+        AskCardDynamicMetric(base: heroSymbol, relativeTo: .largeTitle)
+    }
+
+    package var miniMetric: AskCardDynamicMetric {
+        AskCardDynamicMetric(base: miniSymbol, relativeTo: .body)
+    }
+
+    package var plateMetric: AskCardDynamicMetric {
+        AskCardDynamicMetric(base: plateSize, relativeTo: .largeTitle)
     }
 
     /// Sentence with no number. Medium weight, larger than a caption, smaller than the hero.
@@ -107,6 +125,12 @@ public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
 
     /// The zoomed page. The tint runs to the screen edges and the plot takes the leftover height.
     public var fillsPage: Bool { self == .fullScreen }
+}
+
+/// A point size at the default content size, paired with the text style Dynamic Type uses to scale it.
+package struct AskCardDynamicMetric {
+    package var base: CGFloat
+    package var relativeTo: Font.TextStyle
 }
 
 extension EnvironmentValues {
