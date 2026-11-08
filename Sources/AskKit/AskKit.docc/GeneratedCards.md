@@ -27,3 +27,9 @@ AskGeneratedBlueprint(
     sources: [AskCardSource(name: "Weather", url: URL(string: "https://weather.example/today"))]
 )
 ```
+
+## Follow-up cards
+
+``AskAssistant/appendCard(_:from:to:)`` adds a card under an ``AskGeneratedThread``. Earlier cards stay on screen. Their facts go into the next compose prompt as prior facts. ``AskGeneratedContext/bounded(_:limit:cards:)`` keeps at most six cards and 1,200 characters, dropping the oldest first.
+
+``AskAssistant/composeCard(from:priorFacts:)`` leaves the prompt unchanged when `priorFacts` is empty. A chat thread passes saved card facts only when ``AskConfiguration/passesGeneratedFollowUpContext`` is true. A follow-up chip scrolls to the new card. Reduce Motion jumps.
