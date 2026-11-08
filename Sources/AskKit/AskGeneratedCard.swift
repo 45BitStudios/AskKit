@@ -19,19 +19,55 @@ public struct AskCardNode: Sendable, Equatable, Codable {
     public var actionID: String
     /// Child nodes. Prefer shallow trees. Empty for leaves.
     public var children: [AskCardNode]
+    /// Where this node's facts came from. Empty when the node has no attribution.
+    /// Older card JSON omits this field and still decodes.
+    public var sources: [AskCardSource]
 
     public init(
         kind: String,
         text: String = "",
         detail: String = "",
         actionID: String = "",
-        children: [AskCardNode] = []
+        children: [AskCardNode] = [],
+        sources: [AskCardSource] = []
     ) {
         self.kind = kind
         self.text = text
         self.detail = detail
         self.actionID = actionID
         self.children = children
+        self.sources = sources
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case text
+        case detail
+        case actionID
+        case children
+        case sources
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(String.self, forKey: .kind)
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        detail = try container.decodeIfPresent(String.self, forKey: .detail) ?? ""
+        actionID = try container.decodeIfPresent(String.self, forKey: .actionID) ?? ""
+        children = try container.decodeIfPresent([AskCardNode].self, forKey: .children) ?? []
+        sources = try container.decodeIfPresent([AskCardSource].self, forKey: .sources) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(text, forKey: .text)
+        try container.encode(detail, forKey: .detail)
+        try container.encode(actionID, forKey: .actionID)
+        try container.encode(children, forKey: .children)
+        if !sources.isEmpty {
+            try container.encode(sources, forKey: .sources)
+        }
     }
 }
 
@@ -157,6 +193,8 @@ public struct AskGeneratedBlueprint: Sendable {
     public var expands: Bool
     /// Extra layout rules for this skill only. Appended after the card specialist instructions.
     public var layoutNotes: String
+    /// Where the facts came from. Copied onto the composed tree and shown as "Source: …".
+    public var sources: [AskCardSource]
 
     public init(
         title: String,
@@ -167,7 +205,8 @@ public struct AskGeneratedBlueprint: Sendable {
         actions: [AskAction] = [],
         root: AskCardNode? = nil,
         expands: Bool = true,
-        layoutNotes: String = ""
+        layoutNotes: String = "",
+        sources: [AskCardSource] = []
     ) {
         self.title = title
         self.spoken = spoken
@@ -178,6 +217,7 @@ public struct AskGeneratedBlueprint: Sendable {
         self.root = root
         self.expands = expands
         self.layoutNotes = layoutNotes
+        self.sources = sources
     }
 }
 
@@ -372,6 +412,30 @@ public enum AskGeneratedCard {
         return lines.joined(separator: "\n")
     }
 
+    /// "Source: …" for the footer and for Copy / Share. Links are included when `includingLinks` is true.
+    public static func sourceLine(_ sources: [AskCardSource], includingLinks: Bool = true) -> String {
+        let parts = sources.map { source -> String in
+            let name = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard includingLinks, let url = source.url else { return name }
+            return "\(name) (\(url.absoluteString))"
+        }.filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return "" }
+        return "Source: \(parts.joined(separator: ", "))"
+    }
+
+    /// Sources in tree order, first occurrence of each id, capped at ``AskCardSource/footerLimit``.
+    /// Each node's list is sanitized again so a link that is not http or https cannot reach the footer.
+    public static func sources(in root: AskCardNode) -> [AskCardSource] {
+        var seen = Set<String>()
+        var found: [AskCardSource] = []
+        walk(root) { node in
+            for source in AskCardSource.sanitized(node.sources) where seen.insert(source.id).inserted {
+                found.append(source)
+            }
+        }
+        return Array(found.prefix(AskCardSource.footerLimit))
+    }
+
     public static func encode(_ root: AskCardNode) -> String {
         guard let data = try? JSONEncoder().encode(root),
               let text = String(data: data, encoding: .utf8) else {
@@ -396,11 +460,13 @@ public enum AskGeneratedCard {
         facts: String? = nil,
         allowedActions: [AskAction] = [],
         root: AskCardNode,
-        expands: Bool = true
+        expands: Bool = true,
+        sources: [AskCardSource] = []
     ) -> AskIntentCard {
         let allowedIDs = Set(allowedActions.map { $0.id.lowercased() })
-        let tree = sanitize(root, allowedActionIDs: allowedIDs)
+        let laidOut = sanitize(root, allowedActionIDs: allowedIDs)
             ?? fallbackTree(title: title, facts: facts ?? spoken, spoken: spoken)
+        let tree = attaching(sources, to: laidOut)
         let matched = actions(in: tree, allowed: allowedActions)
         let display = strippingActions(tree)
         var card = AskIntentCard(
@@ -415,10 +481,13 @@ public enum AskGeneratedCard {
         )
         card.shareText = {
             let fromTree = shareText(in: display)
-            if fromTree.isEmpty {
-                return AskCardShareText.make(title: title, spoken: spoken)
-            }
-            return fromTree
+            let body = fromTree.isEmpty
+                ? AskCardShareText.make(title: title, spoken: spoken)
+                : fromTree
+            let attribution = sourceLine(AskGeneratedCard.sources(in: display))
+            guard !attribution.isEmpty else { return body }
+            if body.isEmpty { return attribution }
+            return "\(body)\n\(attribution)"
         }()
         card.expands = expands
         return card
@@ -442,8 +511,23 @@ public enum AskGeneratedCard {
             facts: blueprint.facts,
             allowedActions: blueprint.actions,
             root: chosen,
-            expands: blueprint.expands
+            expands: blueprint.expands,
+            sources: blueprint.sources
         )
+    }
+
+    /// Keeps sources already on the tree, then adds blueprint sources that are not already there.
+    static func attaching(_ sources: [AskCardSource], to root: AskCardNode) -> AskCardNode {
+        let extra = AskCardSource.sanitized(sources)
+        guard !extra.isEmpty else { return root }
+        var copy = root
+        var combined = AskCardSource.sanitized(copy.sources)
+        var seen = Set(combined.map(\.id))
+        for source in extra where seen.insert(source.id).inserted {
+            combined.append(source)
+        }
+        copy.sources = Array(combined.prefix(AskCardSource.maximum))
+        return copy
     }
 
     private static func sanitize(
@@ -476,6 +560,7 @@ public enum AskGeneratedCard {
         copy.text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
         copy.detail = node.detail.trimmingCharacters(in: .whitespacesAndNewlines)
         copy.actionID = node.actionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.sources = AskCardSource.sanitized(node.sources)
         switch kind {
         case .vstack, .hstack:
             copy.children = node.children.compactMap {
@@ -530,7 +615,7 @@ public enum AskGeneratedCard {
                 return strippingActions(child)
             }
             if copy.children.isEmpty {
-                return AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: " ")
+                return AskCardNode(kind: AskCardNodeKind.stat.rawValue, text: " ", sources: copy.sources)
             }
         }
         return copy
@@ -549,6 +634,11 @@ public enum AskGeneratedCard {
             if !id.isEmpty { label += " · \(id)" }
         }
         var lines = ["\(indent)\(label)"]
+        for source in node.sources {
+            let name = source.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            lines.append("\(indent)  source · \(name)")
+        }
         for child in node.children {
             lines.append(contentsOf: outlineLines(child, depth: depth + 1))
         }
@@ -568,6 +658,7 @@ public enum AskGeneratedCard {
 
     static let nextDriveSample = AskCardNode(
         kind: AskCardNodeKind.vstack.rawValue,
+        sources: [AskCardSource(name: "Calendar")],
         children: [
             AskCardNode(
                 kind: AskCardNodeKind.hstack.rawValue,
@@ -590,6 +681,7 @@ public enum AskGeneratedCard {
 
     static let agendaSample = AskCardNode(
         kind: AskCardNodeKind.vstack.rawValue,
+        sources: [AskCardSource(name: "Calendar")],
         children: [
             AskCardNode(
                 kind: AskCardNodeKind.hstack.rawValue,
@@ -613,6 +705,7 @@ public enum AskGeneratedCard {
 
     static let forecastSample = AskCardNode(
         kind: AskCardNodeKind.vstack.rawValue,
+        sources: [AskCardSource(name: "Weather", url: URL(string: "https://weather.example/today"))],
         children: [
             AskCardNode(
                 kind: AskCardNodeKind.hstack.rawValue,
@@ -649,6 +742,7 @@ public enum AskGeneratedCard {
 
     static let stepsSample = AskCardNode(
         kind: AskCardNodeKind.vstack.rawValue,
+        sources: [AskCardSource(name: "Health")],
         children: [
             AskCardNode(
                 kind: AskCardNodeKind.hstack.rawValue,

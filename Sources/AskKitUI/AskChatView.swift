@@ -102,6 +102,7 @@ private struct AskChatScreen: View {
 
     @Query(sort: \AskTurnRecord.createdAt) private var turns: [AskTurnRecord]
     private let activity = AskChatActivityCenter.shared
+    private let composition = AskCompositionProgress.shared
     @State private var chips: [AskChip] = []
     @State private var draft = ""
     @State private var draftImages: [AskAttachedImage] = []
@@ -302,11 +303,17 @@ private struct AskChatScreen: View {
                     if isThinking, (visibleTurns.last?.role == "user" || pendingSend != nil) {
                         Group {
                             if activity.partial.isEmpty {
-                                AskThinkingRow(
-                                    title: activity.title.isEmpty ? appearance.thinkingTitle : activity.title,
-                                    detail: activity.detail,
-                                    phase: activity.phase
-                                )
+                                VStack(alignment: .leading, spacing: 12) {
+                                    AskThinkingRow(
+                                        title: activity.title.isEmpty ? appearance.thinkingTitle : activity.title,
+                                        detail: activity.detail,
+                                        phase: activity.phase
+                                    )
+                                    if composition.isRunning {
+                                        AskCompositionProgressView(snapshot: composition.snapshot)
+                                        AskGeneratedCardPlaceholder()
+                                    }
+                                }
                                 .id("thinking")
                             } else {
                                 AskSpeechBubble(text: activity.partial, appearance: appearance)

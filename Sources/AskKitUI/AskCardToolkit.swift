@@ -18,6 +18,7 @@ struct AskCardToolkitScreen: View {
     @State private var result: AskComposedCard?
     @State private var isComposing = false
     @State private var task: Task<Void, Never>?
+    private let composition = AskCompositionProgress.shared
 
     var body: some View {
         NavigationStack {
@@ -33,7 +34,14 @@ struct AskCardToolkitScreen: View {
                     }
                     scenarioField
                     details
-                    if let result {
+                    if isComposing {
+                        if composition.isRunning {
+                            AskCompositionProgressView(snapshot: composition.snapshot)
+                        }
+                        AskGeneratedCardPlaceholder()
+                            .environment(\.askCardStyle, style)
+                    }
+                    if let result, !isComposing {
                         AskCardToolkitResult(result: result, style: $style)
                     }
                 }
@@ -231,9 +239,12 @@ struct AskCardToolkitExample: Identifiable {
     var facts: String
     var notes: String
     var button: String
+    var sources: [AskCardSource] = []
 
     var blueprint: AskGeneratedBlueprint {
-        Self.blueprint(title: title, spoken: spoken, facts: facts, notes: notes, button: button)
+        var blueprint = Self.blueprint(title: title, spoken: spoken, facts: facts, notes: notes, button: button)
+        blueprint.sources = sources
+        return blueprint
     }
 
     static func blueprint(
@@ -274,7 +285,8 @@ struct AskCardToolkitExample: Identifiable {
             spoken: "Your next drive is at 7:30 a.m.",
             facts: "7:30 a.m.\nNext drive\nFrom the calendar · about 214 miles",
             notes: "Plate car.fill, eyebrow Next drive, then a display stat for the time. Badge Trip. One row for the miles.",
-            button: "Trip"
+            button: "Trip",
+            sources: [AskCardSource(name: "Calendar")]
         ),
         AskCardToolkitExample(
             title: "Battery",
@@ -295,21 +307,24 @@ struct AskCardToolkitExample: Identifiable {
             spoken: "Friday has three events.",
             facts: "27\nFriday\n11:00 AM Kick-off\n12:00 PM Lunch\n1:00 PM Pack",
             notes: "Plate calendar, eyebrow Friday, display stat for the day. Badge Calendar. Each event is a mini clock symbol beside a row.",
-            button: "Calendar"
+            button: "Calendar",
+            sources: [AskCardSource(name: "Calendar")]
         ),
         AskCardToolkitExample(
             title: "Forecast",
             spoken: "It is 72 degrees and partly cloudy.",
             facts: "72°\nPartly cloudy\nHigh 78°\nLow 61°\n9 AM 70°\n12 PM 74°\n3 PM 76°\n6 PM 71°",
             notes: "Hero symbol cloud.sun.fill, eyebrow Partly cloudy, display stat for 72°. Badge Weather. Figures for High and Low. Each hour is a mini symbol above a figure.",
-            button: "Weather"
+            button: "Weather",
+            sources: [AskCardSource(name: "Weather", url: URL(string: "https://weather.example/today"))]
         ),
         AskCardToolkitExample(
             title: "Steps",
             spoken: "You have walked 8,420 steps.",
             facts: "8,420 steps\nDistance 3.2 mi\nFlights 12\nExercise 24 min",
             notes: "Plate figure.walk, eyebrow Today, display stat for the steps. Badge Steps. Each peer figure gets a mini symbol above it. No chart.",
-            button: "Activity"
+            button: "Activity",
+            sources: [AskCardSource(name: "Health")]
         ),
         AskCardToolkitExample(
             title: "Reminders",

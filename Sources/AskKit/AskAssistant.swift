@@ -586,41 +586,45 @@ public struct AskAssistant {
                 more: Array(pages.dropFirst())
             )
         case .generated(let make):
-            var blueprint = await make(invocation)
-            var usedModel = routed.usedModel
-            let draft = await rewrite(
-                blueprint.facts,
-                question: utterance,
-                excluding: excluding,
-                skill: skill,
-                context: context,
-                allowsTools: allowsTools,
-                images: images
-            )
-            if let written = draft.text {
-                blueprint.text = written
-                blueprint.spoken = AskGuide.plainSpeech(written)
-                usedModel = true
+            do {
+                let ownsComposition = AskCompositionProgress.shared.begin()
+                defer { if ownsComposition { AskCompositionProgress.shared.finish() } }
+                var blueprint = await make(invocation)
+                var usedModel = routed.usedModel
+                let draft = await rewrite(
+                    blueprint.facts,
+                    question: utterance,
+                    excluding: excluding,
+                    skill: skill,
+                    context: context,
+                    allowsTools: allowsTools,
+                    images: images
+                )
+                if let written = draft.text {
+                    blueprint.text = written
+                    blueprint.spoken = AskGuide.plainSpeech(written)
+                    usedModel = true
+                }
+                let composed = await composeGeneratedCard(blueprint)
+                if composed.usedModel { usedModel = true }
+                let pages = laidOutPages(
+                    question: utterance,
+                    text: composed.card.text,
+                    spoken: composed.card.spoken,
+                    skillID: skill.id,
+                    domainID: skill.domainID,
+                    slots: routed.slots,
+                    actions: [],
+                    readings: draft.readings,
+                    skillCard: composed.card
+                )
+                return BuiltPage(
+                    page: pages[0],
+                    usedModel: usedModel,
+                    fulfillment: .intent(pages[0].card ?? composed.card),
+                    more: Array(pages.dropFirst())
+                )
             }
-            let composed = await composeGeneratedCard(blueprint)
-            if composed.usedModel { usedModel = true }
-            let pages = laidOutPages(
-                question: utterance,
-                text: composed.card.text,
-                spoken: composed.card.spoken,
-                skillID: skill.id,
-                domainID: skill.domainID,
-                slots: routed.slots,
-                actions: [],
-                readings: draft.readings,
-                skillCard: composed.card
-            )
-            return BuiltPage(
-                page: pages[0],
-                usedModel: usedModel,
-                fulfillment: .intent(pages[0].card ?? composed.card),
-                more: Array(pages.dropFirst())
-            )
         }
     }
 
@@ -644,9 +648,13 @@ public struct AskAssistant {
     /// Uses a prebuilt tree when the skill supplied one. Otherwise asks the model, then the fact fallback.
     private func composeGeneratedCard(_ blueprint: AskGeneratedBlueprint) async -> ComposedCard {
         if blueprint.root != nil {
+            AskCompositionProgress.shared.advance(to: .composing)
             noteGeneratedCard(.skill)
             return ComposedCard(card: AskGeneratedCard.card(from: blueprint), usedModel: false, layout: .skill)
         }
+        let ownsComposition = AskCompositionProgress.shared.begin()
+        defer { if ownsComposition { AskCompositionProgress.shared.finish() } }
+        AskCompositionProgress.shared.advance(to: .preparing)
         let specialist = configuration.cardSpecialist
         let request = AskModelRequest(
             instructions: AskGeneratedCard.composeInstructions(
@@ -666,6 +674,7 @@ public struct AskAssistant {
             symbolName: specialist.symbolName
         )
         do {
+            AskCompositionProgress.shared.advance(to: .composing)
             let root = try await AskTrace.span("composeCard") {
                 AskTrace.attribute("specialist", specialist.id)
                 return try await model.composeCard(request)
