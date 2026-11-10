@@ -488,6 +488,25 @@ A later event does not reopen an earlier phase. Search is skipped when the turn 
 
 Card JSON written before sources existed still decodes. The `sources` key is omitted when a node has none.
 
+### Follow-up cards
+
+`appendCard(_:from:to:)` adds a generated card under an `AskGeneratedThread`. The earlier cards stay. Their facts are passed to the next compose as `PRIOR FACTS`, bounded by `AskGeneratedContext` (six cards, 1,200 characters, oldest dropped first). `composeCard(from:)` is unchanged when you omit `priorFacts`.
+
+A chat thread does not pass those facts unless `passesGeneratedFollowUpContext` is true. A follow-up chip scrolls the new card into view. Reduce Motion jumps.
+
+```swift
+var thread = AskGeneratedThread()
+thread = await assistant.appendCard(
+    "What about the range?",
+    from: AskGeneratedBlueprint(
+        title: "Range",
+        spoken: "About 210 miles.",
+        facts: "210 miles"
+    ),
+    to: thread
+)
+```
+
 ```swift
 AskGeneratedBlueprint(
     title: "Forecast",

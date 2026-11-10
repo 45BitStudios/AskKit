@@ -281,13 +281,34 @@ public enum AskGeneratedCard {
         return blocks.joined(separator: "\n")
     }
 
-    public static func composePrompt(facts: String, title: String, spoken: String) -> String {
-        """
+    public static func composePrompt(
+        facts: String,
+        title: String,
+        spoken: String,
+        priorFacts: String = ""
+    ) -> String {
+        let prior = priorFacts.trimmingCharacters(in: .whitespacesAndNewlines)
+        if prior.isEmpty {
+            return """
+            TITLE
+            \(title)
+
+            SPOKEN
+            \(spoken)
+
+            FACTS
+            \(facts)
+            """
+        }
+        return """
         TITLE
         \(title)
 
         SPOKEN
         \(spoken)
+
+        PRIOR FACTS
+        \(prior)
 
         FACTS
         \(facts)

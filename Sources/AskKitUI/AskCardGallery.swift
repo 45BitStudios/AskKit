@@ -374,6 +374,7 @@ enum AskCardSamples {
     private static var generated: some View {
         VStack(alignment: .leading, spacing: 16) {
             AskGeneratedCardPlayback()
+            AskGeneratedFollowUpStack()
             ForEach(AskGeneratedCard.gallerySamples, id: \.title) { sample in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(sample.title)
@@ -465,6 +466,29 @@ private struct AskGeneratedCardPlayback: View {
         composition.advance(to: .composing, now: start.addingTimeInterval(1.3))
         composition.finish(now: start.addingTimeInterval(1.8))
         revealed = true
+    }
+}
+
+/// Two generated cards, one under the other, the way a follow-up stays in the thread.
+private struct AskGeneratedFollowUpStack: View {
+    private var cards: [(title: String, root: AskCardNode)] {
+        AskGeneratedCard.gallerySamples.filter { $0.title == "Next drive" || $0.title == "Steps" }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Follow-up")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Text("A follow-up adds a card under the earlier one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(cards, id: \.title) { sample in
+                AskGeneratedCardView(root: sample.root, title: sample.title)
+            }
+        }
     }
 }
 

@@ -528,6 +528,9 @@ public struct AskConfiguration {
     /// Layout rules for `.generated` cards. Defaults to AskKit's CARD DSL instructions.
     /// Append app lines with a string, or `.replace` to own the layout prompt. Not a reply specialist.
     public var cardSpecialist: AskCardSpecialist
+    /// When true, a later generated card's compose prompt includes earlier cards' facts, bounded.
+    /// Off leaves those prompts unchanged. ``AskAssistant/appendCard(_:from:to:)`` passes facts either way.
+    public var passesGeneratedFollowUpContext: Bool
 
     public init(
         assistantName: String,
@@ -545,7 +548,8 @@ public struct AskConfiguration {
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],
         appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil,
-        cardSpecialist: AskCardSpecialist = .default
+        cardSpecialist: AskCardSpecialist = .default,
+        passesGeneratedFollowUpContext: Bool = false
     ) {
         self.assistantName = assistantName
         self.persistence = persistence
@@ -563,6 +567,7 @@ public struct AskConfiguration {
         self.appleAccess = appleAccess
         self.appleCard = appleCard
         self.cardSpecialist = cardSpecialist
+        self.passesGeneratedFollowUpContext = passesGeneratedFollowUpContext
     }
 
     public init<Source: AskContextSource>(
@@ -580,7 +585,8 @@ public struct AskConfiguration {
         webMetadata: Bool = false,
         appleAccess: AskAppleAccess = [],
         appleCard: (@MainActor (_ name: String, _ lines: [String]) -> AskIntentCard?)? = nil,
-        cardSpecialist: AskCardSpecialist = .default
+        cardSpecialist: AskCardSpecialist = .default,
+        passesGeneratedFollowUpContext: Bool = false
     ) {
         self.init(
             assistantName: assistantName,
@@ -600,7 +606,8 @@ public struct AskConfiguration {
             webMetadata: webMetadata,
             appleAccess: appleAccess,
             appleCard: appleCard,
-            cardSpecialist: cardSpecialist
+            cardSpecialist: cardSpecialist,
+            passesGeneratedFollowUpContext: passesGeneratedFollowUpContext
         )
     }
 

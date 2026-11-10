@@ -137,6 +137,9 @@ private struct AskChatScreen: View {
     @State private var settledCards: Set<UUID> = []
     @State private var followUp: AskFollowUp?
     @State private var followUpTurnID: UUID?
+    /// Set when a follow-up chip is sent, so the new card is scrolled into view.
+    @State private var anchorsFollowUp = false
+    @State private var followUpAnchor: UUID?
     /// True when the thread is taller than the screen and the top of it is on screen.
     @State private var showsJumpToBottom = false
     @State private var openPhoto: AskPhotoSet?
@@ -357,6 +360,10 @@ private struct AskChatScreen: View {
             .onChange(of: isThinking) { scrollToEnd(proxy) }
             .onChange(of: activity.partial) { scrollToEnd(proxy) }
             .onChange(of: followUp?.question) { scrollToEnd(proxy) }
+            .onChange(of: followUpAnchor) { _, id in
+                guard let id else { return }
+                scrollTo(id, proxy: proxy)
+            }
             .onAppear { scrollToEnd(proxy) }
         }
         .coordinateSpace(.named("AskKitTranscript"))
@@ -872,11 +879,13 @@ private struct AskChatScreen: View {
         isThinking = false
         pendingSend = nil
         sendFromComposer = false
+        anchorsFollowUp = false
     }
 
     private func sendFollowUp(_ offer: AskFollowUp) async {
         guard !isThinking else { return }
         followUp = nil
+        anchorsFollowUp = true
         turnTask = Task { await runTurn { await assistant.handle(utterance: offer.question) } }
     }
 
@@ -884,6 +893,10 @@ private struct AskChatScreen: View {
         guard let id = try? assistant.transcript().last?.id else { return }
         followUp = result.followUp
         followUpTurnID = result.followUp == nil ? nil : id
+        if anchorsFollowUp {
+            followUpAnchor = id
+            anchorsFollowUp = false
+        }
         if !result.pages.isEmpty {
             livePages[id] = result.pages
         }
@@ -946,6 +959,8 @@ private struct AskChatScreen: View {
         settledCards = []
         followUp = nil
         followUpTurnID = nil
+        anchorsFollowUp = false
+        followUpAnchor = nil
         votes = [:]
         sentImages = [:]
         recentPhotos = []
@@ -954,14 +969,19 @@ private struct AskChatScreen: View {
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        scrollTo("bottom", proxy: proxy)
+    }
+
+    /// Brings a follow-up card into view. Reduce Motion jumps instead of animating.
+    private func scrollTo(_ id: some Hashable, proxy: ScrollViewProxy) {
         let animated = !reduceMotion
         DispatchQueue.main.async {
             if animated {
                 withAnimation(.easeOut(duration: 0.25)) {
-                    proxy.scrollTo("bottom", anchor: .bottom)
+                    proxy.scrollTo(id, anchor: .bottom)
                 }
             } else {
-                proxy.scrollTo("bottom", anchor: .bottom)
+                proxy.scrollTo(id, anchor: .bottom)
             }
         }
     }
