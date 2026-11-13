@@ -20,7 +20,8 @@ final class AskCardStyleTests: XCTestCase {
         XCTAssertTrue(AskCardStyle.fullScreen.fillsPage)
         XCTAssertFalse(AskCardStyle.chat.fillsPage)
         XCTAssertFalse(AskCardStyle.snippet.fillsPage)
-        XCTAssertEqual(AskCardStyle.chat.chartHeight, 168)
+        XCTAssertEqual(AskCardStyle.chat.chartHeight, 88)
+        XCTAssertEqual(AskCardStyle.snippet.chartHeight, 168)
     }
 
     func testSnippetDetailStaysOnOneLine() {

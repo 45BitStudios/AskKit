@@ -16,10 +16,15 @@ public struct AskGeneratedCardView: View {
     }
 
     @Environment(\.askCardStyle) private var style
+    @Environment(\.tint) private var hostTint: Color?
+
+    private var accent: Color { hostTint ?? .accentColor }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: style.contentSpacing) {
             AskCardMark(title: markTitle, symbol: markSymbol, tint: markTint)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(markTitle)
             if let shown = presented(root, compact: style != .fullScreen) {
                 AskGeneratedNodeView(node: shown)
             }
@@ -37,9 +42,7 @@ public struct AskGeneratedCardView: View {
     }
 
     private var markTitle: String {
-        let badge = firstBadge(in: root) ?? ""
-        if !badge.isEmpty { return badge }
-        return title.isEmpty ? "Card" : title
+        AskGeneratedCardAccessibility.badge(firstBadge(in: root) ?? "", title: title)
     }
 
     private var markSymbol: String {
@@ -50,7 +53,7 @@ public struct AskGeneratedCardView: View {
     }
 
     private var markTint: Color {
-        AskCardSymbol.tint(for: markSymbol == "sparkles" ? markTitle : markSymbol)
+        AskCardSymbol.tint(for: markSymbol == "sparkles" ? markTitle : markSymbol, accent: accent)
     }
 
     /// Chat keeps the hero. Full screen keeps the figures and rows. The plate and badge are the mark.
@@ -123,7 +126,10 @@ private struct AskGeneratedNodeView: View {
         case .stat:
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.text)
-                    .font(style.displayFont)
+                    .modifier(AskCardScaledFont(
+                        base: style.displayMetric.base,
+                        relativeTo: style.displayMetric.relativeTo
+                    ))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,6 +140,8 @@ private struct AskGeneratedNodeView: View {
                         .lineLimit(style.detailLineLimit)
                 }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(AskGeneratedCardAccessibility.stat(text: node.text, detail: node.detail))
         case .figure:
             VStack(alignment: .center, spacing: 2) {
                 Text(node.text)
@@ -149,7 +157,8 @@ private struct AskGeneratedNodeView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(AskGeneratedCardAccessibility.figure(text: node.text, detail: node.detail))
         case .quote:
             Text(node.text)
                 .font(style.quoteFont)
@@ -160,14 +169,16 @@ private struct AskGeneratedNodeView: View {
             EmptyView()
         case .plate:
             if let name = AskCardSymbol.systemName(for: node.text) {
-                AskGeneratedPlate(name: name, size: style.plateSize)
+                AskGeneratedPlate(
+                    name: name,
+                    base: style.plateMetric.base,
+                    relativeTo: style.plateMetric.relativeTo
+                )
             }
         case .symbol:
             if let name = AskCardSymbol.systemName(for: node.text) {
-                AskGeneratedGlyph(
-                    name: name,
-                    size: node.detail.lowercased() == "mini" ? style.miniSymbol : style.heroSymbol
-                )
+                let metric = node.detail.lowercased() == "mini" ? style.miniMetric : style.heroMetric
+                AskGeneratedGlyph(name: name, base: metric.base, relativeTo: metric.relativeTo)
             }
         case .divider:
             Divider()
@@ -184,6 +195,8 @@ private struct AskGeneratedNodeView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(AskGeneratedCardAccessibility.row(text: node.text, detail: node.detail))
         case .action:
             EmptyView()
         }
@@ -218,10 +231,16 @@ private struct AskGeneratedNodeRow: View {
 /// Rounded artwork tile. The symbol is font-sized so multicolor marks stay painted.
 private struct AskGeneratedPlate: View {
     var name: String
-    var size: CGFloat
+    @ScaledMetric var size: CGFloat
+    @Environment(\.tint) private var hostTint: Color?
+
+    init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
+        self.name = name
+        _size = ScaledMetric(wrappedValue: base, relativeTo: relativeTo)
+    }
 
     var body: some View {
-        let tint = AskCardSymbol.tint(for: name)
+        let tint = AskCardSymbol.tint(for: name, accent: hostTint ?? .accentColor)
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
             .fill(
                 LinearGradient(
@@ -245,33 +264,64 @@ private struct AskGeneratedPlate: View {
 /// Palette SF Symbol. Font size, not a resized image, so weather marks keep their colors.
 private struct AskGeneratedGlyph: View {
     var name: String
-    var size: CGFloat
+    @ScaledMetric var size: CGFloat
+    @Environment(\.tint) private var hostTint: Color?
+
+    init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
+        self.name = name
+        _size = ScaledMetric(wrappedValue: base, relativeTo: relativeTo)
+    }
 
     var body: some View {
         Image(systemName: name)
             .symbolRenderingMode(.palette)
-            .foregroundStyle(AskGeneratedGlyphInk.primary(name), AskGeneratedGlyphInk.secondary(name))
+            .foregroundStyle(
+                AskGeneratedGlyphInk.primary(name, accent: hostTint ?? .accentColor),
+                AskGeneratedGlyphInk.secondary(name, accent: hostTint ?? .accentColor)
+            )
             .font(.system(size: size))
             .accessibilityHidden(true)
     }
 }
 
 private enum AskGeneratedGlyphInk {
-    static func primary(_ name: String) -> Color {
+    static func primary(_ name: String, accent: Color) -> Color {
         let key = name.lowercased()
         if key.contains("moon") || (key.contains("sun") && !key.contains("cloud")) { return .yellow }
         if key.contains("cloud") { return Color.gray }
-        return AskCardSymbol.tint(for: name)
+        return AskCardSymbol.tint(for: name, accent: accent)
     }
 
-    static func secondary(_ name: String) -> Color {
+    static func secondary(_ name: String, accent: Color) -> Color {
         let key = name.lowercased()
         if key.contains("moon") { return .indigo }
         if key.contains("sun") { return .orange }
         if key.contains("rain") || key.contains("drizzle") { return .blue }
         if key.contains("snow") { return .cyan }
         if key.contains("bolt") { return .yellow }
-        return AskCardSymbol.tint(for: name).opacity(0.7)
+        return AskCardSymbol.tint(for: name, accent: accent).opacity(0.7)
+    }
+}
+
+/// Hero type at `base` for the default content size. `relativeTo` is what Dynamic Type scales.
+private struct AskCardScaledFont: ViewModifier {
+    var weight: Font.Weight
+    var design: Font.Design
+    @ScaledMetric var size: CGFloat
+
+    init(
+        base: CGFloat,
+        relativeTo: Font.TextStyle,
+        weight: Font.Weight = .semibold,
+        design: Font.Design = .rounded
+    ) {
+        self.weight = weight
+        self.design = design
+        _size = ScaledMetric(wrappedValue: base, relativeTo: relativeTo)
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size, weight: weight, design: design))
     }
 }
 

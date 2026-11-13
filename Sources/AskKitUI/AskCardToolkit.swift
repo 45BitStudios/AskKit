@@ -16,6 +16,7 @@ struct AskCardToolkitScreen: View {
     @State private var layoutNotes = ""
     @State private var buttonTitle = ""
     @State private var followUp = ""
+    @State private var presetID = ""
     @State private var style = AskCardStyle.chat
     @State private var thread = AskGeneratedThread()
     @State private var isComposing = false
@@ -35,6 +36,13 @@ struct AskCardToolkitScreen: View {
                     AskCardToolkitExamples { example in
                         fill(example)
                         compose(example.blueprint)
+                    }
+                    AskCardToolkitPresets(selection: presetID) { preset in
+                        presetID = preset.id
+                        layoutNotes = preset.layoutNotes
+                        if !scenario.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            compose(nil)
+                        }
                     }
                     scenarioField
                     details
@@ -117,7 +125,7 @@ struct AskCardToolkitScreen: View {
                 .font(.body)
                 .frame(minHeight: 140)
                 .padding(8)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
                 .accessibilityLabel("Scenario")
         }
     }
@@ -136,6 +144,12 @@ struct AskCardToolkitScreen: View {
             TextField("Layout notes", text: $layoutNotes, axis: .vertical)
                 .lineLimit(2...4)
                 .askRoundedField()
+            if let preset = AskCardLayoutPreset.named(presetID) {
+                Text("Layout preset: \(preset.title). Notes you add are kept.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Text("Uses \(assistant.configuration.cardSpecialist.title). Leave a field blank and the facts fill it in.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -188,6 +202,7 @@ struct AskCardToolkitScreen: View {
         spoken = example.spoken
         layoutNotes = example.notes
         buttonTitle = example.button
+        presetID = ""
     }
 
     private func compose(_ ready: AskGeneratedBlueprint?) {
@@ -197,7 +212,8 @@ struct AskCardToolkitScreen: View {
             spoken: spoken,
             facts: facts,
             notes: layoutNotes,
-            button: buttonTitle
+            button: buttonTitle,
+            presetID: presetID
         )
         guard !blueprint.facts.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         task?.cancel()
@@ -284,6 +300,44 @@ private struct AskCardToolkitExamples: View {
     }
 }
 
+private struct AskCardToolkitPresets: View {
+    var selection: String
+    var onSelect: (AskCardLayoutPreset) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Layout presets")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Text("A preset steers the layout. It does not add card parts.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(AskCardLayoutPreset.all) { preset in
+                Button {
+                    AskCue.tap()
+                    onSelect(preset)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(preset.title)
+                            .font(.headline)
+                        Text(preset.summary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Use \(preset.title) layout")
+                .accessibilityAddTraits(selection == preset.id ? .isSelected : AccessibilityTraits())
+            }
+        }
+    }
+}
+
 private struct AskCardToolkitResult: View {
     var result: AskComposedCard
     @Binding var style: AskCardStyle
@@ -345,7 +399,8 @@ struct AskCardToolkitExample: Identifiable {
         spoken: String,
         facts: String,
         notes: String,
-        button: String
+        button: String,
+        presetID: String = ""
     ) -> AskGeneratedBlueprint {
         let lines = facts
             .split(whereSeparator: \.isNewline)
@@ -362,7 +417,8 @@ struct AskCardToolkitExample: Identifiable {
             spoken: resolvedSpoken,
             facts: facts,
             actions: actions,
-            layoutNotes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            layoutNotes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            layoutPresetID: presetID
         )
     }
 

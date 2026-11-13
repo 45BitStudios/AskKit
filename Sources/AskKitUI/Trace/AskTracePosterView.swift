@@ -78,7 +78,7 @@ private struct AskTracePosterView: View {
                 .multilineTextAlignment(.leading)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(fill, in: RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
                 .frame(maxWidth: 320, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: leading ? .leading : .trailing)

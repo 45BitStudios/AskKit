@@ -83,6 +83,18 @@ package enum AskPlatform {
 #endif
     }
 
+    /// Raised card surface. White in light mode, an elevated gray in dark mode.
+    /// A host that wants this instead of the speech bubble assigns it to ``EnvironmentValues/askCardFill``.
+    package static var cardFill: Color {
+#if os(iOS) || os(visionOS)
+        Color(uiColor: .secondarySystemGroupedBackground)
+#elseif os(macOS)
+        Color(nsColor: .controlBackgroundColor)
+#else
+        Color.gray.opacity(0.14)
+#endif
+    }
+
     /// A lighter fill than ``secondaryFill``.
     package static var tertiaryFill: Color {
 #if os(iOS) || os(visionOS)

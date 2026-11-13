@@ -131,10 +131,10 @@ public struct AskEntitySnippetCard: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: side, height: side)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
                 .accessibilityHidden(true)
         } else if let symbol = card.symbolName {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous)
                 .fill(card.accent.snippetColor)
                 .frame(width: side, height: side)
                 .overlay {
@@ -145,7 +145,7 @@ public struct AskEntitySnippetCard: View {
                 }
                 .accessibilityHidden(true)
         } else {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
+            RoundedRectangle(cornerRadius: AskCardRadius.small, style: .continuous)
                 .fill(card.accent.snippetColor)
                 .frame(width: 4, height: side)
                 .accessibilityHidden(true)

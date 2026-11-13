@@ -677,11 +677,19 @@ public struct AskAssistant {
         defer { if ownsComposition { AskCompositionProgress.shared.finish() } }
         AskCompositionProgress.shared.advance(to: .preparing)
         let specialist = configuration.cardSpecialist
+        let preset = AskCardLayoutPreset.resolved(
+            title: blueprint.title,
+            facts: blueprint.facts,
+            spoken: blueprint.spoken,
+            layoutNotes: blueprint.layoutNotes,
+            layoutPresetID: blueprint.layoutPresetID,
+            specialistPresetID: specialist.layoutPresetID
+        )
         let request = AskModelRequest(
             instructions: AskGeneratedCard.composeInstructions(
                 specialist: specialist,
                 allowedActions: blueprint.actions,
-                layoutNotes: blueprint.layoutNotes
+                layoutNotes: AskCardLayoutPreset.notes(from: preset, layoutNotes: blueprint.layoutNotes)
             ),
             prompt: AskGeneratedCard.composePrompt(
                 facts: blueprint.facts,
@@ -699,6 +707,9 @@ public struct AskAssistant {
             AskCompositionProgress.shared.advance(to: .composing)
             let root = try await AskTrace.span("composeCard") {
                 AskTrace.attribute("specialist", specialist.id)
+                if let preset {
+                    AskTrace.attribute("cardPreset", preset.id)
+                }
                 return try await model.composeCard(request)
             }
             noteGeneratedCard(.model)
