@@ -52,7 +52,7 @@ struct AskSendMorphBubble: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
-            .background(appearance.userBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(appearance.userBubble, in: RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
     }
 }
 #endif

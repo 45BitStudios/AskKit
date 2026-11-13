@@ -315,3 +315,38 @@ package struct AskHealthChartModel: Equatable, Sendable {
         choice?.range ?? initial
     }
 }
+
+/// Spoken summary for a health chart. VoiceOver reads this instead of the drawn marks.
+package enum AskHealthChartSummary {
+    package static func spoken(title: String, range: String, headline: String, values: [Double]) -> String {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let span = range.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = headline.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts: [String] = []
+        if !name.isEmpty, !span.isEmpty {
+            parts.append("\(name) for the \(span)")
+        } else if !name.isEmpty {
+            parts.append(name)
+        } else if !span.isEmpty {
+            parts.append(span)
+        }
+        if !value.isEmpty { parts.append(value) }
+        if let low = values.min(), let high = values.max(), !values.isEmpty {
+            let lowText = format(low)
+            let highText = format(high)
+            if lowText != highText {
+                parts.append(
+                    String(
+                        localized: "Low \(lowText), high \(highText)",
+                        comment: "VoiceOver summary of a health chart. The first value is the lowest point and the second is the highest."
+                    )
+                )
+            }
+        }
+        return parts.joined(separator: ". ")
+    }
+
+    private static func format(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...1)))
+    }
+}

@@ -10,6 +10,7 @@ public struct AskCapabilitiesCard: View {
     public var groups: [AskCapabilityGroup]
 
     @Environment(\.askCardStyle) private var style
+    @Environment(\.tint) private var hostTint: Color?
 
     public init(groups: [AskCapabilityGroup]) {
         self.groups = groups
@@ -17,7 +18,7 @@ public struct AskCapabilitiesCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: style == .fullScreen ? 14 : 10) {
-            AskCardMark(title: "Help", symbol: "sparkles", tint: .indigo)
+            AskCardMark(title: "Help", symbol: "sparkles", tint: hostTint ?? .accentColor)
             ForEach(style == .fullScreen ? groups : Array(groups.prefix(1))) { group in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(group.title)

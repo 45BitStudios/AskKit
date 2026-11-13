@@ -88,7 +88,7 @@ struct AskCardToolkitScreen: View {
                 .font(.body)
                 .frame(minHeight: 140)
                 .padding(8)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
                 .accessibilityLabel("Scenario")
         }
     }

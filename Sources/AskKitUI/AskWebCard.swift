@@ -29,7 +29,7 @@ struct AskWebCard: View {
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
                     .frame(height: 168)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
                     .accessibilityHidden(true)
             }
             HStack(alignment: .top, spacing: 8) {
@@ -38,7 +38,7 @@ struct AskWebCard: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 28, height: 28)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.small, style: .continuous))
                         .accessibilityHidden(true)
                 }
                 Text(title)

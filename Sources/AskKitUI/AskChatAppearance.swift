@@ -16,8 +16,11 @@ public struct AskChatAppearance {
     /// Empty-thread mark when `logo` is `.none`.
     public var composerSymbol: String
     public var userBubble: Color
+    /// Label on the user bubble. Nil at init picks black or white from the tint's contrast.
     public var userForeground: Color
     public var assistantBubble: Color
+    /// Card tile fill. Nil matches ``assistantBubble``, including in dark mode.
+    public var cardFill: Color?
     public var assistantForeground: Color
     public var placeholder: String
     /// Description under the centered empty-thread title.
@@ -38,8 +41,9 @@ public struct AskChatAppearance {
         logo: AskChatLogo = .symbol("sparkles"),
         composerSymbol: String = "sparkles",
         userBubble: Color? = nil,
-        userForeground: Color = .white,
+        userForeground: Color? = nil,
         assistantBubble: Color = AskChatAppearance.systemBubble,
+        cardFill: Color? = nil,
         assistantForeground: Color = .primary,
         placeholder: String = "Ask",
         emptyMessage: String = "Ask a question, or start with a suggestion.",
@@ -54,8 +58,9 @@ public struct AskChatAppearance {
         self.logo = logo
         self.composerSymbol = composerSymbol
         self.userBubble = userBubble ?? tint
-        self.userForeground = userForeground
+        self.userForeground = userForeground ?? Self.label(on: tint)
         self.assistantBubble = assistantBubble
+        self.cardFill = cardFill
         self.assistantForeground = assistantForeground
         self.placeholder = placeholder
         self.emptyMessage = emptyMessage
@@ -70,6 +75,19 @@ public struct AskChatAppearance {
 extension AskChatAppearance {
     /// The speech-bubble fill this platform uses. The default for `assistantBubble`.
     public static var systemBubble: Color { AskPlatform.bubbleFill }
+
+    /// Black or white, whichever clears the tint. White on a light tint is about 3.2:1 and is not used.
+    /// Pass `userForeground` when the host wants a different label.
+    static func label(on tint: Color) -> Color {
+        guard let parts = AskColorParts.rgb(tint) else { return .primary }
+        let ink = AskContrast.label(
+            on: AskSRGB(red: Double(parts.red), green: Double(parts.green), blue: Double(parts.blue))
+        )
+        switch ink {
+        case .black: return .black
+        case .white: return .white
+        }
+    }
 }
 
 /// Lobe colors for the listening glow. A non-empty override replaces the tint family.

@@ -146,7 +146,7 @@ struct AskLocationMapCard: View {
             }
             .mapStyle(.standard)
             .frame(height: style == .fullScreen ? 320 : 120)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
             .allowsHitTesting(false)
             .accessibilityLabel(label)
         }
@@ -170,7 +170,7 @@ struct AskSnippetMapPicture: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-        .background(AskPlatform.secondaryFill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(AskPlatform.secondaryFill, in: RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }

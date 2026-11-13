@@ -13,9 +13,11 @@ struct AskWeatherCard: View {
     var loadsCredit: Bool = true
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.askCardStyle) private var style
     @State private var mark: URL?
     @State private var legal: URL?
+    @State private var showsRestOfWeek = false
 
     private var showsWeek: Bool { forecast.days.count > 1 }
 
@@ -43,6 +45,22 @@ struct AskWeatherCard: View {
                 }
             } else if showsWeek, let day = forecast.days.first {
                 AskWeatherCompactDay(day: day)
+                if showsRestOfWeek {
+                    ForEach(Array(forecast.days.dropFirst().enumerated()), id: \.offset) { _, later in
+                        AskWeatherDayRow(day: later)
+                    }
+                }
+                Button(showsRestOfWeek ? hideWeekTitle : showWeekTitle) {
+                    if reduceMotion {
+                        showsRestOfWeek.toggle()
+                    } else {
+                        withAnimation(.smooth(duration: 0.25)) {
+                            showsRestOfWeek.toggle()
+                        }
+                    }
+                }
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             } else {
                 AskWeatherCompactDay(day: forecast.day)
                 if style == .fullScreen, !forecast.hours.isEmpty {
@@ -58,6 +76,14 @@ struct AskWeatherCard: View {
             guard loadsCredit, style == .fullScreen else { return }
             await loadAttribution()
         }
+    }
+
+    private var showWeekTitle: String {
+        String(localized: "Show the week", comment: "Button that reveals the rest of a forecast after the first day.")
+    }
+
+    private var hideWeekTitle: String {
+        String(localized: "Hide the week", comment: "Button that collapses a forecast back to the first day.")
     }
 
     private var weekTitle: String {
