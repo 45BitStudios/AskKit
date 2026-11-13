@@ -97,11 +97,12 @@ public struct AskCardMark: View {
         self.tint = tint
     }
 
-    private let side: CGFloat = 36
+    @ScaledMetric(relativeTo: .caption) private var side = 36
+    @ScaledMetric(relativeTo: .caption) private var glyph = 16
 
     public var body: some View {
         HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [tint.mix(with: .white, by: 0.28), tint],
@@ -112,7 +113,7 @@ public struct AskCardMark: View {
                 .frame(width: side, height: side)
                 .overlay {
                     Image(systemName: symbol)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: glyph, weight: .semibold))
                         .symbolRenderingMode(.monochrome)
                         .foregroundStyle(.white)
                         .accessibilityHidden(true)
@@ -121,12 +122,15 @@ public struct AskCardMark: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .accessibilityElement(children: .combine)
     }
 }
 
-/// Full-width action inside a card. It pages with the card. Uses prominent Liquid Glass tinted to the card.
+/// Full-width action inside a card. It pages with the card.
+/// A labeled button is the primary action. An icon-only button is secondary.
+/// Neither uses Liquid Glass. Apple TV keeps the system button so focus can draw it.
 struct AskCardCTA<I: AppIntent>: View {
     var title: LocalizedStringKey
     var symbol: String
@@ -138,35 +142,58 @@ struct AskCardCTA<I: AppIntent>: View {
     /// Off for the icon-only directions control beside a place.
     var showsTitle: Bool = true
 
+    /// Floor for the control. The glyph can grow past this with Dynamic Type.
+    private static let minimumHit: CGFloat = 44
+
+    @ScaledMetric(relativeTo: .body) private var glyph = 15
+    @Environment(\.tint) private var hostTint: Color?
+
+    /// Host `.tint` wins. Otherwise the caller’s semantic system color is used.
+    private var actionTint: Color { hostTint ?? tint }
+
+    private var hit: CGFloat { max(Self.minimumHit, glyph + 20) }
+
     var body: some View {
+        styled
+            .frame(maxWidth: expands ? .infinity : nil)
+    }
+
+    private var button: some View {
         Button(intent: intent) {
             HStack(spacing: showsTitle ? 8 : 0) {
                 Image(systemName: symbol)
-                    .font(showsTitle ? .subheadline.weight(.semibold) : .body.weight(.semibold))
+                    .font(.system(size: glyph, weight: .semibold))
                     .accessibilityHidden(true)
                 if showsTitle {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
-            .frame(minWidth: showsTitle ? nil : 44, minHeight: 44)
+            .frame(minWidth: showsTitle ? nil : hit, minHeight: hit)
             .padding(.horizontal, showsTitle ? 16 : 0)
+            .contentShape(.rect)
         }
-#if os(visionOS)
-        .buttonStyle(.borderedProminent)
-#else
-        .buttonStyle(.glassProminent)
-#endif
-        .tint(tint)
-        .buttonBorderShape(showsTitle ? .capsule : .circle)
-        .frame(maxWidth: expands ? .infinity : nil)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    @ViewBuilder
+    private var styled: some View {
+#if os(tvOS)
+        button.tint(actionTint)
+#else
+        button
+            .buttonStyle(showsTitle ? .borderedProminent : .bordered)
+            .buttonBorderShape(showsTitle ? .capsule : .circle)
+            .tint(actionTint)
+#endif
     }
 }
 
 extension View {
-    /// Shared answer-card surface. Chat and snippet use the speech-bubble fill. Full screen is the page.
+    /// Shared answer-card surface. Chat and snippet use ``EnvironmentValues/askCardFill``,
+    /// which matches the host bubble unless the host sets a different fill. Full screen is the page.
     /// `tint` is unused; the color lives on ``AskCardMark``.
     public func askCardSurface(tint: Color? = nil) -> some View {
         modifier(AskCardSurfaceModifier(tint: tint))
@@ -177,7 +204,8 @@ private struct AskCardSurfaceModifier: ViewModifier {
     /// Kept so existing call sites compile. The fill does not use it.
     var tint: Color?
     @Environment(\.askCardStyle) private var style
-    @Environment(\.askBubbleFill) private var bubble
+    @Environment(\.askCardFill) private var cardFill
+    @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
         if style.fillsPage {
@@ -191,7 +219,12 @@ private struct AskCardSurfaceModifier: ViewModifier {
             content
                 .padding(style.padding)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(bubble, in: AskCardStyle.shape)
+                .background(cardFill, in: AskCardStyle.shape)
+                .overlay {
+                    if contrast == .increased {
+                        AskCardStyle.shape.strokeBorder(Color.primary.opacity(0.45), lineWidth: 1)
+                    }
+                }
         }
     }
 }

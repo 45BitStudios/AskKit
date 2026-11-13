@@ -16,6 +16,9 @@ public struct AskGeneratedCardView: View {
     }
 
     @Environment(\.askCardStyle) private var style
+    @Environment(\.tint) private var hostTint: Color?
+
+    private var accent: Color { hostTint ?? .accentColor }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: style.contentSpacing) {
@@ -41,7 +44,7 @@ public struct AskGeneratedCardView: View {
     }
 
     private var markTint: Color {
-        AskCardSymbol.tint(for: markSymbol == "sparkles" ? markTitle : markSymbol)
+        AskCardSymbol.tint(for: markSymbol == "sparkles" ? markTitle : markSymbol, accent: accent)
     }
 
     /// Chat keeps the hero. Full screen keeps the figures and rows. The plate and badge are the mark.
@@ -220,6 +223,7 @@ private struct AskGeneratedNodeRow: View {
 private struct AskGeneratedPlate: View {
     var name: String
     @ScaledMetric var size: CGFloat
+    @Environment(\.tint) private var hostTint: Color?
 
     init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
         self.name = name
@@ -227,7 +231,7 @@ private struct AskGeneratedPlate: View {
     }
 
     var body: some View {
-        let tint = AskCardSymbol.tint(for: name)
+        let tint = AskCardSymbol.tint(for: name, accent: hostTint ?? .accentColor)
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
             .fill(
                 LinearGradient(
@@ -252,6 +256,7 @@ private struct AskGeneratedPlate: View {
 private struct AskGeneratedGlyph: View {
     var name: String
     @ScaledMetric var size: CGFloat
+    @Environment(\.tint) private var hostTint: Color?
 
     init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
         self.name = name
@@ -261,28 +266,31 @@ private struct AskGeneratedGlyph: View {
     var body: some View {
         Image(systemName: name)
             .symbolRenderingMode(.palette)
-            .foregroundStyle(AskGeneratedGlyphInk.primary(name), AskGeneratedGlyphInk.secondary(name))
+            .foregroundStyle(
+                AskGeneratedGlyphInk.primary(name, accent: hostTint ?? .accentColor),
+                AskGeneratedGlyphInk.secondary(name, accent: hostTint ?? .accentColor)
+            )
             .font(.system(size: size))
             .accessibilityHidden(true)
     }
 }
 
 private enum AskGeneratedGlyphInk {
-    static func primary(_ name: String) -> Color {
+    static func primary(_ name: String, accent: Color) -> Color {
         let key = name.lowercased()
         if key.contains("moon") || (key.contains("sun") && !key.contains("cloud")) { return .yellow }
         if key.contains("cloud") { return Color.gray }
-        return AskCardSymbol.tint(for: name)
+        return AskCardSymbol.tint(for: name, accent: accent)
     }
 
-    static func secondary(_ name: String) -> Color {
+    static func secondary(_ name: String, accent: Color) -> Color {
         let key = name.lowercased()
         if key.contains("moon") { return .indigo }
         if key.contains("sun") { return .orange }
         if key.contains("rain") || key.contains("drizzle") { return .blue }
         if key.contains("snow") { return .cyan }
         if key.contains("bolt") { return .yellow }
-        return AskCardSymbol.tint(for: name).opacity(0.7)
+        return AskCardSymbol.tint(for: name, accent: accent).opacity(0.7)
     }
 }
 

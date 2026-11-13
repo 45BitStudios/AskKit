@@ -94,7 +94,7 @@ struct AskNowPlayingCard: View {
 
     private var artwork: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [.pink, .purple],
@@ -108,7 +108,7 @@ struct AskNowPlayingCard: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: artSize, height: artSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
                     .accessibilityHidden(true)
             } else {
                 Image(systemName: "music.note")
@@ -227,7 +227,7 @@ struct AskMusicCard: View {
             AskCardMark(title: badgeTitle, symbol: badgeSymbol, tint: accent)
             HStack(alignment: .top, spacing: 14) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous)
                         .fill(plate)
                         .frame(width: 76, height: 76)
                     if let cover {
@@ -235,7 +235,7 @@ struct AskMusicCard: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: 76, height: 76)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
                             .accessibilityHidden(true)
                     } else {
                         Image(systemName: badgeSymbol)

@@ -436,7 +436,7 @@ private struct AskHealthBarChart: View {
                 y: .value("Value", point.value)
             )
             .foregroundStyle(color.gradient)
-            .cornerRadius(style == .fullScreen ? 8 : 5)
+            .cornerRadius(AskCardRadius.small)
         }
         .chartYScale(domain: 0.0 ... peak * 1.08)
         .healthAxes(range: range, unit: axisLabel, labelFont: style == .fullScreen ? .caption : .caption2)

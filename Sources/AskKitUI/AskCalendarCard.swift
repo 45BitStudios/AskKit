@@ -88,7 +88,7 @@ private struct AskCalendarEventRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(tint.opacity(0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
     }
 
     private var birthdayRow: some View {
@@ -110,7 +110,7 @@ private struct AskCalendarEventRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
     }
 
     private func timeLine(symbol: String) -> some View {
