@@ -259,6 +259,7 @@ private struct AskChatScreen: View {
             .environment(\.askCardStyle, .chat)
             .environment(\.askBubbleFill, appearance.assistantBubble)
             .environment(\.askCardFill, appearance.cardFill ?? appearance.assistantBubble)
+            .environment(\.askTint, appearance.tint)
             .task { chips = await assistant.chips() }
             .task {
                 await AskSurfaces.refresh(access: assistant.configuration.appleAccess)

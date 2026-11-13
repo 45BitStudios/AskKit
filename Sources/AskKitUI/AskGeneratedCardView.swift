@@ -16,9 +16,9 @@ public struct AskGeneratedCardView: View {
     }
 
     @Environment(\.askCardStyle) private var style
-    @Environment(\.tint) private var hostTint: Color?
+    @Environment(\.askTint) private var askTint
 
-    private var accent: Color { hostTint ?? .accentColor }
+    private var accent: Color { askTint ?? .accentColor }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: style.contentSpacing) {
@@ -119,7 +119,6 @@ private struct AskGeneratedNodeView: View {
             Text(node.text)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .textCase(.uppercase)
                 .tracking(0.6)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,7 +151,6 @@ private struct AskGeneratedNodeView: View {
                     Text(node.detail)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
                         .lineLimit(1)
                 }
             }
@@ -232,7 +230,7 @@ private struct AskGeneratedNodeRow: View {
 private struct AskGeneratedPlate: View {
     var name: String
     @ScaledMetric var size: CGFloat
-    @Environment(\.tint) private var hostTint: Color?
+    @Environment(\.askTint) private var askTint
 
     init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
         self.name = name
@@ -240,7 +238,7 @@ private struct AskGeneratedPlate: View {
     }
 
     var body: some View {
-        let tint = AskCardSymbol.tint(for: name, accent: hostTint ?? .accentColor)
+        let tint = AskCardSymbol.tint(for: name, accent: askTint ?? .accentColor)
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
             .fill(
                 LinearGradient(
@@ -265,7 +263,7 @@ private struct AskGeneratedPlate: View {
 private struct AskGeneratedGlyph: View {
     var name: String
     @ScaledMetric var size: CGFloat
-    @Environment(\.tint) private var hostTint: Color?
+    @Environment(\.askTint) private var askTint
 
     init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
         self.name = name
@@ -276,8 +274,8 @@ private struct AskGeneratedGlyph: View {
         Image(systemName: name)
             .symbolRenderingMode(.palette)
             .foregroundStyle(
-                AskGeneratedGlyphInk.primary(name, accent: hostTint ?? .accentColor),
-                AskGeneratedGlyphInk.secondary(name, accent: hostTint ?? .accentColor)
+                AskGeneratedGlyphInk.primary(name, accent: askTint ?? .accentColor),
+                AskGeneratedGlyphInk.secondary(name, accent: askTint ?? .accentColor)
             )
             .font(.system(size: size))
             .accessibilityHidden(true)
