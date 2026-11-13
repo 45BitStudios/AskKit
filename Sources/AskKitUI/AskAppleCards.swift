@@ -200,7 +200,6 @@ struct AskLocationPlaceRow: View {
         AskCardCTA(
             title: title,
             symbol: "arrow.triangle.turn.up.right.diamond.fill",
-            tint: .green,
             intent: AskDirectionsTap(
                 place: place.shortName,
                 latitude: place.latitude,

@@ -265,7 +265,6 @@ struct AskMusicCard: View {
             AskCardCTA(
                 title: playTitle,
                 symbol: "play.fill",
-                tint: accent,
                 intent: AskMusicPlayTap(
                     kind: item.musicKind,
                     title: item.title,
