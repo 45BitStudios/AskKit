@@ -254,6 +254,7 @@ private struct AskChatScreen: View {
             .environment(\.cardZoomNamespace, cardZoom)
             .environment(\.askCardStyle, .chat)
             .environment(\.askBubbleFill, appearance.assistantBubble)
+            .environment(\.askCardFill, appearance.cardFill ?? appearance.assistantBubble)
             .task { chips = await assistant.chips() }
             .task {
                 await AskSurfaces.refresh(access: assistant.configuration.appleAccess)
@@ -565,7 +566,7 @@ private struct AskChatScreen: View {
                     copyable(turn.text, foreground: appearance.userForeground)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(appearance.userBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .background(appearance.userBubble, in: RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
                         .modifier(AskBubbleMenu(
                             text: turn.text,
                             fill: appearance.userBubble,
@@ -1093,7 +1094,7 @@ private struct AskSpeechBubble: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(appearance.assistantBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(appearance.assistantBubble, in: RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
                 .askTimeAnchor(priority: 2)
                 .modifier(AskBubbleMenu(
                     text: text,
@@ -1305,7 +1306,7 @@ struct AskCardActions: ViewModifier {
                     .resizable()
                     .scaledToFit()
                     .frame(width: fitted)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.card, style: .continuous))
             } else {
                 view
                     .frame(width: fitted, alignment: .leading)
@@ -1546,7 +1547,7 @@ private struct AskActionButton: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(AskTintChrome.capsule(tint, scheme: colorScheme), in: Capsule())
-            .accessibilityLabel(action.title)
+            .accessibilityLabel(AskGeneratedCardAccessibility.action(action.title))
     }
 }
 
@@ -1619,7 +1620,7 @@ private struct AskBubbleMenu: ViewModifier {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(width: 280, alignment: .leading)
-                .background(fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(fill, in: RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
         }
     }
 }
@@ -1679,9 +1680,9 @@ private struct AskImageThumb: View {
             } label: {
                 thumb
                     .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
                     .matchedTransitionSource(id: image.id, in: zoom) { source in
-                        source.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        source.clipShape(RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
                     }
             }
             .buttonStyle(.plain)
@@ -1743,7 +1744,7 @@ private struct AskImageThumb: View {
         }
         .frame(width: 280, height: 360)
         .background(Color.black)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.large, style: .continuous))
     }
 
     @ViewBuilder

@@ -7,6 +7,27 @@ import XCTest
 @testable import AskKitUI
 
 final class AskChatAppearanceTests: XCTestCase {
+    func testDefaultTintStaysTheHostAccent() {
+        let appearance = AskChatAppearance()
+        XCTAssertEqual(appearance.tint, Color.accentColor)
+        XCTAssertNil(appearance.cardFill)
+    }
+
+    func testUserForegroundPicksBlackOnALightTint() {
+        let appearance = AskChatAppearance(tint: Color(red: 176.0 / 255.0, green: 112.0 / 255.0, blue: 1))
+        XCTAssertLessThan(brightness(of: appearance.userForeground), 0.15)
+    }
+
+    func testUserForegroundPicksWhiteOnADarkTint() {
+        let appearance = AskChatAppearance(tint: Color(red: 0.10, green: 0.12, blue: 0.28))
+        XCTAssertGreaterThan(brightness(of: appearance.userForeground), 0.9)
+    }
+
+    func testHostCanPassTheLabelColorBesideTheTint() {
+        let appearance = AskChatAppearance(tint: .yellow, userForeground: .blue)
+        XCTAssertEqual(appearance.userForeground, .blue)
+    }
+
     func testUserBubbleDefaultsToTheTint() {
         let appearance = AskChatAppearance(tint: .red)
         XCTAssertEqual(appearance.userBubble, .red)

@@ -1,6 +1,25 @@
 import AppIntents
 import SwiftUI
 
+/// Four corner radii for cards, bubbles, and the tiles inside them.
+///
+/// Snippet plates, map corners, bar caps, and the card itself used to pick their own numbers.
+/// New chrome uses one of these steps.
+public enum AskCardRadius {
+    /// Chips, icons, and chart caps.
+    public static let small: CGFloat = 8
+    /// Rows and inset tiles.
+    public static let medium: CGFloat = 12
+    /// Artwork, maps, and bubbles.
+    public static let large: CGFloat = 16
+    /// The card container.
+    public static let card: CGFloat = 22
+
+    public static func shape(_ radius: CGFloat = AskCardRadius.card) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+    }
+}
+
 /// Where a card is drawn. Snippet is Shortcuts/Siri. Chat is the transcript. Full screen is the zoomed detail.
 /// Cards read ``EnvironmentValues/askCardStyle`` and thin or grow their chrome. Chat → full screen uses an App Store–style zoom.
 public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
@@ -11,7 +30,7 @@ public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
     /// Zoomed detail after opening an expandable chat card.
     case fullScreen
 
-    public static let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+    public static let shape = AskCardRadius.shape()
 
     public var padding: CGFloat {
         switch self {
@@ -53,12 +72,31 @@ public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
     }
 
     /// Hero number. Rounded and a step above the title so a stat does not look like body text.
+    /// This follows ``displayMetric``'s text style, so Dynamic Type can grow it.
+    /// Generated cards still scale the default point size through ``displayMetric``.
     public var displayFont: Font {
+        .system(displayMetric.relativeTo, design: .rounded).weight(.semibold)
+    }
+
+    /// Default point size for the hero, and the text style it scales against.
+    package var displayMetric: AskCardDynamicMetric {
         switch self {
-        case .snippet: .system(size: 34, weight: .semibold, design: .rounded)
-        case .chat: .system(size: 44, weight: .semibold, design: .rounded)
-        case .fullScreen: .system(size: 64, weight: .semibold, design: .rounded)
+        case .snippet: AskCardDynamicMetric(base: 34, relativeTo: .title)
+        case .chat: AskCardDynamicMetric(base: 44, relativeTo: .largeTitle)
+        case .fullScreen: AskCardDynamicMetric(base: 64, relativeTo: .largeTitle)
         }
+    }
+
+    package var heroMetric: AskCardDynamicMetric {
+        AskCardDynamicMetric(base: heroSymbol, relativeTo: .largeTitle)
+    }
+
+    package var miniMetric: AskCardDynamicMetric {
+        AskCardDynamicMetric(base: miniSymbol, relativeTo: .body)
+    }
+
+    package var plateMetric: AskCardDynamicMetric {
+        AskCardDynamicMetric(base: plateSize, relativeTo: .largeTitle)
     }
 
     /// Sentence with no number. Medium weight, larger than a caption, smaller than the hero.
@@ -102,17 +140,27 @@ public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
         }
     }
 
-    /// Fixed plot height for snippet and chat. Full screen ignores this and fills the page.
-    public var chartHeight: CGFloat { 168 }
+    /// Unscaled plot height. Chat's 88 is a floor: the chart view scales it with Dynamic Type and never draws shorter.
+    /// Snippet stays at 168. Full screen ignores this and fills the page.
+    public var chartHeight: CGFloat { self == .chat ? 88 : 168 }
 
     /// The zoomed page. The tint runs to the screen edges and the plot takes the leftover height.
     public var fillsPage: Bool { self == .fullScreen }
 }
 
+/// A point size at the default content size, paired with the text style Dynamic Type uses to scale it.
+package struct AskCardDynamicMetric {
+    package var base: CGFloat
+    package var relativeTo: Font.TextStyle
+}
+
 extension EnvironmentValues {
     @Entry public var askCardStyle: AskCardStyle = .chat
-    /// Card fill in chat and snippet. Defaults to the speech-bubble color.
+    /// Speech-bubble fill. ``askCardFill`` follows it unless a host sets a different card surface.
     @Entry public var askBubbleFill: Color = AskPlatform.bubbleFill
+    /// Fill of a card tile. Defaults to the bubble fill so dark mode and a host bubble stay on the card.
+    /// Set ``AskChatAppearance/cardFill`` or this environment value to use ``AskPlatform/cardFill`` instead.
+    @Entry public var askCardFill: Color = AskPlatform.bubbleFill
 }
 
 package enum AskCardSymbol {
@@ -131,7 +179,8 @@ package enum AskCardSymbol {
         return namedSymbol(for: name)
     }
 
-    package static func tint(for title: String) -> Color {
+    /// Domain colors stay semantic system colors. Anything else uses `accent`, which is the host tint.
+    package static func tint(for title: String, accent: Color = .accentColor) -> Color {
         switch title.lowercased() {
         case "calendar": .red
         case "reminders": .orange
@@ -152,7 +201,7 @@ package enum AskCardSymbol {
         case "photos", "photo", "screenshots": .teal
         case "capabilities": .indigo
         case "charge", "skill": .green
-        default: .indigo
+        default: accent
         }
     }
 

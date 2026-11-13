@@ -125,7 +125,7 @@ struct AskPhotosCard: View {
 
 /// The card fill stays rounded without clipping the cells. A clipped ancestor breaks the zoom.
 private struct AskPhotosCardFill: View {
-    @Environment(\.askBubbleFill) private var fill
+    @Environment(\.askCardFill) private var fill
 
     var body: some View {
         AskCardStyle.shape.fill(fill)
@@ -253,7 +253,7 @@ private struct AskPhotoCell: View {
                         .frame(width: proxy.size.width, height: proxy.size.height)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
             .modifier(AskPhotoZoomMark(enabled: marksZoom, sourceID: sourceID, namespace: namespace))
             .frame(maxWidth: .infinity)
         }
@@ -319,7 +319,7 @@ private struct AskPhotoZoomMark: ViewModifier {
     func body(content: Content) -> some View {
         if enabled {
             content.matchedTransitionSource(id: sourceID, in: namespace) { source in
-                source.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                source.clipShape(RoundedRectangle(cornerRadius: AskCardRadius.medium, style: .continuous))
             }
         } else {
             content

@@ -17,7 +17,32 @@ struct AskAlarmCard: View {
         item.symbol ?? "bell.fill"
     }
 
+    /// Scheduled alarms are on. Paused alarms are off. The card reports that state and does not change the system alarm.
+    private var scheduled: Bool { item.state != "paused" }
+
+    private var status: String {
+        if item.state == "paused" {
+            String(localized: "Paused", comment: "Alarm switch when this alarm is not scheduled.")
+        } else {
+            String(localized: "On", comment: "Alarm switch when this alarm is scheduled.")
+        }
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            details
+            if item.state != nil {
+                Toggle(isOn: .constant(scheduled)) {
+                    Text(status)
+                }
+                .disabled(true)
+                .accessibilityValue(status)
+            }
+        }
+        .askCardSurface()
+    }
+
+    private var details: some View {
         VStack(alignment: .leading, spacing: 8) {
             AskCardMark(
                 title: customized ? "Custom" : "Alarm",
@@ -35,11 +60,6 @@ struct AskAlarmCard: View {
                 .lineLimit(2)
             if item.repeats != "once" {
                 Text(item.repeats)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if item.state == "paused" {
-                Text("paused")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -65,7 +85,6 @@ struct AskAlarmCard: View {
                     .accessibilityLabel("Alarm button, custom symbol \(symbol)")
             }
         }
-        .askCardSurface()
         .accessibilityElement(children: .combine)
     }
 }

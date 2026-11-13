@@ -501,7 +501,7 @@ private struct AskOrbGallerySection: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: AskCardRadius.card, style: .continuous))
         }
         .contextMenu {
             Button {
