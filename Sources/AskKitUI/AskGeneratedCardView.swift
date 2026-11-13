@@ -333,18 +333,23 @@ private struct AskCardSourceFooter: View {
         Group {
             if sources.count == 1, let url = sources[0].url {
                 Link(destination: url) {
-                    Text(AskGeneratedCard.sourceLine(sources, includingLinks: false))
+                    line.foregroundStyle(.primary)
                 }
+                // The link text is the host's text color. The accent tint must not color it.
+                .tint(.primary)
                 .accessibilityHint("Opens the source")
             } else {
-                Text(AskGeneratedCard.sourceLine(sources, includingLinks: false))
+                line.foregroundStyle(.secondary)
             }
         }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(AskGeneratedCard.sourceLine(sources))
+    }
+
+    private var line: some View {
+        Text(AskGeneratedCard.sourceLine(sources, includingLinks: false))
+            .font(.footnote)
     }
 }
 

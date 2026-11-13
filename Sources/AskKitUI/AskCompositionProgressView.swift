@@ -78,40 +78,35 @@ private struct AskCompositionStepRow: View {
 }
 
 /// Redacted stand-in for a generative card. Shown until the composed tree replaces it.
-/// Reduce Motion leaves the bars still.
+/// It is the real card layout, so the placeholder is the same size as the card that replaces it.
+/// Reduce Motion leaves the shimmer off. VoiceOver hears one Loading label.
 public struct AskGeneratedCardPlaceholder: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.askCardStyle) private var style
     @State private var phase: CGFloat = -0.6
 
     public init() {}
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: style.contentSpacing) {
-            HStack(spacing: 8) {
-                Text("Card")
-                    .font(.caption.weight(.semibold))
-                Text("Title")
-                    .font(.caption.weight(.semibold))
+        AskGeneratedCardView(root: Self.standIn, title: "Card")
+            .redacted(reason: .placeholder)
+            .overlay { shimmer }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Loading")
+            .onAppear(perform: startShimmer)
+            .onChange(of: reduceMotion) { _, _ in
+                startShimmer()
             }
-            Text("00")
-                .font(style.displayFont)
-            Text("A detail line from the facts")
-                .font(style.detailFont)
-            Text("Another short line")
-                .font(style.detailFont)
-        }
-        .redacted(reason: .placeholder)
-        .askCardSurface()
-        .overlay { shimmer }
-        .clipShape(AskCardStyle.shape)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Creating the card")
-        .onAppear(perform: startShimmer)
-        .onChange(of: reduceMotion) { _, _ in
-            startShimmer()
-        }
     }
+
+    /// Same kinds the renderer draws: a mark, a hero, and a line. Redaction hides the words.
+    private static let standIn = AskCardNode(
+        kind: "vstack",
+        children: [
+            AskCardNode(kind: "badge", text: "Card"),
+            AskCardNode(kind: "stat", text: "00", detail: "Detail"),
+            AskCardNode(kind: "text", text: "Line")
+        ]
+    )
 
     @ViewBuilder
     private var shimmer: some View {
