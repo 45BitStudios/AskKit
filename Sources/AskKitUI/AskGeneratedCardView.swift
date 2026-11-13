@@ -323,6 +323,17 @@ private struct AskCardScaledFont: ViewModifier {
     }
 }
 
+/// Kinds ``AskGeneratedNodeView`` has a case for.
+/// The primitive test fails when a ``AskCardNodeKind`` is missing here.
+enum AskGeneratedCardRender {
+    static func draws(_ kind: AskCardNodeKind) -> Bool {
+        switch kind {
+        case .vstack, .hstack, .text, .eyebrow, .stat, .figure, .quote, .badge, .plate, .symbol, .divider, .spacer, .row, .action:
+            true
+        }
+    }
+}
+
 /// "Source: …" under the card. One link opens when the card has a single http or https source.
 private struct AskCardSourceFooter: View {
     var sources: [AskCardSource]
