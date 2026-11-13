@@ -28,8 +28,17 @@ public struct AskGeneratedCardView: View {
             if let shown = presented(root, compact: style != .fullScreen) {
                 AskGeneratedNodeView(node: shown)
             }
+            sourceFooter
         }
         .askCardSurface()
+    }
+
+    @ViewBuilder
+    private var sourceFooter: some View {
+        let sources = AskGeneratedCard.sources(in: root)
+        if !sources.isEmpty {
+            AskCardSourceFooter(sources: sources)
+        }
     }
 
     private var markTitle: String {
@@ -311,6 +320,34 @@ private struct AskCardScaledFont: ViewModifier {
 
     func body(content: Content) -> some View {
         content.font(.system(size: size, weight: weight, design: design))
+    }
+}
+
+/// "Source: …" under the card. One link opens when the card has a single http or https source.
+private struct AskCardSourceFooter: View {
+    var sources: [AskCardSource]
+
+    var body: some View {
+        Group {
+            if sources.count == 1, let url = sources[0].url {
+                Link(destination: url) {
+                    line.foregroundStyle(.primary)
+                }
+                // The link text is the host's text color. The accent tint must not color it.
+                .tint(.primary)
+                .accessibilityHint("Opens the source")
+            } else {
+                line.foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(AskGeneratedCard.sourceLine(sources))
+    }
+
+    private var line: some View {
+        Text(AskGeneratedCard.sourceLine(sources, includingLinks: false))
+            .font(.footnote)
     }
 }
 

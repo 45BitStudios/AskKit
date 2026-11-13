@@ -25,6 +25,9 @@ public enum AskChatActivity {
         center.title = title
         center.detail = detail
         center.phase = phase
+        // Tool calls and the writer already come through here. A compose run that is open
+        // turns those into Search and Prepare data. Write layout is advanced by the compose session.
+        AskCompositionProgress.shared.note(chat: phase)
     }
 
     /// The reply text as the model writes it. Cleared when the turn is stored,

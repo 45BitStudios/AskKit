@@ -474,6 +474,55 @@ cardSpecialist: AskCardSpecialist(
 )
 ```
 
+### While the layout is generating
+
+`AskCompositionProgress.shared` is the checklist for a generated card. The phases stay in this order:
+
+1. Understand request. The turn has started, or a specialist is choosing.
+2. Search. A tool call (`AskChatPhase.tool`) is in flight.
+3. Prepare data. The writer is producing the line (`AskChatPhase.writing`).
+4. Write layout. The compose session is building the tree.
+
+A later event does not reopen an earlier phase. Search is skipped when the turn never calls a tool. Each finished phase keeps its duration on the snapshot. The shared run also appends that duration to `AskCompositionMetrics`, an in-process log. Set `AskCompositionMetrics.onRecord` to observe it. Nothing is sent off the device.
+
+`updates()` yields the same snapshots the checklist reads. The chat and the card toolkit show `AskCompositionProgressView` while the run is open.
+
+`AskGeneratedCardPlaceholder` is the redacted card shown until the tree is ready. The composed `AskGeneratedCardView` replaces it. Reduce Motion leaves the bars still and holds the active step mark still. The Cards gallery plays the four steps, then shows the forecast card. Replay runs that preview again.
+
+### Sources
+
+`AskCardSource` is a name, such as Calendar, Health, or Weather, and an optional http or https URL. Put them on `AskGeneratedBlueprint.sources`, or on `AskCardNode.sources` when the tree is already built. The sanitizer drops an empty name, a link that is not http or https, and a repeated id. It keeps four sources on a node. The footer reads up to six from the whole tree and says `Source: …`. Copy and Share include that line.
+
+Card JSON written before sources existed still decodes. The `sources` key is omitted when a node has none.
+
+### Follow-up cards
+
+`appendCard(_:from:to:)` adds a generated card under an `AskGeneratedThread`. The earlier cards stay. Their facts are passed to the next compose as `PRIOR FACTS`, bounded by `AskGeneratedContext` (six cards, 1,200 characters, oldest dropped first). `composeCard(from:)` is unchanged when you omit `priorFacts`.
+
+A chat thread does not pass those facts unless `passesGeneratedFollowUpContext` is true. A follow-up chip scrolls the new card into view. Reduce Motion jumps.
+
+```swift
+var thread = AskGeneratedThread()
+thread = await assistant.appendCard(
+    "What about the range?",
+    from: AskGeneratedBlueprint(
+        title: "Range",
+        spoken: "About 210 miles.",
+        facts: "210 miles"
+    ),
+    to: thread
+)
+```
+
+```swift
+AskGeneratedBlueprint(
+    title: "Forecast",
+    spoken: "It is 72 degrees and partly cloudy.",
+    facts: "72°\nPartly cloudy\nHigh 78°\nLow 61°",
+    sources: [AskCardSource(name: "Weather", url: URL(string: "https://weather.example/today"))]
+)
+```
+
 `AskCardStyle` is `.snippet`, `.chat`, or `.fullScreen`. Cards read it from the environment and thin or grow their chrome. The Shortcuts snippet sets `.snippet`. The transcript sets `.chat`. An expandable chat card (`AskIntentCard.expands`) zooms into `.fullScreen` with the same App Store–style transition the photo grid uses. Photo cards keep their own zoom and leave `expands` off. Chat and snippet cards fill with the speech-bubble color (`askBubbleFill`, which defaults to the secondary system background) and put a 36-point gradient mark (`AskCardMark`) with the symbol and name at the top left. Full screen uses the page background and can show the rest of the card.
 
 A custom transcript asks for that bubble the same way:

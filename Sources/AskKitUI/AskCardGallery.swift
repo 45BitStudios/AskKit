@@ -259,7 +259,7 @@ enum AskCardSamples {
             section("No forecast", "", apple("weather", ["No forecast."], "No forecast.")),
             section("Capabilities", "What this assistant can answer.", capabilities),
             section("Skill", "Same shape as a sample fact card.", skill),
-            section("Generated DSL", "A plate, palette symbols, and a display number. Charts and photos stay on the host cards.", generated)
+            section("Generated DSL", "A plate, palette symbols, and a display number. The footer names the source. Charts and photos stay on the host cards.", generated)
         ]
     }
 
@@ -373,6 +373,8 @@ enum AskCardSamples {
     @MainActor
     private static var generated: some View {
         VStack(alignment: .leading, spacing: 16) {
+            AskGeneratedCardPlayback()
+            AskGeneratedFollowUpStack()
             ForEach(AskGeneratedCard.gallerySamples, id: \.title) { sample in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(sample.title)
@@ -380,6 +382,110 @@ enum AskCardSamples {
                         .foregroundStyle(.secondary)
                     AskGeneratedCardView(root: sample.root)
                 }
+            }
+        }
+    }
+}
+
+/// Plays the composition checklist, then swaps the skeleton for the forecast card.
+/// Reduce Motion shows the finished card and the recorded times without the shimmer.
+private struct AskGeneratedCardPlayback: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var composition = AskCompositionState()
+    @State private var revealed = false
+    @State private var run = 0
+
+    private static let forecast = AskGeneratedCard.forecastSample
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Generating")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Spacer(minLength: 8)
+                Button("Replay") {
+                    AskCue.tap()
+                    revealed = false
+                    composition = AskCompositionState()
+                    run += 1
+                }
+                .font(.caption.weight(.semibold))
+                .accessibilityLabel("Replay card generation")
+            }
+            if composition.snapshot.isRunning || !composition.snapshot.records.isEmpty {
+                AskCompositionProgressView(snapshot: composition.snapshot)
+            }
+            if revealed {
+                AskGeneratedCardView(root: Self.forecast, title: "Forecast")
+                    .transition(.opacity)
+            } else {
+                AskGeneratedCardPlaceholder()
+            }
+        }
+        .task(id: run) {
+            await play()
+        }
+    }
+
+    private func play() async {
+        if reduceMotion {
+            revealFinished()
+            return
+        }
+        let start = Date()
+        composition.start(now: start)
+        let plan: [(AskCompositionPhase, TimeInterval)] = [
+            (.lookingUp, 0.45),
+            (.preparing, 0.35),
+            (.composing, 0.55)
+        ]
+        var elapsed = 0.0
+        for (phase, delay) in plan {
+            try? await Task.sleep(for: .milliseconds(Int(delay * 1000)))
+            if Task.isCancelled { return }
+            elapsed += delay
+            composition.advance(to: phase, now: start.addingTimeInterval(elapsed))
+        }
+        try? await Task.sleep(for: .milliseconds(420))
+        if Task.isCancelled { return }
+        composition.finish(now: start.addingTimeInterval(elapsed + 0.42))
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
+            revealed = true
+        }
+    }
+
+    /// The same four phases, with fixed durations, and no shimmer.
+    private func revealFinished() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        composition.start(now: start)
+        composition.advance(to: .lookingUp, now: start.addingTimeInterval(0.4))
+        composition.advance(to: .preparing, now: start.addingTimeInterval(0.9))
+        composition.advance(to: .composing, now: start.addingTimeInterval(1.3))
+        composition.finish(now: start.addingTimeInterval(1.8))
+        revealed = true
+    }
+}
+
+/// Two generated cards, one under the other, the way a follow-up stays in the thread.
+private struct AskGeneratedFollowUpStack: View {
+    private var cards: [(title: String, root: AskCardNode)] {
+        AskGeneratedCard.gallerySamples.filter { $0.title == "Next drive" || $0.title == "Steps" }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Follow-up")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Text("A follow-up adds a card under the earlier one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(cards, id: \.title) { sample in
+                AskGeneratedCardView(root: sample.root, title: sample.title)
             }
         }
     }
