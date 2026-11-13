@@ -403,7 +403,6 @@ private struct AskGeneratedCardPlayback: View {
                 Text("Generating")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
                 Spacer(minLength: 8)
                 Button("Replay") {
                     AskCue.tap()
@@ -479,7 +478,6 @@ private struct AskGeneratedFollowUpStack: View {
             Text("Follow-up")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .textCase(.uppercase)
             Text("A follow-up adds a card under the earlier one.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
