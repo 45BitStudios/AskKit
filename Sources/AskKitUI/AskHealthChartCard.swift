@@ -40,9 +40,9 @@ struct AskHealthChartCard: View {
                 symbol: AskHealthColor.symbol(for: metric),
                 tint: AskHealthColor.color(for: metric)
             )
-            AskHealthFigure(text: headline(for: range), color: AskHealthColor.color(for: metric))
+            AskHealthFigure(text: headline(for: range))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if style == .fullScreen {
+            if style == .fullScreen || inlineChart {
                 AskHealthRangeControl(metric: metric, selected: range) { item in
                     picked = item
                     ranges.select(metric: metric.key, range: item)
@@ -53,6 +53,8 @@ struct AskHealthChartCard: View {
                     snapshot: prepared?.series ?? snapshot,
                     shapes: prepared != nil
                 )
+            }
+            if style == .fullScreen {
                 AskHealthExtraLines(lines: extras)
             }
         }
@@ -77,6 +79,9 @@ struct AskHealthChartCard: View {
             reveal(loaded, range: requested)
         }
     }
+
+    /// Chat shows the range control under the total, on its own rows, plus a short chart.
+    private var inlineChart: Bool { style == .chat && !snippet.isSnippet }
 
     private func reveal(_ loaded: AskHealthSeriesSnapshot, range: AskHealthRange) {
         if reduceMotion {
@@ -122,8 +127,20 @@ private struct AskHealthRangeControl: View {
     @Namespace private var selection
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row(AskHealthRange.allCases)
+            VStack(spacing: 4) {
+                row([.day, .week])
+                row([.month, .year])
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: selected)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func row(_ ranges: [AskHealthRange]) -> some View {
         HStack(spacing: 4) {
-            ForEach(AskHealthRange.allCases, id: \.rawValue) { item in
+            ForEach(ranges, id: \.rawValue) { item in
                 AskHealthRangeButton(
                     metric: metric,
                     range: item,
@@ -135,8 +152,6 @@ private struct AskHealthRangeControl: View {
         }
         .padding(4)
         .background(.quaternary.opacity(0.65), in: Capsule())
-        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: selected)
-        .accessibilityElement(children: .contain)
     }
 }
 
@@ -193,17 +208,20 @@ private struct AskHealthRangeButton: View {
 
 private struct AskHealthFigure: View {
     var text: String
-    var color: Color
 
     @Environment(\.askSnippet) private var snippet
     @Environment(\.askCardStyle) private var style
+    @ScaledMetric(relativeTo: .largeTitle) private var fullScreenNumber = 72
 
     var body: some View {
         if let split = splitNumber {
             if snippet.isSnippet || style == .snippet {
                 snippetLine(split)
             } else if style == .fullScreen {
-                stacked(split, numberFont: .system(size: 72, weight: .semibold, design: .rounded))
+                stacked(
+                    split,
+                    numberFont: .system(size: max(fullScreenNumber, 72), weight: .semibold, design: .rounded)
+                )
             } else {
                 ViewThatFits(in: .horizontal) {
                     beside(split)
@@ -223,7 +241,7 @@ private struct AskHealthFigure: View {
     private func snippetLine(_ split: (number: String, rest: String)) -> some View {
         let number = Text(split.number)
             .font(.system(.title3, design: .rounded).weight(.semibold))
-            .foregroundStyle(color)
+            .foregroundStyle(.primary)
         let rest = Text(split.rest)
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -259,7 +277,7 @@ private struct AskHealthFigure: View {
     private func number(_ value: String, font: Font, scale: CGFloat) -> some View {
         Text(value)
             .font(font)
-            .foregroundStyle(color)
+            .foregroundStyle(.primary)
             .lineLimit(1)
             .minimumScaleFactor(scale)
             .contentTransition(.numericText())
@@ -443,8 +461,16 @@ private struct AskHealthBarChart: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.55), value: points.map(\.value))
         .healthPlotHeight(fillsPage: style.fillsPage, compact: style.chartHeight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title) for the \(range.spokenName)")
-        .accessibilityValue(headline)
+        .accessibilityLabel(chartSummary)
+    }
+
+    private var chartSummary: String {
+        AskHealthChartSummary.spoken(
+            title: title,
+            range: range.spokenName,
+            headline: headline,
+            values: points.map(\.value)
+        )
     }
 }
 
@@ -497,16 +523,41 @@ private struct AskHealthLineChart: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.55), value: points.map(\.value))
         .healthPlotHeight(fillsPage: style.fillsPage, compact: style.chartHeight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title) for the \(range.spokenName)")
-        .accessibilityValue(headline)
+        .accessibilityLabel(
+            AskHealthChartSummary.spoken(
+                title: title,
+                range: range.spokenName,
+                headline: headline,
+                values: points.map(\.value)
+            )
+        )
+    }
+}
+
+/// Chat and snippet plots stay at least `floor` tall and grow with Dynamic Type. Full screen fills the page.
+private struct AskHealthPlotHeight: ViewModifier {
+    var fillsPage: Bool
+    var floor: CGFloat
+    @ScaledMetric private var scaled: CGFloat
+
+    init(fillsPage: Bool, floor: CGFloat) {
+        self.fillsPage = fillsPage
+        self.floor = floor
+        _scaled = ScaledMetric(wrappedValue: floor, relativeTo: .body)
+    }
+
+    func body(content: Content) -> some View {
+        let height = max(scaled, floor)
+        content
+            .frame(maxWidth: .infinity, maxHeight: fillsPage ? .infinity : height)
+            .frame(height: fillsPage ? nil : height)
     }
 }
 
 private extension View {
-    /// Chat keeps a fixed plot. Full screen gives the chart whatever height the page has left.
+    /// Chat keeps a plot at least `compact` tall and grows it with Dynamic Type. Full screen fills the page.
     func healthPlotHeight(fillsPage: Bool, compact: CGFloat) -> some View {
-        frame(maxWidth: .infinity, maxHeight: fillsPage ? .infinity : compact)
-            .frame(height: fillsPage ? nil : compact)
+        modifier(AskHealthPlotHeight(fillsPage: fillsPage, floor: compact))
     }
 
     func healthAxes(range: AskHealthRange, unit: String, labelFont: Font) -> some View {
@@ -550,6 +601,10 @@ private struct AskHealthShapeChart: View {
     var title: String
     var color: Color
 
+    @ScaledMetric(relativeTo: .body) private var plot = 168
+
+    private var plotHeight: CGFloat { max(plot, 168) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Group {
@@ -559,13 +614,19 @@ private struct AskHealthShapeChart: View {
                     line
                 }
             }
-            .frame(height: 140)
+            .frame(height: plotHeight * 140 / 168)
             labels
         }
-        .frame(height: 168)
+        .frame(height: plotHeight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title) for the \(range.spokenName)")
-        .accessibilityValue(headline)
+        .accessibilityLabel(
+            AskHealthChartSummary.spoken(
+                title: title,
+                range: range.spokenName,
+                headline: headline,
+                values: points.map(\.value)
+            )
+        )
     }
 
     private var bars: some View {

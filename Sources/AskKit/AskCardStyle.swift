@@ -72,9 +72,10 @@ public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
     }
 
     /// Hero number. Rounded and a step above the title so a stat does not look like body text.
-    /// The generated card scales this with ``displayMetric`` so Dynamic Type can grow it. The point size here is the default content size.
+    /// This follows ``displayMetric``'s text style, so Dynamic Type can grow it.
+    /// Generated cards still scale the default point size through ``displayMetric``.
     public var displayFont: Font {
-        .system(size: displayMetric.base, weight: .semibold, design: .rounded)
+        .system(displayMetric.relativeTo, design: .rounded).weight(.semibold)
     }
 
     /// Default point size for the hero, and the text style it scales against.
@@ -139,8 +140,9 @@ public enum AskCardStyle: String, Equatable, Sendable, CaseIterable, Hashable {
         }
     }
 
-    /// Fixed plot height for snippet and chat. Full screen ignores this and fills the page.
-    public var chartHeight: CGFloat { 168 }
+    /// Unscaled plot height. Chat's 88 is a floor: the chart view scales it with Dynamic Type and never draws shorter.
+    /// Snippet stays at 168. Full screen ignores this and fills the page.
+    public var chartHeight: CGFloat { self == .chat ? 88 : 168 }
 
     /// The zoomed page. The tint runs to the screen edges and the plot takes the leftover height.
     public var fillsPage: Bool { self == .fullScreen }
