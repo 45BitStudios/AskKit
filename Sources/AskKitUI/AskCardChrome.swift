@@ -134,7 +134,6 @@ public struct AskCardMark: View {
 struct AskCardCTA<I: AppIntent>: View {
     var title: LocalizedStringKey
     var symbol: String
-    var tint: Color
     var intent: I
     var accessibilityLabel: Text
     /// A full-width capsule. Off for a button that sits beside a label.
@@ -146,10 +145,10 @@ struct AskCardCTA<I: AppIntent>: View {
     private static let minimumHit: CGFloat = 44
 
     @ScaledMetric(relativeTo: .body) private var glyph = 15
-    @Environment(\.tint) private var hostTint: Color?
+    @Environment(\.askAccent) private var askAccent
 
-    /// Host `.tint` wins. Otherwise the caller’s semantic system color is used.
-    private var actionTint: Color { hostTint ?? tint }
+    /// The host accent fills the action. Callers no longer supply a separate brand color.
+    private var actionTint: Color { askAccent }
 
     private var hit: CGFloat { max(Self.minimumHit, glyph + 20) }
 

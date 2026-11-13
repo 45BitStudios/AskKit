@@ -10,7 +10,17 @@ final class AskChatAppearanceTests: XCTestCase {
     func testDefaultTintStaysTheHostAccent() {
         let appearance = AskChatAppearance()
         XCTAssertEqual(appearance.tint, Color.accentColor)
+        XCTAssertEqual(appearance.accent, Color.accentColor)
+        XCTAssertEqual(appearance.accentText, Color.accentColor)
         XCTAssertNil(appearance.cardFill)
+    }
+
+    func testAccentTextDefaultsToTheAccent() {
+        let appearance = AskChatAppearance(accent: .orange)
+        XCTAssertEqual(appearance.accent, .orange)
+        XCTAssertEqual(appearance.accentText, .orange)
+        let custom = AskChatAppearance(accent: .orange, accentText: .blue)
+        XCTAssertEqual(custom.accentText, .blue)
     }
 
     func testUserForegroundPicksBlackOnALightTint() {

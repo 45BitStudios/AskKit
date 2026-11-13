@@ -16,9 +16,7 @@ public struct AskGeneratedCardView: View {
     }
 
     @Environment(\.askCardStyle) private var style
-    @Environment(\.tint) private var hostTint: Color?
-
-    private var accent: Color { hostTint ?? .accentColor }
+    @Environment(\.askAccent) private var askAccent
 
     public var body: some View {
         VStack(alignment: .leading, spacing: style.contentSpacing) {
@@ -44,7 +42,7 @@ public struct AskGeneratedCardView: View {
     }
 
     private var markTint: Color {
-        AskCardSymbol.tint(for: markSymbol == "sparkles" ? markTitle : markSymbol, accent: accent)
+        AskCardSymbol.tint(for: markSymbol == "sparkles" ? markTitle : markSymbol, accent: askAccent)
     }
 
     /// Chat keeps the hero. Full screen keeps the figures and rows. The plate and badge are the mark.
@@ -89,6 +87,7 @@ private struct AskGeneratedNodeView: View {
     var node: AskCardNode
 
     @Environment(\.askCardStyle) private var style
+    @Environment(\.askAccentText) private var askAccentText
 
     var body: some View {
         switch AskCardNodeKind.parse(node.kind) ?? .text {
@@ -109,8 +108,7 @@ private struct AskGeneratedNodeView: View {
         case .eyebrow:
             Text(node.text)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
+                .foregroundStyle(askAccentText)
                 .tracking(0.6)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -142,8 +140,7 @@ private struct AskGeneratedNodeView: View {
                 if !node.detail.isEmpty {
                     Text(node.detail)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
+                        .foregroundStyle(askAccentText)
                         .lineLimit(1)
                 }
             }
@@ -223,7 +220,7 @@ private struct AskGeneratedNodeRow: View {
 private struct AskGeneratedPlate: View {
     var name: String
     @ScaledMetric var size: CGFloat
-    @Environment(\.tint) private var hostTint: Color?
+    @Environment(\.askAccent) private var askAccent
 
     init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
         self.name = name
@@ -231,7 +228,7 @@ private struct AskGeneratedPlate: View {
     }
 
     var body: some View {
-        let tint = AskCardSymbol.tint(for: name, accent: hostTint ?? .accentColor)
+        let tint = AskCardSymbol.tint(for: name, accent: askAccent)
         RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
             .fill(
                 LinearGradient(
@@ -256,7 +253,7 @@ private struct AskGeneratedPlate: View {
 private struct AskGeneratedGlyph: View {
     var name: String
     @ScaledMetric var size: CGFloat
-    @Environment(\.tint) private var hostTint: Color?
+    @Environment(\.askAccent) private var askAccent
 
     init(name: String, base: CGFloat, relativeTo: Font.TextStyle) {
         self.name = name
@@ -267,8 +264,8 @@ private struct AskGeneratedGlyph: View {
         Image(systemName: name)
             .symbolRenderingMode(.palette)
             .foregroundStyle(
-                AskGeneratedGlyphInk.primary(name, accent: hostTint ?? .accentColor),
-                AskGeneratedGlyphInk.secondary(name, accent: hostTint ?? .accentColor)
+                AskGeneratedGlyphInk.primary(name, accent: askAccent),
+                AskGeneratedGlyphInk.secondary(name, accent: askAccent)
             )
             .font(.system(size: size))
             .accessibilityHidden(true)

@@ -11,6 +11,10 @@ public struct AskChatAppearance {
     /// Shown in the toolbar. `nil` uses the assistant name.
     public var title: String?
     public var tint: Color
+    /// Card fills, glyphs, and actions. Defaults to the system accent.
+    public var accent: Color
+    /// Accent-colored text in cards. Defaults to ``accent``.
+    public var accentText: Color
     /// Toolbar mark. The empty thread uses this unless `emptyLogo` is set.
     public var logo: AskChatLogo
     /// Empty-thread mark when `logo` is `.none`.
@@ -38,6 +42,8 @@ public struct AskChatAppearance {
     public init(
         title: String? = nil,
         tint: Color = .accentColor,
+        accent: Color = .accentColor,
+        accentText: Color? = nil,
         logo: AskChatLogo = .symbol("sparkles"),
         composerSymbol: String = "sparkles",
         userBubble: Color? = nil,
@@ -55,6 +61,8 @@ public struct AskChatAppearance {
     ) {
         self.title = title
         self.tint = tint
+        self.accent = accent
+        self.accentText = accentText ?? accent
         self.logo = logo
         self.composerSymbol = composerSymbol
         self.userBubble = userBubble ?? tint

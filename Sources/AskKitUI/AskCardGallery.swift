@@ -378,7 +378,6 @@ enum AskCardSamples {
                     Text(sample.title)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
                     AskGeneratedCardView(root: sample.root)
                 }
             }
@@ -410,7 +409,6 @@ private struct AskCardPresentationGallerySection: View {
                         Text(style.rawValue)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
                         AskAppleFactCard(
                             title: "Charge",
                             value: "68 percent",

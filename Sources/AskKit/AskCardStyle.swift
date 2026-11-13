@@ -161,6 +161,10 @@ extension EnvironmentValues {
     /// Fill of a card tile. Defaults to the bubble fill so dark mode and a host bubble stay on the card.
     /// Set ``AskChatAppearance/cardFill`` or this environment value to use ``AskPlatform/cardFill`` instead.
     @Entry public var askCardFill: Color = AskPlatform.bubbleFill
+    /// Host accent for card fills, glyphs, and actions. The chat sets this from ``AskChatAppearance/accent``.
+    @Entry public var askAccent: Color = .accentColor
+    /// Host accent for accent-colored text in cards. The chat sets this from ``AskChatAppearance/accentText``.
+    @Entry public var askAccentText: Color = .accentColor
 }
 
 package enum AskCardSymbol {
