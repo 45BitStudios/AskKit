@@ -9,22 +9,27 @@ struct AskCardToolkitScreen: View {
     let assistant: AskAssistant
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scenario = ""
     @State private var title = ""
     @State private var spoken = ""
     @State private var layoutNotes = ""
     @State private var buttonTitle = ""
+    @State private var followUp = ""
     @State private var presetID = ""
     @State private var style = AskCardStyle.chat
-    @State private var result: AskComposedCard?
+    @State private var thread = AskGeneratedThread()
     @State private var isComposing = false
     @State private var task: Task<Void, Never>?
+    @State private var composeGeneration = 0
+    private let composition = AskCompositionProgress.shared
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text("Write the facts, then create the card. The model lays it out. The line under the card says whether that worked.")
+                    Text("Write the facts, then create the card. A follow-up adds another card below it. Earlier cards stay.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -41,12 +46,44 @@ struct AskCardToolkitScreen: View {
                     }
                     scenarioField
                     details
-                    if let result {
-                        AskCardToolkitResult(result: result, style: $style)
+                    ForEach(Array(thread.entries.enumerated()), id: \.element.id) { index, entry in
+                        VStack(alignment: .leading, spacing: 8) {
+                            if thread.entries.count > 1 {
+                                Text(entry.question)
+                                    .font(.headline)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                            AskCardToolkitResult(
+                                result: entry.card,
+                                style: $style,
+                                showsStylePicker: index == 0
+                            )
+                        }
+                        .id(entry.id)
+                    }
+                    if isComposing {
+                        if composition.isRunning {
+                            AskCompositionProgressView(snapshot: composition.snapshot)
+                        }
+                        AskGeneratedCardPlaceholder()
+                            .environment(\.askCardStyle, style)
+                            .id("card-loading")
+                    }
+                    if !thread.entries.isEmpty {
+                        followUpField
                     }
                 }
                 .padding(20)
                 .padding(.bottom, 12)
+            }
+            .onChange(of: thread.entries.last?.id) { _, id in
+                guard let id else { return }
+                scroll(proxy, to: id)
+            }
+            .onChange(of: isComposing) { _, composing in
+                guard composing else { return }
+                scroll(proxy, to: "card-loading")
+            }
             }
             .navigationTitle("Card toolkit")
             .askLargeTitle()
@@ -120,6 +157,26 @@ struct AskCardToolkitScreen: View {
         }
     }
 
+    private var followUpField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Follow-up")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            TextField("Ask about this card", text: $followUp)
+                .askRoundedField()
+            Button {
+                AskCue.tap()
+                addFollowUp()
+            } label: {
+                Text("Add card")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isComposing || followUp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Add a follow-up card")
+        }
+    }
+
     private var createButton: some View {
         Button {
             AskCue.tap()
@@ -160,12 +217,53 @@ struct AskCardToolkitScreen: View {
         )
         guard !blueprint.facts.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         task?.cancel()
+        composeGeneration += 1
+        let generation = composeGeneration
+        thread = AskGeneratedThread()
+        followUp = ""
         isComposing = true
         task = Task {
             let composed = await assistant.composeCard(from: blueprint)
-            guard !Task.isCancelled else { return }
-            result = composed
+            guard generation == composeGeneration, !Task.isCancelled else { return }
+            thread.append(question: blueprint.title, card: composed)
             isComposing = false
+        }
+    }
+
+    private func addFollowUp() {
+        let question = followUp.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, !thread.entries.isEmpty else { return }
+        let blueprint = AskCardToolkitExample.blueprint(
+            title: "",
+            spoken: "",
+            facts: question,
+            notes: layoutNotes,
+            button: ""
+        )
+        followUp = ""
+        task?.cancel()
+        composeGeneration += 1
+        let generation = composeGeneration
+        isComposing = true
+        let current = thread
+        task = Task {
+            let next = await assistant.appendCard(question, from: blueprint, to: current)
+            guard generation == composeGeneration, !Task.isCancelled else { return }
+            thread = next
+            isComposing = false
+        }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy, to id: some Hashable) {
+        let animated = !reduceMotion
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    proxy.scrollTo(id, anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo(id, anchor: .bottom)
+            }
         }
     }
 }
@@ -243,12 +341,14 @@ private struct AskCardToolkitPresets: View {
 private struct AskCardToolkitResult: View {
     var result: AskComposedCard
     @Binding var style: AskCardStyle
+    var showsStylePicker = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(result.layout.sentence)
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
+            if showsStylePicker {
             Picker("Preview", selection: $style) {
                 Text("Chat").tag(AskCardStyle.chat)
                 Text("Snippet").tag(AskCardStyle.snippet)
@@ -258,6 +358,7 @@ private struct AskCardToolkitResult: View {
 #else
             .pickerStyle(.segmented)
 #endif
+            }
             result.card.view
                 .environment(\.askCardStyle, style)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -285,9 +386,12 @@ struct AskCardToolkitExample: Identifiable {
     var facts: String
     var notes: String
     var button: String
+    var sources: [AskCardSource] = []
 
     var blueprint: AskGeneratedBlueprint {
-        Self.blueprint(title: title, spoken: spoken, facts: facts, notes: notes, button: button)
+        var blueprint = Self.blueprint(title: title, spoken: spoken, facts: facts, notes: notes, button: button)
+        blueprint.sources = sources
+        return blueprint
     }
 
     static func blueprint(
@@ -330,7 +434,8 @@ struct AskCardToolkitExample: Identifiable {
             spoken: "Your next drive is at 7:30 a.m.",
             facts: "7:30 a.m.\nNext drive\nFrom the calendar · about 214 miles",
             notes: "Plate car.fill, eyebrow Next drive, then a display stat for the time. Badge Trip. One row for the miles.",
-            button: "Trip"
+            button: "Trip",
+            sources: [AskCardSource(name: "Calendar")]
         ),
         AskCardToolkitExample(
             title: "Battery",
@@ -351,21 +456,24 @@ struct AskCardToolkitExample: Identifiable {
             spoken: "Friday has three events.",
             facts: "27\nFriday\n11:00 AM Kick-off\n12:00 PM Lunch\n1:00 PM Pack",
             notes: "Plate calendar, eyebrow Friday, display stat for the day. Badge Calendar. Each event is a mini clock symbol beside a row.",
-            button: "Calendar"
+            button: "Calendar",
+            sources: [AskCardSource(name: "Calendar")]
         ),
         AskCardToolkitExample(
             title: "Forecast",
             spoken: "It is 72 degrees and partly cloudy.",
             facts: "72°\nPartly cloudy\nHigh 78°\nLow 61°\n9 AM 70°\n12 PM 74°\n3 PM 76°\n6 PM 71°",
             notes: "Hero symbol cloud.sun.fill, eyebrow Partly cloudy, display stat for 72°. Badge Weather. Figures for High and Low. Each hour is a mini symbol above a figure.",
-            button: "Weather"
+            button: "Weather",
+            sources: [AskCardSource(name: "Weather", url: URL(string: "https://weather.example/today"))]
         ),
         AskCardToolkitExample(
             title: "Steps",
             spoken: "You have walked 8,420 steps.",
             facts: "8,420 steps\nDistance 3.2 mi\nFlights 12\nExercise 24 min",
             notes: "Plate figure.walk, eyebrow Today, display stat for the steps. Badge Steps. Each peer figure gets a mini symbol above it. No chart.",
-            button: "Activity"
+            button: "Activity",
+            sources: [AskCardSource(name: "Health")]
         ),
         AskCardToolkitExample(
             title: "Reminders",

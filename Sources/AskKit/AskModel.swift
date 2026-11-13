@@ -201,6 +201,8 @@ enum AskProfileHooks {
 
     static func toolCall(_ activity: AskProfileActivity, toolName: String) async {
         AskTrace.event("tool call \(toolName)")
+        // Search on the composition checklist. AskChatActivity.show repeats this once the status line updates.
+        await AskCompositionProgress.shared.note(chat: .tool)
         guard case .specialist(_, let title, _) = activity else { return }
         let name = title.isEmpty ? "the tool" : title
         await AskChatActivity.show("Reading \(name)", detail: title, phase: .tool)

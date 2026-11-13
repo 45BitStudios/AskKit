@@ -161,6 +161,10 @@ extension EnvironmentValues {
     /// Fill of a card tile. Defaults to the bubble fill so dark mode and a host bubble stay on the card.
     /// Set ``AskChatAppearance/cardFill`` or this environment value to use ``AskPlatform/cardFill`` instead.
     @Entry public var askCardFill: Color = AskPlatform.bubbleFill
+    /// Host tint for card fills, glyphs, and actions.
+    /// Nil uses ``Color/accentColor``. ``AskChatView`` sets this from ``AskChatAppearance/tint``.
+    /// A host that draws cards outside the chat can set `.environment(\.askTint, color)`.
+    @Entry public var askTint: Color? = nil
 }
 
 package enum AskCardSymbol {
