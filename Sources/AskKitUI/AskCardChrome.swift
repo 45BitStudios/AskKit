@@ -145,10 +145,10 @@ struct AskCardCTA<I: AppIntent>: View {
     private static let minimumHit: CGFloat = 44
 
     @ScaledMetric(relativeTo: .body) private var glyph = 15
-    @Environment(\.askAccent) private var askAccent
+    @Environment(\.askTint) private var askTint
 
-    /// The host accent fills the action. Callers no longer supply a separate brand color.
-    private var actionTint: Color { askAccent }
+    /// The host tint fills the action. Nil uses the system accent.
+    private var actionTint: Color { askTint ?? .accentColor }
 
     private var hit: CGFloat { max(Self.minimumHit, glyph + 20) }
 
