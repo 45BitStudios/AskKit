@@ -29,6 +29,8 @@ let package = Package(
     products: [
         /// The assistant: skills, routing, Apple sources, storage, and traces. No views.
         .library(name: "AskKit", targets: ["AskKit"]),
+        /// Library flags read from a host `ConfigReader`. No views.
+        .library(name: "AskKitConfiguration", targets: ["AskKitConfiguration"]),
         /// The chat, the built-in cards, the card gallery, and the trace viewer.
         .library(name: "AskKitUI", targets: ["AskKitUI"]),
         /// App Intents: Ask, the answer snippet, entity cards, and the intents the cards' buttons run.
@@ -37,7 +39,9 @@ let package = Package(
         .library(name: "AskKitSurface", targets: ["AskKitSurface"])
     ],
     dependencies: [
-        .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0")
+        .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0"),
+        // Default JSON trait only. Reloading, Logging, YAML, command-line, and property list stay off.
+        .package(url: "https://github.com/apple/swift-configuration", from: "1.5.0")
     ],
     targets: [
         .target(
@@ -78,9 +82,16 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .target(
+            name: "AskKitConfiguration",
+            dependencies: [
+                .product(name: "Configuration", package: "swift-configuration")
+            ]
+        ),
+        .target(
             name: "AskKit",
             dependencies: [
                 "AskKitSurface",
+                "AskKitConfiguration",
                 "PhotoQueryKit",
                 .target(name: "AskContactsChangeHistory", condition: .when(platforms: [.iOS, .macOS, .macCatalyst, .watchOS, .visionOS]))
             ],
@@ -100,6 +111,7 @@ let package = Package(
             name: "AskKitUI",
             dependencies: [
                 "AskKit",
+                "AskKitConfiguration",
                 "AskKitIntents",
                 "AskKitSurface",
                 "VoiceGlowKit",
@@ -113,6 +125,13 @@ let package = Package(
             name: "AskKitTests",
             dependencies: ["AskKit", "AskKitUI", "AskKitIntents", "AskKitSurface", "PhotoQueryKit"],
             swiftSettings: foundationModels + entitySnippets
+        ),
+        .testTarget(
+            name: "AskKitConfigurationTests",
+            dependencies: [
+                "AskKitConfiguration",
+                .product(name: "Configuration", package: "swift-configuration")
+            ]
         ),
         .testTarget(name: "AskKitEvaluations", dependencies: ["AskKit"], swiftSettings: foundationModels)
     ],
